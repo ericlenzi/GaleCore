@@ -1,0 +1,60 @@
+{
+  "_meta": {
+    "inherits": "galecore_rules.core.v4.3.0.json",
+    "version": "4.3.0",
+    "profile": "live",
+    "last_updated": "2026-04-16",
+    "description": "Overlay live v4.3.0. Ejecución estricta, riesgo de cola minimizado. Hereda los 3 cambios de v4.3.0 del core (Z-Score, roll slippage fijo, eliminación de strike touch)."
+  },
+  "environment": {
+    "paper_trading": false,
+    "live_trading": true
+  },
+  "risk_limits": {
+    "risk_per_trade_pct_net_liq_max": 0.01,
+    "max_simultaneous_positions": 2,
+    "portfolio_heat_pct_net_liq_max": 0.03
+  },
+  "execution": {
+    "avoid_first_minutes_open": 30,
+    "avoid_last_minutes_close": 20,
+    "partial_fill_policy": {
+      "max_unresolved_seconds": 20,
+      "escalate_manual_intervention_after_seconds": 45,
+      "if_manual_unavailable_continue_flatten_until_flat": true
+    },
+    "slippage": {
+      "new_entries": {
+        "max_total_cost_pct_of_expected_credit": 0.08
+      },
+      "defensive_rolls": {
+        "method": "fixed_per_leg_dollars",
+        "max_friction_per_leg": 0.04,
+        "total_max_friction_4_legs": 0.16,
+        "rationale": "v4.3.0 live: stricter per-leg cap than core ($0.04 vs $0.05) reflecting tighter live execution requirements."
+      }
+    }
+  },
+  "trade_management": {
+    "daily_kill_switch": {
+      "daily_portfolio_mtm_loss_pct_net_liq_max": 0.01,
+      "action": "block_new_entries_for_rest_of_session"
+    },
+    "hard_defense": {
+      "trigger_any": {
+        "short_leg_delta_abs_gt": 0.28,
+        "unrealized_loss_pct_of_initial_credit_gte": 2.0,
+        "_note_v430": "short_strike_touch removed in v4.3.0. Live profile uses tighter delta trigger (0.28 vs core 0.30)."
+      }
+    },
+    "defensive_roll": {
+      "min_dte_remaining": 22,
+      "min_net_credit_for_roll": 0.25,
+      "slippage_rule": "see execution.slippage.defensive_rolls"
+    }
+  },
+  "monitoring": {
+    "review_frequency_minutes": 15,
+    "raise_critical_alert_on_cleanup_failure": true
+  }
+}

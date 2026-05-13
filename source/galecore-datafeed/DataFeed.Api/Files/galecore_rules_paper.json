@@ -1,0 +1,55 @@
+{
+  "_meta": {
+    "inherits": "galecore_rules.core.v4.3.0.json",
+    "version": "4.3.0",
+    "profile": "paper",
+    "last_updated": "2026-04-16",
+    "description": "Overlay paper v4.3.0. Evaluación del edge con fricción simulada. Hereda los 3 cambios de v4.3.0 del core. Slippage de rolls más permisivo para tolerar peores fills en paper."
+  },
+  "environment": {
+    "paper_trading": true,
+    "live_trading": false
+  },
+  "risk_limits": {
+    "risk_per_trade_pct_net_liq_max": 0.01,
+    "max_simultaneous_positions": 2,
+    "portfolio_heat_pct_net_liq_max": 0.03
+  },
+  "execution": {
+    "avoid_first_minutes_open": 20,
+    "avoid_last_minutes_close": 20,
+    "partial_fill_policy": {
+      "max_unresolved_seconds": 25,
+      "escalate_manual_intervention_after_seconds": 90
+    },
+    "slippage": {
+      "new_entries": {
+        "max_total_cost_pct_of_expected_credit": 0.12
+      },
+      "defensive_rolls": {
+        "method": "fixed_per_leg_dollars",
+        "max_friction_per_leg": 0.08,
+        "total_max_friction_4_legs": 0.32,
+        "rationale": "v4.3.0 paper: deliberately more permissive ($0.08/leg) to simulate realistic adverse fill conditions in paper trading and stress-test the roll logic."
+      }
+    }
+  },
+  "trade_management": {
+    "daily_kill_switch": {
+      "daily_portfolio_mtm_loss_pct_net_liq_max": 0.01,
+      "action": "block_new_entries_for_rest_of_session"
+    },
+    "hard_defense": {
+      "trigger_any": {
+        "short_leg_delta_abs_gt": 0.30,
+        "unrealized_loss_pct_of_initial_credit_gte": 2.0,
+        "_note_v430": "short_strike_touch removed in v4.3.0 across all profiles."
+      }
+    }
+  },
+  "monitoring": {
+    "store_intraday_decision_log": true,
+    "store_fill_simulation_details": true,
+    "review_frequency_minutes": 30
+  }
+}

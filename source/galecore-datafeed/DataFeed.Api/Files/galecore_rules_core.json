@@ -1,0 +1,268 @@
+{
+  "_meta": {
+    "version": "4.3.0",
+    "strategy": "gale_core_gamma_premium",
+    "profile": "core",
+    "last_updated": "2026-04-16",
+    "description": "v4.3.0: (1) Filtro direccional reemplazado por Z-Score de IV; (2) slippage de rolls separado con límite fijo por leg; (3) eliminación del gatillo de toque físico del short strike en hard_defense."
+  },
+  "principles": {
+    "cash_is_a_position": true,
+    "execution_quality_over_frequency": true,
+    "survival_over_trade_count": true,
+    "defined_risk_only": true,
+    "no_binary_macro_risk": true
+  },
+  "strategy_scope": {
+    "allowed_strategies": ["iron_condor", "put_credit_spread", "call_credit_spread"],
+    "forbidden_strategies": ["naked_short_put", "naked_short_call", "ratio_spread"],
+    "default_structure": "iron_condor",
+    "structure_selection": {
+      "method": "iv_zscore_directional_v430",
+      "formula": "Z = Retorno_5d / (IV_ATM / sqrt(252))",
+      "thresholds": {
+        "neutral_band_abs_lte": 1.2,
+        "neutral_band_action": "iron_condor",
+        "bullish_gt": 1.2,
+        "bullish_action": "put_credit_spread",
+        "bearish_lt": -1.2,
+        "bearish_action": "call_credit_spread"
+      },
+      "removed_in_v430": "3-day EMA trend signal (trend > 0.3 / trend < -0.3). Replaced entirely by Z-Score."
+    }
+  },
+  "universe": {
+    "mode": "whitelist",
+    "tickers": ["SPY", "QQQ", "GLD"],
+    "min_avg_daily_volume_underlying": 5000000
+  },
+  "data_quality": {
+    "max_quote_age_seconds": 15,
+    "max_structural_levels_age_minutes": 15,
+    "block_on_crossed_market": true,
+    "block_on_missing_critical_data": true
+  },
+  "precheck": {
+    "stress_canary": {
+      "indicator": "jpy_usd_exchange",
+      "window_days": 5,
+      "max_abs_change_pct": 2.5,
+      "action_on_fail": "block_new_entries"
+    }
+  },
+  "definitions": {
+    "iv_rank": {
+      "formula": "((iv_current - iv_min_252) / (iv_max_252 - iv_min_252)) * 100",
+      "source": "30d_continuous_atm_iv",
+      "lookback_trading_sessions": 252
+    },
+    "expected_move": {
+      "formula": "spot * iv_atm * sqrt(dte / 365)",
+      "iv_source": "atm_iv_of_specific_expiration_cycle",
+      "rounding_rule": "calculate_exact_then_round_to_nearest_tradeable_strike"
+    },
+    "directional_zscore": {
+      "formula": "ret_5d / (iv_atm / sqrt(252))",
+      "ret_5d_definition": "cumulative_log_return_last_5_trading_sessions",
+      "iv_atm_definition": "atm_iv_30d_annualised",
+      "interpretation": "Normalises observed 5-day return by the implied daily σ. |Z| <= 1.2 = noise/neutral; Z > 1.2 = statistically significant uptrend; Z < -1.2 = significant downtrend."
+    },
+    "gex_total": {
+      "formula": "sum(open_interest * gamma * 100)",
+      "included_expirations_rule": "all_standard_and_weekly_with_dte_lt_90",
+      "unit": "billions_usd",
+      "refresh_minutes": 15
+    },
+    "zero_gamma_level": {
+      "definition": "strike_where_cumulative_net_gex_crosses_zero",
+      "refresh_minutes": 15
+    },
+    "walls": {
+      "definition": "strike_with_most_relevant_absolute_net_gamma_open_interest_filtered_by_dte_lt_90"
+    },
+    "pop_proxy": {
+      "formula": "(1 - (net_credit / width)) * 100"
+    },
+    "slippage_entry": {
+      "formula": "(estimated_mid_price - real_fill_price + fees) / estimated_mid_price",
+      "reference_capture_point": "when_entry_signal_is_validated_before_order_routing"
+    },
+    "slippage_roll": {
+      "method": "fixed_per_leg_dollars",
+      "rationale": "Percentage-of-credit slippage is mathematically inviable for rolls: a roll targeting $0.20 net credit with a 10% limit allows only $0.02 of friction, causing virtually all orders to bounce. A fixed per-leg cap is operationally sound.",
+      "removed_in_v430": "max_total_cost_pct_of_expected_credit applied to defensive_rolls"
+    },
+    "loss_and_heat": {
+      "daily_loss": "intraday_realized_pnl + unrealized_mark_to_market_vs_previous_close_net_liq",
+      "portfolio_heat": "sum((width - credit) * 100 * contracts)"
+    }
+  },
+  "macro_gamma_regime": {
+    //"entry_mode": "hard_block",
+    "vix_structure": {
+      "term_structure_rule": "vix9d_lt_vix3m",
+      "max_vix_absolute": 30.0
+    },
+    "iv_rank": {
+      "min": 25,
+      "max": 65,
+      "lookback_days": 252
+    },
+    "iv_momentum": {
+      "enabled": true,
+      "metric": "iv30_atm_roc_pct",
+      "check_window_days": 3,
+      "max_value_pct": 15.0,
+      "action_on_fail": "wait_for_stabilization"
+    },
+    "gex_total": {
+      "mode": "symbol_specific_thresholds",
+      "symbol_rules": {
+        "SPY": { "metric": "absolute_billion_usd_spx_plus_spy_aggregate", "min_value": 100 },
+        "QQQ": { "metric": "historical_percentile_6m", "min_value": 60 },
+        "GLD": { "metric": "historical_percentile_6m", "min_value": 60 }
+      }
+    },
+    "spot_vs_zero_gamma": {
+      "rule": "spot_gte_zgl_plus_buffer",
+      "buffer_pct": 0.005
+    }
+    //"regime_persistence": {
+    //  "min_consecutive_closes_above_zgl": 2
+    //},
+    //"macro_event_buffer": {
+    //  "units": "trading_sessions",
+    //  "fomc_block_before": 3,
+    //  "cpi_block_before": 2,
+    //  "nfp_block_before": 2,
+    //  "action_on_existing_positions": "close_all_positions_before_window_starts"
+    //}
+  },
+  "trade_construction": {
+    "entry_dte": { "min": 35, "max": 45, "ideal": 45 },
+    "expiration_preference": {
+      "primary_target": "monthly_regular",
+      "allow_weeklies": true,
+      "weekly_condition": "only_if_monthly_outside_dte_and_liquidity_met"
+    },
+    "spread_width": {
+      "symbol_overrides": { "SPY": 10, "QQQ": 10, "GLD": 5 }
+    },
+    "strike_selection": {
+      "base_method": "spot_plus_minus_expected_move",
+      "short_delta_abs_max": 0.16,
+      "short_strikes_must_remain_outside_walls": true,
+      "min_short_strike_offset_points": { "SPY": 10, "QQQ": 10, "GLD": 5 }
+    },
+    "directional_structure_selection": {
+      "method": "iv_zscore",
+      "zscore_neutral_band": [-1.2, 1.2],
+      "zscore_bullish_gt": 1.2,
+      "zscore_bearish_lt": -1.2
+    },
+    "asymmetry_handling": {
+      "enabled": true,
+      "distance_ratio_threshold": 2.5,
+      "require_absolute_distance_check": true,
+      "absolute_distance_min": { "SPY": 10, "QQQ": 10, "GLD": 5 },
+      "action_on_trigger": "switch_to_one_sided_credit_spread"
+    },
+    "premium_capture": {
+      "tiers_by_iv_rank": [
+        { "iv_rank_max": 35,  "min_credit_width_ratio": 0.10 },
+        { "iv_rank_min": 36, "iv_rank_max": 50, "min_credit_width_ratio": 0.12 },
+        { "iv_rank_min": 51, "min_credit_width_ratio": 0.15 }
+      ]
+    },
+    "liquidity": {
+      "short_leg_open_interest_min": 2000,
+      "long_leg_open_interest_min": 500,
+      "bid_ask_spread_max_pct_of_mid": 0.05
+    }
+  },
+  "risk_limits": {
+    "risk_per_trade_pct_net_liq_max": 0.015,
+    "max_simultaneous_positions": 3,
+    "portfolio_heat_pct_net_liq_max": 0.045
+  },
+  "execution": {
+    "submit_multileg_as_complex_order": true,
+    "avoid_first_minutes_open": 20,
+    "avoid_last_minutes_close": 20,
+    "partial_fill_policy": {
+      "max_unresolved_seconds": 20,
+      "cleanup_method": "aggressive_limit_ladder",
+      "block_new_entries_until_resolved": true,
+      "raise_critical_alert_on_cleanup_failure": true,
+      "if_manual_unavailable_continue_flatten_until_flat": true
+    },
+    "forced_exit_policy": {
+      "applies_to": ["macro_event_binary_avoidance", "operational_contingency_cleanup", "hard_risk_emergency"],
+      "method": "marketable_limit_ladder",
+      "ignore_entry_slippage_limits": true,
+      "override_standard_entry_time_windows": true
+    },
+    "slippage": {
+      "new_entries": {
+        "max_total_cost_pct_of_expected_credit": 0.10
+      },
+      "defensive_rolls": {
+        "method": "fixed_per_leg_dollars",
+        "max_friction_per_leg": 0.05,
+        "total_max_friction_4_legs": 0.20,
+        "rationale": "v4.3.0: Fixed per-leg cap replaces percentage-of-credit limit which was mathematically inviable for rolls with minimal net credit targets."
+      }
+    }
+  },
+  "trade_management": {
+    "evaluation_priority": [
+      "operational_contingency",
+      "macro_event_binary_avoidance",
+      "daily_kill_switch",
+      "take_profit",
+      "structural_support_loss",
+      "hard_defense",
+      "defensive_roll",
+      "time_exit"
+    ],
+    "daily_kill_switch": {
+      "daily_portfolio_mtm_loss_pct_net_liq_max": 0.015,
+      "action": "block_new_entries_for_rest_of_session"
+    },
+    "take_profit": {
+      "pct_of_initial_credit": 0.5,
+      "action": "close_position"
+    },
+    "macro_event_binary_avoidance": {
+      "trigger": "entered_macro_event_buffer_window",
+      "action": "close_position_before_window_starts"
+    },
+    "structural_support_loss": {
+      "trigger": "relevant_wall_moves_inside_short_strike",
+      "confirm_consecutive_recalculations": 2,
+      "action": "close_position"
+    },
+    "hard_defense": {
+      "trigger_any": {
+        "short_leg_delta_abs_gt": 0.30,
+        "unrealized_loss_pct_of_initial_credit_gte": 2.0,
+        "_removed_v430_short_strike_touch": "REMOVED. Intraday wicks perforate strikes for microseconds. Risk is fully captured by delta and PnL metrics. Firing a market order at the volatility peak guarantees the worst possible exit."
+      },
+      "action": "evaluate_immediate_risk_reduction"
+    },
+    "defensive_roll": {
+      "trigger_unrealized_loss_pct_of_initial_credit_gte": 1.0,
+      "min_dte_remaining": 22,
+      "min_net_credit_for_roll": 0.20,
+      "max_rolls_per_position": 1,
+      "slippage_rule": "see execution.slippage.defensive_rolls"
+    },
+    "time_exit": {
+      "dte_threshold": 21,
+      "action": "close_position"
+    }
+  },
+  "monitoring": {
+    "review_frequency_minutes": 30
+  }
+}

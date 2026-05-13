@@ -22,3 +22,11 @@ node_modules/
 dist/
 build/
 out/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+publish/
