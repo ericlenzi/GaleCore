@@ -14,7 +14,7 @@ interface RulesStore {
 export const useRulesStore = create<RulesStore>((set) => ({
   rules: null,
   tickers: [],
-  loading: false,
+  loading: true,
   error: null,
 
   setRules: (r) => set({ rules: r, tickers: r.universe?.tickers ?? [], error: null }),

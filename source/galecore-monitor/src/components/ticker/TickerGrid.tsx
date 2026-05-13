@@ -52,7 +52,7 @@ function deriveLayerStatus(
 }
 
 export function TickerGrid({ selectedSymbol, onSelect }: Props) {
-  const { tickers: symbols = [], rules } = useRulesStore();
+  const { tickers: symbols = [], rules, loading: rulesLoading, error: rulesError } = useRulesStore();
   const ivRankMin   = rules?.options_filters?.iv_rank?.min ?? 25;
   const ivRankMax   = rules?.options_filters?.iv_rank?.max ?? 65;
   const marketStore = useMarketStore();
@@ -137,10 +137,26 @@ export function TickerGrid({ selectedSymbol, onSelect }: Props) {
     return () => clearTimeout(timer);
   }, [symbols.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!symbols.length) {
+  if (rulesLoading) {
     return (
       <div className="p-4 text-xs" style={{ color: 'var(--text-muted)' }}>
         Cargando tickers…
+      </div>
+    );
+  }
+
+  if (rulesError) {
+    return (
+      <div className="p-4 text-xs" style={{ color: 'var(--red-gc)' }}>
+        Error cargando reglas: {rulesError}
+      </div>
+    );
+  }
+
+  if (!symbols.length) {
+    return (
+      <div className="p-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+        No hay tickers configurados
       </div>
     );
   }

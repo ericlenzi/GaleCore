@@ -98,7 +98,6 @@
     }
   },
   "macro_gamma_regime": {
-    //"entry_mode": "hard_block",
     "vix_structure": {
       "term_structure_rule": "vix9d_lt_vix3m",
       "max_vix_absolute": 30.0
@@ -127,16 +126,6 @@
       "rule": "spot_gte_zgl_plus_buffer",
       "buffer_pct": 0.005
     }
-    //"regime_persistence": {
-    //  "min_consecutive_closes_above_zgl": 2
-    //},
-    //"macro_event_buffer": {
-    //  "units": "trading_sessions",
-    //  "fomc_block_before": 3,
-    //  "cpi_block_before": 2,
-    //  "nfp_block_before": 2,
-    //  "action_on_existing_positions": "close_all_positions_before_window_starts"
-    //}
   },
   "trade_construction": {
     "entry_dte": { "min": 35, "max": 45, "ideal": 45 },
