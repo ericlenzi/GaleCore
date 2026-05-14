@@ -3,10 +3,9 @@ import { X, RefreshCw } from 'lucide-react';
 import { GexChart } from '../chart/GexChart';
 import { ValidationLayers } from '../validation/ValidationLayers';
 import { useMarketStore } from '../../store/useMarketStore';
-import { useAccountStore } from '../../store/useAccountStore';
 import { useRulesStore } from '../../store/useRulesStore';
-import { fetchGammaExposure } from '../../api/analytics';
-import { GammaExposureResponse } from '../../types/api';
+import { fetchGammaExposure, fetchValidationLayer } from '../../api/analytics';
+import { GammaExposureResponse, ValidationLayerApiResponse } from '../../types/api';
 import { fmtTime, isStale } from '../../utils/formatters';
 import { LayerStatus, SignalType } from '../../types/market';
 
@@ -15,95 +14,81 @@ interface Props {
   onClose: () => void;
 }
 
-function deriveLayersWithGex(
-  symbol: string,
-  gexData: GammaExposureResponse | null,
-  ivRankMin: number,
-  ivRankMax: number,
-  gexMinB: number,
-  dteDays: number,
-): LayerStatus {
-  const t = useMarketStore.getState().tickers[symbol];
-  const ivRankOk   = t?.ivRank != null ? t.ivRank >= ivRankMin && t.ivRank <= ivRankMax : null;
-  const gexValue   = gexData ? gexData.netGex : null;
-  const gexOk      = gexValue != null ? gexValue >= gexMinB : null;
-  const spotAboveZgl = gexData && t?.price ? t.price > gexData.zeroGammaLevel : null;
+function mapValidationToLayers(v: ValidationLayerApiResponse): LayerStatus {
+  const l1 = v.layer1;
+  const l2 = v.layer2;
+  const l3 = v.layer3;
 
-  let passCount = 0, totalDefined = 0;
-  [ivRankOk, gexOk, spotAboveZgl].forEach(v => {
-    if (v !== null) { totalDefined++; if (v) passCount++; }
-  });
-
-  const signal: SignalType =
-    totalDefined === 0          ? 'NO OPERAR' :
-    passCount === totalDefined  ? 'OPERAR'    :
-    passCount >= Math.ceil(totalDefined / 2) ? 'ESPERAR' :
-                                  'NO OPERAR';
-
-  const rawIv = dteDays <= 15
-    ? (t?.iv9d ?? t?.iv30 ?? 0)
-    : dteDays <= 60
-      ? (t?.iv30 ?? 0)
-      : (t?.iv3m ?? t?.iv30 ?? 0);
-  const iv = rawIv > 0 ? rawIv / 100 : 0;
-  const expectedMove = t?.price && iv ? t.price * iv * Math.sqrt(dteDays / 365) : null;
-
-  let atmStrike = null, atmCallOI = null, atmPutOI = null, atmCallDelta = null, atmPutDelta = null;
-  if (gexData?.strikes?.length && t?.price) {
-    const atm = gexData.strikes.reduce((prev, curr) =>
-      Math.abs(curr.strike - t.price) < Math.abs(prev.strike - t.price) ? curr : prev
-    );
-    atmStrike    = atm.strike;
-    atmCallOI    = atm.callOI    ?? null;
-    atmPutOI     = atm.putOI     ?? null;
-    atmCallDelta = atm.callDelta ?? null;
-    atmPutDelta  = atm.putDelta  ?? null;
-  }
+  const signalMap: Record<string, SignalType> = {
+    'OPERAR': 'OPERAR',
+    'ESPERAR': 'ESPERAR',
+    'NO_OPERAR': 'NO OPERAR',
+  };
 
   return {
-    vixTermStructureOk: null,
-    ivRankOk, ivRankValue: t?.ivRank ?? null,
-    gexOk, gexValue,
-    spotAboveZgl, zglValue: gexData?.zeroGammaLevel ?? null,
-    expectedMove,
-    callWall: gexData?.callWall ?? null,
-    putWall:  gexData?.putWall  ?? null,
-    atmStrike, atmCallOI, atmPutOI, atmCallDelta, atmPutDelta,
-    signal,
+    vixTermStructureOk: l1?.vixTermStructure.passed ?? null,
+    ivRankOk: l1?.ivRank.passed ?? null,
+    ivRankValue: l1?.ivRank.value ?? null,
+    gexOk: l1?.gexTotal.passed ?? null,
+    gexValue: l1?.gexTotal.value ?? null,
+    spotAboveZgl: l1?.spotVsZGL.passed ?? null,
+    zglValue: l1?.spotVsZGL.zgl ?? null,
+
+    expectedMove: l2?.expectedMove ?? null,
+    callWall: l2?.callWall ?? null,
+    putWall: l2?.putWall ?? null,
+
+    atmStrike: l3?.atmStrike ?? null,
+    atmCallOI: l3?.shortCallOI?.value ?? null,
+    atmPutOI: l3?.shortPutOI?.value ?? null,
+    atmCallDelta: l3?.atmCallDelta ?? null,
+    atmPutDelta: l3?.atmPutDelta ?? null,
+
+    signal: signalMap[v.signal] ?? 'NO OPERAR',
   };
 }
 
-const DETAIL_HEIGHT = 500; // px — chart fills this minus header
+const DETAIL_HEIGHT = 500;
 
 export function TickerDetail({ symbol, onClose }: Props) {
   const ticker = useMarketStore((s) => s.tickers[symbol]);
-  const { balances, positions } = useAccountStore();
   const { rules } = useRulesStore();
 
-  const [gexData,    setGexData]    = useState<GammaExposureResponse | null>(null);
-  const [gexLoading, setGexLoading] = useState(false);
-  const [gexError,   setGexError]   = useState<string | null>(null);
-  const [gexUpdated, setGexUpdated] = useState<Date | null>(null);
+  const [vlData, setVlData] = useState<ValidationLayerApiResponse | null>(null);
+  const [gexData, setGexData] = useState<GammaExposureResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [updated, setUpdated] = useState<Date | null>(null);
 
-  const loadGex = useCallback(() => {
-    setGexLoading(true);
-    setGexError(null);
-    fetchGammaExposure(symbol)
-      .then(d => { setGexData(d); setGexUpdated(new Date()); })
-      .catch(e => setGexError(e.message))
-      .finally(() => setGexLoading(false));
+  const loadData = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      fetchValidationLayer(symbol),
+      fetchGammaExposure(symbol),
+    ])
+      .then(([vl, gex]) => {
+        setVlData(vl);
+        setGexData(gex);
+        setUpdated(new Date());
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
   }, [symbol]);
 
-  React.useEffect(() => { loadGex(); }, [loadGex]);
+  React.useEffect(() => { loadData(); }, [loadData]);
 
-  const ivRankMin = rules?.options_filters?.iv_rank?.min  ?? 25;
-  const ivRankMax = rules?.options_filters?.iv_rank?.max  ?? 65;
-  const gexMinB   = rules?.gamma_regime?.gex_total?.min_billion_usd ?? 100;
-  const dteDays   = rules?.trade_construction?.dte_target?.ideal    ?? 35;
+  const layers: LayerStatus = vlData
+    ? mapValidationToLayers(vlData)
+    : {
+        vixTermStructureOk: null, ivRankOk: null, ivRankValue: null,
+        gexOk: null, gexValue: null, spotAboveZgl: null, zglValue: null,
+        expectedMove: null, callWall: null, putWall: null,
+        atmStrike: null, atmCallOI: null, atmPutOI: null,
+        atmCallDelta: null, atmPutDelta: null, signal: 'NO OPERAR',
+      };
 
-  const layers = deriveLayersWithGex(symbol, gexData, ivRankMin, ivRankMax, gexMinB, dteDays);
-
-  const gexStale = isStale(gexUpdated);
+  const stale = isStale(updated);
 
   return (
     <div
@@ -133,23 +118,23 @@ export function TickerDetail({ symbol, onClose }: Props) {
         </span>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {gexUpdated && (
+          {updated && (
             <span style={{
               fontSize: 10,
               fontFamily: 'JetBrains Mono, monospace',
-              color: gexStale ? 'var(--yellow-gc)' : 'var(--text-muted)',
+              color: stale ? 'var(--yellow-gc)' : 'var(--text-muted)',
             }}>
-              GEX {fmtTime(gexUpdated)}
+              {fmtTime(updated)}
             </span>
           )}
           <button
-            onClick={loadGex}
-            disabled={gexLoading}
+            onClick={loadData}
+            disabled={loading}
             className="btn"
-            title="Refrescar GEX"
+            title="Refrescar validación"
           >
-            <RefreshCw size={10} className={gexLoading ? 'animate-spin' : ''} />
-            GEX
+            <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
+            Validar
           </button>
           <button
             onClick={onClose}
@@ -181,24 +166,22 @@ export function TickerDetail({ symbol, onClose }: Props) {
             layers={layers}
             ivRank={ticker?.ivRank ?? null}
             iv30={ticker?.iv30 ?? null}
-            netLiq={balances?.netLiquidatingValue ?? null}
-            openPositions={positions.length}
-            maxPositions={rules?.risk_limits?.max_concurrent_positions ?? 3}
+            vlData={vlData}
           />
         </div>
 
         {/* Right: chart — fills remaining space */}
         <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-          {gexError ? (
+          {error ? (
             <div style={{ padding: 16, fontSize: 12, color: 'var(--red-gc)' }}>
-              Error cargando GEX: {gexError}
+              Error cargando datos: {error}
             </div>
-          ) : gexLoading && !gexData ? (
+          ) : loading && !gexData ? (
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               height: '100%', gap: 8, fontSize: 12, color: 'var(--text-muted)',
             }}>
-              <span className="spinner" /> Cargando GEX…
+              <span className="spinner" /> Cargando…
             </div>
           ) : (
             <GexChart

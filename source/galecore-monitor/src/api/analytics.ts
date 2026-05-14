@@ -6,6 +6,7 @@ import {
   IVRankResponse,
   ImpliedVolatilityApiResponse,
   ImpliedVolatilityResponse,
+  ValidationLayerApiResponse,
 } from '../types/api';
 
 export async function fetchGammaExposure(symbol: string): Promise<GammaExposureResponse> {
@@ -49,6 +50,17 @@ export async function fetchGammaExposure(symbol: string): Promise<GammaExposureR
       putDelta:  s.putDelta,
     })),
   };
+}
+
+export async function fetchValidationLayer(
+  symbol: string,
+  profile: string = 'core',
+): Promise<ValidationLayerApiResponse> {
+  const { data } = await apiClient.get<ValidationLayerApiResponse>(
+    '/App/GaleCore/ValidationLayer',
+    { params: { Symbol: symbol, Profile: profile }, timeout: 120_000 }
+  );
+  return data;
 }
 
 export async function fetchIVRank(symbol: string): Promise<IVRankResponse> {

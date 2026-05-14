@@ -164,6 +164,74 @@ export interface ImpliedVolatilityResponse {
   timestamp: string;
 }
 
+// ─── ValidationLayer API ─────────────────────────────────────────────────────
+// Response from GET /App/GaleCore/ValidationLayer
+export interface ValidationLayerApiResponse {
+  symbol: string;
+  profile: string;
+  timestamp: string;
+  spotPrice: number;
+  signal: string;
+  failedAtLayer: number | null;
+  layer1: Layer1MacroResult | null;
+  layer2: Layer2StrikesResult | null;
+  layer3: Layer3MicroResult | null;
+  layer4: Layer4SizingResult | null;
+}
+
+export interface Layer1MacroResult {
+  signal: string;
+  passedCount: number;
+  totalChecks: number;
+  vixTermStructure: { passed: boolean; iv9D: number | null; iv3M: number | null; maxVixAbsolute: number | null };
+  ivRank: { passed: boolean; value: number; min: number; max: number };
+  gexTotal: { passed: boolean; value: number; metric: string; threshold: number };
+  spotVsZGL: { passed: boolean; spot: number; zgl: number | null; bufferPct: number };
+}
+
+export interface Layer2StrikesResult {
+  signal: string;
+  expectedMove: number;
+  dte: number;
+  expiration: string;
+  callWall: number | null;
+  putWall: number | null;
+  zScore: number;
+  selectedStructure: string;
+  shortPutStrike: number | null;
+  shortCallStrike: number | null;
+  shortPutDelta: number | null;
+  shortCallDelta: number | null;
+  longPutStrike: number | null;
+  longCallStrike: number | null;
+  strikesInsideWalls: boolean;
+}
+
+export interface Layer3MicroResult {
+  signal: string;
+  atmStrike: number;
+  shortCallOI: { passed: boolean; value: number; minRequired: number };
+  shortPutOI: { passed: boolean; value: number; minRequired: number };
+  longCallOI: { passed: boolean; value: number; minRequired: number };
+  longPutOI: { passed: boolean; value: number; minRequired: number };
+  atmCallDelta: number | null;
+  atmPutDelta: number | null;
+  bidAskSpread: { passed: boolean; spreadPct: number | null; maxSpreadPct: number } | null;
+}
+
+export interface Layer4SizingResult {
+  signal: string;
+  netLiq: number;
+  riskPerTrade: number;
+  maxRiskAmount: number;
+  openPositions: number;
+  maxPositions: number;
+  positionsAvailable: boolean;
+  currentHeatPct: number;
+  maxHeatPct: number;
+  heatOk: boolean;
+}
+
 // ─── Market Data API ──────────────────────────────────────────────────────────
 
 // Raw API response from /Data/Tastytrade/MarketData/ByType
