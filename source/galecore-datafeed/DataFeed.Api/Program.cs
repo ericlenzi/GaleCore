@@ -40,7 +40,8 @@ namespace DataFeed
                     policy.WithOrigins("http://localhost:3039", "https://localhost:3039",
                                        "http://localhost:5173", "https://localhost:5173",
                                        "https://galecore-monitor.vercel.app",
-                                       "https://gale-core-monitor.vercel.app")
+                                       "https://gale-core-monitor.vercel.app",
+                                       "https://galecore.vercel.app")
                           .AllowAnyHeader()
                           .AllowAnyMethod()
                           .AllowCredentials();
