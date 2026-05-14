@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using DataFeed.Application.App.GammaExposure;
 using DataFeed.Application.App.ImpliedVolatility;
 using DataFeed.Application.App.IVRank;
+using DataFeed.Application.App.ValidationLayer;
 
 namespace DataFeed.Controllers
 {
@@ -54,7 +55,53 @@ namespace DataFeed.Controllers
         public async Task<IActionResult> RulesPaperAsync()
             => await ServeRulesFileAsync("galecore_rules_paper.json");
 
+        [Tags("App.GaleCore")]
+        [HttpGet("GaleCore/ValidationLayer")]
+        public async Task<IActionResult> ValidationLayerAsync([FromQuery] ValidationLayerRequest request)
+        {
+            request.RulesJson = await LoadMergedRulesJsonAsync(request.Profile);
+            return await Handle(request);
+        }
+
         #endregion
+
+        private async Task<string> LoadMergedRulesJsonAsync(string profile)
+        {
+            var basePath = Path.Combine(_env.ContentRootPath, "Files");
+            var coreJson = await System.IO.File.ReadAllTextAsync(Path.Combine(basePath, "galecore_rules_core.json"));
+
+            profile = profile?.ToLowerInvariant() ?? "core";
+            if (profile == "live" || profile == "paper")
+            {
+                var overlayPath = Path.Combine(basePath, $"galecore_rules_{profile}.json");
+                if (System.IO.File.Exists(overlayPath))
+                {
+                    var overlayJson = await System.IO.File.ReadAllTextAsync(overlayPath);
+                    var core = System.Text.Json.Nodes.JsonNode.Parse(coreJson)!.AsObject();
+                    var overlay = System.Text.Json.Nodes.JsonNode.Parse(overlayJson)!.AsObject();
+                    DeepMerge(core, overlay);
+                    return core.ToJsonString();
+                }
+            }
+
+            return coreJson;
+        }
+
+        private static void DeepMerge(System.Text.Json.Nodes.JsonObject target, System.Text.Json.Nodes.JsonObject source)
+        {
+            foreach (var prop in source)
+            {
+                if (prop.Value is System.Text.Json.Nodes.JsonObject sourceObj
+                    && target[prop.Key] is System.Text.Json.Nodes.JsonObject targetObj)
+                {
+                    DeepMerge(targetObj, sourceObj);
+                }
+                else
+                {
+                    target[prop.Key] = prop.Value?.DeepClone();
+                }
+            }
+        }
 
         private async Task<IActionResult> ServeRulesFileAsync(string fileName)
         {
