@@ -43,6 +43,24 @@ namespace DataFeed.Application.App.ImpliedVolatility
         public double? DailyMoveDollar { get; set; }
 
         /// <summary>
+        /// IV30 actual (0 días atrás) — tomado de la última vela diaria del subyacente (ImpVolatility × 100).
+        /// Fuente: /Data/Tastytrade/MarketData/Candle?Symbol={Symbol}&amp;Interval=1d
+        /// </summary>
+        public double? IV30_0d { get; set; }
+
+        /// <summary>
+        /// IV30 de hace 3 sesiones de trading — tomado de la vela diaria [−3] del subyacente (ImpVolatility × 100).
+        /// Fuente: /Data/Tastytrade/MarketData/Candle?Symbol={Symbol}&amp;Interval=1d
+        /// </summary>
+        public double? IV30_3d { get; set; }
+
+        /// <summary>
+        /// Tasa de cambio de la IV30 en 3 sesiones = ((IV30_0d − IV30_3d) / IV30_3d) × 100
+        /// Usado como métrica de iv_momentum en Capa 1. Si &gt; 15% indica expansión de vol.
+        /// </summary>
+        public double? IV30RocPct { get; set; }
+
+        /// <summary>
         /// Detalle del cálculo por cada plazo
         /// </summary>
         public List<IVCalculationDetail> Calculations { get; set; } = new();

@@ -247,6 +247,39 @@ namespace DataFeed.Application.App.ImpliedVolatility
                     response.DailyMoveDollar = Math.Round(spot * (response.DailyMove.Value / 100), 2);
                 }
 
+                // ═══════════════════════════════════════════════════════════
+                // PASO 5: IV30 histórico vía candles diarias para iv_momentum
+                // IV30_0d → última vela (hoy)
+                // IV30_3d → vela de hace 3 sesiones de trading
+                // IV30RocPct = ((IV30_0d - IV30_3d) / IV30_3d) * 100
+                // ImpVolatility en candle viene en decimal (0.17 = 17%) → ×100
+                // ═══════════════════════════════════════════════════════════
+                var fromTimeCandle = DateTime.UtcNow.AddDays(-15); // ~15 días para cubrir fins de semana y festivos
+                var candles = await socketProvider.GetCandleAsync(request.Symbol, "1d", fromTimeCandle, null, cancellationToken);
+
+                if (candles?.data != null && candles.data.Any())
+                {
+                    var ordered = candles.data
+                        .Where(c => !string.IsNullOrEmpty(c.ImpVolatility)
+                               && double.TryParse(c.ImpVolatility, System.Globalization.NumberStyles.Any,
+                                                  System.Globalization.CultureInfo.InvariantCulture, out var iv)
+                               && iv > 0)
+                        .OrderByDescending(c => c.Time)
+                        .ToList();
+
+                    if (ordered.Count >= 1)
+                        response.IV30_0d = Math.Round(
+                            double.Parse(ordered[0].ImpVolatility, System.Globalization.CultureInfo.InvariantCulture) * 100, 2);
+
+                    if (ordered.Count >= 4)
+                        response.IV30_3d = Math.Round(
+                            double.Parse(ordered[3].ImpVolatility, System.Globalization.CultureInfo.InvariantCulture) * 100, 2);
+
+                    if (response.IV30_0d.HasValue && response.IV30_3d.HasValue && response.IV30_3d.Value != 0)
+                        response.IV30RocPct = Math.Round(
+                            ((response.IV30_0d.Value - response.IV30_3d.Value) / response.IV30_3d.Value) * 100, 2);
+                }
+
                 return response;
             }
             catch (Exception ex)

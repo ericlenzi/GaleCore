@@ -343,21 +343,37 @@ IV Rank del subyacente (percentil de IV actual vs. rango histórico 1 año).
 
 **GET** `/App.Analytics/ImpliedVolatility?Symbol={SYMBOL}`
 
-IV actual en múltiples horizontes.
+IV en múltiples horizontes (CBOE model-free) + IV histórica vía candles para iv_momentum.
 
 ```json
 {
   "symbol": "SPY",
-  "iV30": 0.17,
-  "iV9D": 0.14,
-  "iV3M": 0.19,
-  "timestamp": "2026-05-15T14:00:00Z"
+  "spot": 528.12,
+  "riskFreeRate": 0.045,
+  "iV9D": 17.45,
+  "iV30": 18.72,
+  "iV3M": 19.10,
+  "dailyMove": 1.18,
+  "dailyMoveDollar": 6.23,
+  "iV30_0d": 18.50,
+  "iV30_3d": 17.20,
+  "iV30RocPct": 7.56,
+  "calculations": [...]
 }
 ```
 
-Nota: los campos usan camelCase mixto `iV30`, `iV9D`, `iV3M` (i minúscula, V mayúscula).
+| Campo         | Descripción                                                                                 |
+|---------------|---------------------------------------------------------------------------------------------|
+| `iV9D`        | IV a 9 días DTE — CBOE model-free sobre opciones en vivo (% anualizado)                    |
+| `iV30`        | IV a 30 días DTE — CBOE model-free sobre opciones en vivo (% anualizado)                   |
+| `iV3M`        | IV a 90 días DTE — CBOE model-free sobre opciones en vivo (% anualizado)                   |
+| `iV30_0d`     | IV30 actual — última vela diaria del subyacente (`ImpVolatility × 100`). Fuente: `Candle?Interval=1d` |
+| `iV30_3d`     | IV30 hace 3 sesiones — vela diaria `[−3]` del subyacente (`ImpVolatility × 100`)           |
+| `iV30RocPct`  | Tasa de cambio 3 días: `((IV30_0d − IV30_3d) / IV30_3d) × 100`. Usado por `iv_momentum`   |
 
-**Uso en GaleCore**: VIX term structure (VIX9D < VIX3M) para Capa 1.
+**Uso en GaleCore**:
+- `iv_momentum` (Capa 1): usa `IV30RocPct` — si > 15% indica expansión de vol, no operar.
+- `iv30_atm_roc_pct`: definición fuente única de verdad = `IV30RocPct` de este endpoint.
 
 ---
 

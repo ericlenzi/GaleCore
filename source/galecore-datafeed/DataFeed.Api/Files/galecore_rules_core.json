@@ -75,9 +75,17 @@
     },
     "iv30_atm_roc_pct": {
       "type": "formula",
-      "formula": "((iv30_today - iv30_n_days_ago) / iv30_n_days_ago) * 100",
+      "formula": "((iv30_today - iv30_3d_ago) / iv30_3d_ago) * 100",
       "window_days": 3,
-      "endpoint": "/App.Analytics/ImpliedVolatility"
+      "iv30_today": {
+        "source": "/Data/Tastytrade/MarketData/Candle?Symbol={SYMBOL}&Interval=1d → ImpVolatility última vela (×100)",
+        "field": "IV30_0d"
+      },
+      "iv30_3d_ago": {
+        "source": "/App.Analytics/ImpliedVolatility?Symbol={SYMBOL} → IV30_3d (ImpVolatility vela −3 sesiones ×100)",
+        "field": "IV30_3d"
+      },
+      "endpoint": "/App.Analytics/ImpliedVolatility → IV30RocPct"
     },
     "expected_move": {
       "type": "formula",
@@ -230,20 +238,19 @@
           "metric":    { "ref": "marketdata.$VIX.X.price" },
           "operator":  "lt",
           "threshold": { "value": 30 },
-          "source": "SignalR /hubs/marketdata — suscribir $VIX.X",
-          "source_fallback": "/Data/Tastytrade/MarketData/ByType?Symbol=$VIX.X",
+          "source": "/Data/Tastytrade/MarketData/ByType?Symbol=$VIX.X",
           "on_fail": "no_trade"
         },
         {
           "id": "vix_term_structure",
-          "label": "VIX TS normal (9d < 3m)",
-          "metric":    { "ref": "marketdata.VIX9D.price" },
+          "label": "VIX TS normal (VIX −9d < VIX −30d)",
+          "metric":    { "ref": "marketdata.$VIX.X.candle.close_9d_ago" },
           "operator":  "lt",
-          "threshold": { "ref": "marketdata.VIX3M.price" },
-          "source": "/Data/Tastytrade/MarketData/ByType?Symbol=VIX9D|VIX3M",
+          "threshold": { "ref": "marketdata.$VIX.X.candle.close_30d_ago" },
+          "source": "/Data/Tastytrade/MarketData/Candle?Symbol=$VIX.X&Interval=1d&FromTime={35_trading_days_ago} → close[−9] y close[−30]",
           "polling_interval_minutes": 5,
           "on_fail": "no_trade",
-          "note": "Contango = sin estrés inminente. Inversión = riesgo de evento."
+          "note": "VIX de hace 9 sesiones < VIX de hace 30 sesiones indica volatilidad en descenso o estable. Inversión = régimen de estrés activo."
         },
         {
           "id": "iv_rank",
@@ -260,9 +267,9 @@
           "metric":    { "ref": "definitions.iv30_atm_roc_pct" },
           "operator":  "lte",
           "threshold": { "value": 15.0 },
-          "source": "/App.Analytics/ImpliedVolatility",
+          "source": "/App.Analytics/ImpliedVolatility?Symbol={SYMBOL} → IV30RocPct",
           "on_fail": "wait_for_stabilization",
-          "note": "IV en expansión rápida indica régimen de stress activo."
+          "note": "IV en expansión rápida indica régimen de stress activo. IV30RocPct = ((IV30_0d − IV30_3d) / IV30_3d) × 100."
         },
         {
           "id": "gex_total",
