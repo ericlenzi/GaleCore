@@ -32,8 +32,8 @@ namespace DataFeed.Application.App.ValidationLayer
     public class VixTermStructureCheck
     {
         public bool Passed { get; set; }
-        public double? IV9D { get; set; }
-        public double? IV3M { get; set; }
+        public double? IV30_9d { get; set; }
+        public double? IV30_90d { get; set; }
         public double? MaxVixAbsolute { get; set; }
     }
 

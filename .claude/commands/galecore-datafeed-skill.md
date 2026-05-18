@@ -350,23 +350,22 @@ IV en múltiples horizontes (CBOE model-free) + IV histórica vía candles para 
   "symbol": "SPY",
   "spot": 528.12,
   "riskFreeRate": 0.045,
-  "iV9D": 17.45,
-  "iV30": 18.72,
-  "iV3M": 19.10,
+  "iV30_9d": 17.45,
+  "iV30_30d": 18.72,
+  "iV30_90d": 19.10,
   "dailyMove": 1.18,
   "dailyMoveDollar": 6.23,
   "iV30_0d": 18.50,
   "iV30_3d": 17.20,
-  "iV30RocPct": 7.56,
-  "calculations": [...]
+  "iV30RocPct": 7.56
 }
 ```
 
 | Campo         | Descripción                                                                                 |
 |---------------|---------------------------------------------------------------------------------------------|
-| `iV9D`        | IV a 9 días DTE — CBOE model-free sobre opciones en vivo (% anualizado)                    |
-| `iV30`        | IV a 30 días DTE — CBOE model-free sobre opciones en vivo (% anualizado)                   |
-| `iV3M`        | IV a 90 días DTE — CBOE model-free sobre opciones en vivo (% anualizado)                   |
+| `iV30_9d`     | IV a 9 días DTE — CBOE model-free sobre opciones en vivo (% anualizado, equiv. VIX9D)     |
+| `iV30_30d`    | IV a 30 días DTE — CBOE model-free sobre opciones en vivo (% anualizado, equiv. VIX)      |
+| `iV30_90d`    | IV a 90 días DTE — CBOE model-free sobre opciones en vivo (% anualizado, equiv. VIX3M)    |
 | `iV30_0d`     | IV30 actual — última vela diaria del subyacente (`ImpVolatility × 100`). Fuente: `Candle?Interval=1d` |
 | `iV30_3d`     | IV30 hace 3 sesiones — vela diaria `[−3]` del subyacente (`ImpVolatility × 100`)           |
 | `iV30RocPct`  | Tasa de cambio 3 días: `((IV30_0d − IV30_3d) / IV30_3d) × 100`. Usado por `iv_momentum`   |
