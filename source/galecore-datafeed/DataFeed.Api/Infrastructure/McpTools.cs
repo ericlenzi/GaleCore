@@ -124,7 +124,7 @@ namespace DataFeed.Infrastructure
             return JsonSerializer.Serialize(response, _jsonOptions);
         }
 
-        [McpServerTool, Description("Calcula la volatilidad implícita de un símbolo usando la metodología CBOE VIX model-free. Devuelve IV9D (9 días, equivalente a VIX9D), IV30 (30 días, equivalente a VIX) e IV3M (3 meses, equivalente a VIX3M), junto con el movimiento diario esperado.")]
+        [McpServerTool, Description("Calcula la volatilidad implícita de un símbolo usando la metodología CBOE VIX model-free. Devuelve IV30_9d (9 días DTE), IV30_30d (30 días DTE) e IV30_90d (90 días DTE), junto con IV30_0d e IV30_3d desde candles diarias para calcular IV30RocPct (tasa de cambio 3 sesiones).")]
         public static async Task<string> GetImpliedVolatility(
             [Description("Símbolo del subyacente (ej: AAPL, MSFT, SPY)")] string symbol,
             IMediator mediator)

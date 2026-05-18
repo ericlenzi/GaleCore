@@ -18,22 +18,22 @@ namespace DataFeed.Application.App.ImpliedVolatility
         public double RiskFreeRate { get; set; }
 
         /// <summary>
-        /// Volatilidad implícita a 9 días (equivalente a VIX9D)
+        /// Volatilidad implícita a 9 días DTE — CBOE model-free (% anualizado, equivalente a VIX9D)
         /// </summary>
-        public double? IV9D { get; set; }
+        public double? IV30_9d { get; set; }
 
         /// <summary>
-        /// Volatilidad implícita a 30 días (equivalente a VIX)
+        /// Volatilidad implícita a 30 días DTE — CBOE model-free (% anualizado, equivalente a VIX)
         /// </summary>
-        public double? IV30 { get; set; }
+        public double? IV30_30d { get; set; }
 
         /// <summary>
-        /// Volatilidad implícita a 3 meses (equivalente a VIX3M)
+        /// Volatilidad implícita a 90 días DTE — CBOE model-free (% anualizado, equivalente a VIX3M)
         /// </summary>
-        public double? IV3M { get; set; }
+        public double? IV30_90d { get; set; }
 
         /// <summary>
-        /// Movimiento diario esperado = IV30 / √252
+        /// Movimiento diario esperado = IV30_30d / √252
         /// </summary>
         public double? DailyMove { get; set; }
 
@@ -59,63 +59,5 @@ namespace DataFeed.Application.App.ImpliedVolatility
         /// Usado como métrica de iv_momentum en Capa 1. Si &gt; 15% indica expansión de vol.
         /// </summary>
         public double? IV30RocPct { get; set; }
-
-        /// <summary>
-        /// Detalle del cálculo por cada plazo
-        /// </summary>
-        public List<IVCalculationDetail> Calculations { get; set; } = new();
-    }
-
-    public class IVCalculationDetail
-    {
-        /// <summary>
-        /// Plazo objetivo en días (9, 30, 90)
-        /// </summary>
-        public int TargetDays { get; set; }
-
-        /// <summary>
-        /// Volatilidad implícita calculada (en %, ej: 25.34)
-        /// </summary>
-        public double? ImpliedVolatility { get; set; }
-
-        /// <summary>
-        /// Expiración near-term utilizada
-        /// </summary>
-        public string NearTermExpiration { get; set; }
-
-        /// <summary>
-        /// DTE de la expiración near-term
-        /// </summary>
-        public int? NearTermDTE { get; set; }
-
-        /// <summary>
-        /// Varianza calculada para near-term
-        /// </summary>
-        public double? NearTermVariance { get; set; }
-
-        /// <summary>
-        /// Cantidad de opciones OTM usadas en near-term
-        /// </summary>
-        public int? NearTermOptionsUsed { get; set; }
-
-        /// <summary>
-        /// Expiración next-term utilizada
-        /// </summary>
-        public string NextTermExpiration { get; set; }
-
-        /// <summary>
-        /// DTE de la expiración next-term
-        /// </summary>
-        public int? NextTermDTE { get; set; }
-
-        /// <summary>
-        /// Varianza calculada para next-term
-        /// </summary>
-        public double? NextTermVariance { get; set; }
-
-        /// <summary>
-        /// Cantidad de opciones OTM usadas en next-term
-        /// </summary>
-        public int? NextTermOptionsUsed { get; set; }
     }
 }

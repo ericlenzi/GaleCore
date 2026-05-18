@@ -89,26 +89,21 @@ export async function fetchImpliedVolatility(symbol: string): Promise<ImpliedVol
   // Unwrap possible { data: {...} } wrapper
   const raw = ((data as any)?.data ?? data) as Record<string, unknown>;
 
-  // API field names confirmed: iV30, iV9D, iV3M (lowercase i, uppercase V)
+  // API field names: iV30_30d, iV30_9d, iV30_90d (formato unificado IV30_Nd)
   const iv30 =
-    (raw.iV30              as number) ||
-    (raw.iv30              as number) ||
+    (raw.iV30_30d          as number) ||
     (raw.impliedVolatility as number) ||
     0;
 
   const iv9d =
-    (raw.iV9D as number) ||
-    (raw.iv9D as number) ||
-    (raw.iv9d as number)  ||
+    (raw.iV30_9d  as number) ||
     undefined;
 
   const iv3m =
-    (raw.iV3M as number) ||
-    (raw.iv3M as number) ||
-    (raw.iv3m as number)  ||
+    (raw.iV30_90d as number) ||
     undefined;
 
-  console.debug(`[ImpliedVolatility] ${symbol} parsed → iv30=${iv30} iv9d=${iv9d} iv3m=${iv3m}`);
+  console.debug(`[ImpliedVolatility] ${symbol} parsed → iv30_30d=${iv30} iv30_9d=${iv9d} iv30_90d=${iv3m}`);
 
   return {
     symbol:    (raw.symbol as string) ?? symbol,

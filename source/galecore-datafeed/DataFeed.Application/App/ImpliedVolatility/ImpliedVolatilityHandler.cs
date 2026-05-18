@@ -231,19 +231,17 @@ namespace DataFeed.Application.App.ImpliedVolatility
                         // Asignar al campo correspondiente
                         switch (target)
                         {
-                            case 9: response.IV9D = detail.ImpliedVolatility; break;
-                            case 30: response.IV30 = detail.ImpliedVolatility; break;
-                            case 90: response.IV3M = detail.ImpliedVolatility; break;
+                            case 9:  response.IV30_9d  = detail.ImpliedVolatility; break;
+                            case 30: response.IV30_30d = detail.ImpliedVolatility; break;
+                            case 90: response.IV30_90d = detail.ImpliedVolatility; break;
                         }
                     }
-
-                    response.Calculations.Add(detail);
                 }
 
-                // Movimiento diario esperado (regla del VIX: IV30 / √252)
-                if (response.IV30.HasValue)
+                // Movimiento diario esperado (regla del VIX: IV30_30d / √252)
+                if (response.IV30_30d.HasValue)
                 {
-                    response.DailyMove = Math.Round(response.IV30.Value / Math.Sqrt(252), 2);
+                    response.DailyMove = Math.Round(response.IV30_30d.Value / Math.Sqrt(252), 2);
                     response.DailyMoveDollar = Math.Round(spot * (response.DailyMove.Value / 100), 2);
                 }
 

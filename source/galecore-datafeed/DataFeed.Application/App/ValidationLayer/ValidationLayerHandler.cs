@@ -96,15 +96,15 @@ namespace DataFeed.Application.App.ValidationLayer
             var macro = rules["macro_gamma_regime"]?.AsObject();
 
             double maxVix = GetDouble(macro, "vix_structure", "max_vix_absolute") ?? 30.0;
-            bool vixPassed = iv.IV9D.HasValue && iv.IV3M.HasValue
-                && iv.IV9D.Value < iv.IV3M.Value
-                && iv.IV30.GetValueOrDefault() < maxVix;
+            bool vixPassed = iv.IV30_9d.HasValue && iv.IV30_90d.HasValue
+                && iv.IV30_9d.Value < iv.IV30_90d.Value
+                && iv.IV30_30d.GetValueOrDefault() < maxVix;
 
             var vixCheck = new VixTermStructureCheck
             {
                 Passed = vixPassed,
-                IV9D = iv.IV9D,
-                IV3M = iv.IV3M,
+                IV30_9d = iv.IV30_9d,
+                IV30_90d = iv.IV30_90d,
                 MaxVixAbsolute = maxVix
             };
 
@@ -177,7 +177,7 @@ namespace DataFeed.Application.App.ValidationLayer
             string expiration = gex.Expiration;
             double spot = gex.Spot;
 
-            double ivAtm = (iv.IV30 ?? 0) / 100.0;
+            double ivAtm = (iv.IV30_30d ?? 0) / 100.0;
             double expectedMove = ivAtm > 0 ? spot * ivAtm * Math.Sqrt(dte / 365.0) : 0;
 
             double zScore = 0;
