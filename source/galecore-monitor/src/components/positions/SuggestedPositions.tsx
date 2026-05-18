@@ -157,7 +157,7 @@ export function SuggestedPositions({ symbol, rules, onRegister }: Props) {
   const iv3m  = ticker?.iv3m  ?? localIv3m;
   const ivRankMin = rules?.options_filters?.iv_rank?.min ?? 25;
   const ivRankMax = rules?.options_filters?.iv_rank?.max ?? 65;
-  const gexMin    = rules?.gamma_regime?.gex_total?.min_billion_usd ?? 100;
+  const gexMin    = rules?.gamma_regime?.gex_total?.min_billion_usd ?? 50;
 
   // Derive signal from available data
   const ivRankOk  = ticker?.ivRank != null ? ticker.ivRank >= ivRankMin && ticker.ivRank <= ivRankMax : null;

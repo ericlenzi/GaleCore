@@ -32,7 +32,7 @@ export interface TickerState {
 export interface LayerStatus {
   // Layer 1 — Régimen & GEX
   vixTermStructureOk: boolean | null;    // VIX9D < VIX3M
-  ivRankOk: boolean | null;              // 25–75
+  ivRankOk: boolean | null;              // 25–65
   ivRankValue: number | null;
   gexOk: boolean | null;                 // ≥ $100B
   gexValue: number | null;               // in billions
