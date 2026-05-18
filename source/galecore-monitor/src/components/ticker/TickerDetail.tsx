@@ -98,7 +98,7 @@ export function TickerDetail({ symbol, onClose }: Props) {
 
   const ivRankMin = rules?.options_filters?.iv_rank?.min  ?? 25;
   const ivRankMax = rules?.options_filters?.iv_rank?.max  ?? 65;
-  const gexMinB   = rules?.gamma_regime?.gex_total?.min_billion_usd ?? 100;
+  const gexMinB   = rules?.gamma_regime?.gex_total?.min_billion_usd ?? 50;
   const dteDays   = rules?.trade_construction?.dte_target?.ideal    ?? 35;
 
   const layers = deriveLayersWithGex(symbol, gexData, ivRankMin, ivRankMax, gexMinB, dteDays);

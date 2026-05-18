@@ -166,7 +166,7 @@ export function ValidationLayers({ symbol, layers, ivRank, netLiq, openPositions
         <MetricCell
           label="IV Rank"
           value={ivRank != null ? `${ivRank.toFixed(0)}` : '—'}
-          sub={layers.ivRankOk === null ? 'sin datos' : layers.ivRankOk ? '25–75 ✓' : '25–75 ✗'}
+          sub={layers.ivRankOk === null ? 'sin datos' : layers.ivRankOk ? '25–65 ✓' : '25–65 ✗'}
           ok={layers.ivRankOk}
         />
         <MetricCell
