@@ -27,7 +27,6 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   Inicialmente se procederá sobre estos índices del mercado que tienen líquidez:
   * SPY — S&P 500 ETF
   * QQQ — Nasdaq 100 ETF
-  * IWM — Russell 500 ETF
 
   Tres estructuras permitidas, todas de crédito con riesgo definido:
   * Iron Condor — estructura por defecto, vende prima por arriba y por abajo

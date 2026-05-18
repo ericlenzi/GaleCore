@@ -1,4 +1,4 @@
-CALL CERDIT SPREAD - SHORT CALL VERTICAL SPREAD
+CALL CREDIT SPREAD - SHORT CALL VERTICAL SPREAD
 
 1. Neutral-Bearish defined risk credit trade where we are betting against the stock moving above our short strike price by
 the expiration of our contract. Spread width depends on account size, risk tolerance, etc.
