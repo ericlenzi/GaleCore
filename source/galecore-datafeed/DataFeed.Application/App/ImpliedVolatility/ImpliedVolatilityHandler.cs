@@ -183,11 +183,9 @@ namespace DataFeed.Application.App.ImpliedVolatility
                 foreach (var target in TARGET_DAYS)
                 {
                     var (near, next) = targetPairs[target];
-                    var detail = new IVCalculationDetail { TargetDays = target };
 
                     double? nearVariance = null;
                     double? nextVariance = null;
-                    int nearOptions = 0, nextOptions = 0;
 
                     // Calcular varianza near-term
                     if (near != null && expirationData.ContainsKey(near))
@@ -195,14 +193,7 @@ namespace DataFeed.Application.App.ImpliedVolatility
                         var data = expirationData[near];
                         var (variance, optionsUsed) = CalculateCBOEVariance(spot, near.DaysToExpiration, r, data.StrikePrices);
                         if (variance.HasValue && variance.Value > 0)
-                        {
                             nearVariance = variance;
-                            nearOptions = optionsUsed;
-                            detail.NearTermExpiration = near.ExpirationDate;
-                            detail.NearTermDTE = near.DaysToExpiration;
-                            detail.NearTermVariance = Math.Round(variance.Value, 8);
-                            detail.NearTermOptionsUsed = optionsUsed;
-                        }
                     }
 
                     // Calcular varianza next-term
@@ -211,14 +202,7 @@ namespace DataFeed.Application.App.ImpliedVolatility
                         var data = expirationData[next];
                         var (variance, optionsUsed) = CalculateCBOEVariance(spot, next.DaysToExpiration, r, data.StrikePrices);
                         if (variance.HasValue && variance.Value > 0)
-                        {
                             nextVariance = variance;
-                            nextOptions = optionsUsed;
-                            detail.NextTermExpiration = next.ExpirationDate;
-                            detail.NextTermDTE = next.DaysToExpiration;
-                            detail.NextTermVariance = Math.Round(variance.Value, 8);
-                            detail.NextTermOptionsUsed = optionsUsed;
-                        }
                     }
 
                     // Interpolar para obtener la varianza exacta al plazo objetivo
@@ -226,14 +210,12 @@ namespace DataFeed.Application.App.ImpliedVolatility
 
                     if (targetIV.HasValue)
                     {
-                        detail.ImpliedVolatility = Math.Round(targetIV.Value, 2);
-
-                        // Asignar al campo correspondiente
+                        double iv = Math.Round(targetIV.Value, 2);
                         switch (target)
                         {
-                            case 9:  response.IV30_9d  = detail.ImpliedVolatility; break;
-                            case 30: response.IV30_30d = detail.ImpliedVolatility; break;
-                            case 90: response.IV30_90d = detail.ImpliedVolatility; break;
+                            case 9:  response.IV30_9d  = iv; break;
+                            case 30: response.IV30_30d = iv; break;
+                            case 90: response.IV30_90d = iv; break;
                         }
                     }
                 }
