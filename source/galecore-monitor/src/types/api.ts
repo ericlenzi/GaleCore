@@ -183,7 +183,7 @@ export interface Layer1MacroResult {
   signal: string;
   passedCount: number;
   totalChecks: number;
-  vixTermStructure: { passed: boolean; iv9D: number | null; iv3M: number | null; maxVixAbsolute: number | null };
+  vixTermStructure: { passed: boolean; iV30_9d: number | null; iV30_90d: number | null; maxVixAbsolute: number | null };
   ivRank: { passed: boolean; value: number; min: number; max: number };
   gexTotal: { passed: boolean; value: number; metric: string; threshold: number };
   spotVsZGL: { passed: boolean; spot: number; zgl: number | null; bufferPct: number };

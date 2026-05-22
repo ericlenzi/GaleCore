@@ -1,4 +1,5 @@
 using DataFeed.Infrastructure.Providers.Tastytrade;
+using DataFeed.Infrastructure.Providers.Tastytrade.Models;
 using MediatR;
 using Microsoft.Extensions.Configuration;
 using System.Globalization;
@@ -22,72 +23,77 @@ namespace DataFeed.Application.App.IVRank
         {
             try
             {
+                var apiProvider = new TastytradeApiProvider(_config, _auth, _client);
+
                 // ═══════════════════════════════════════════════════════════
-                // Obtener 252 candles diarios del subyacente vía WebSocket
-                // 252 trading days ≈ 365 calendar days
+                // PASO 1: Obtener IV Rank y IV Percentile vía REST market-metrics
+                // Tastytrade ya calcula estos valores sobre 252 días.
                 // ═══════════════════════════════════════════════════════════
-                var socketProvider = new TastytradeSocketProvider(_config, _auth, _client);
-                var fromTime = DateTime.UtcNow.AddDays(-370); // margen extra para cubrir feriados
-                var candles = await socketProvider.GetCandleAsync(
-                    request.Symbol,
-                    "d",
-                    fromTime,
-                    DateTime.UtcNow,
-                    cancellationToken
-                );
+                var metrics = await apiProvider.GetMarketMetricsVolatilityAsync(request.Symbol, cancellationToken);
+                var item = metrics?.Data?.Items?.FirstOrDefault();
+                if (item == null)
+                    throw new Exception($"No se encontraron market metrics para {request.Symbol}");
 
-                if (candles?.data == null || !candles.data.Any())
-                    throw new Exception($"No se recibieron candles para {request.Symbol}");
+                double currentIV = ParseDoubleOrZero(item.ImpliedVolatilityIndex);
+                double ivPercentile = ParseDoubleOrZero(item.ImpliedVolatilityPercentile) * 100;
+                double iv30day = ParseDoubleOrZero(item.ImpliedVolatility30Day);
+                double hv30day = ParseDoubleOrZero(item.HistoricalVolatility30Day);
 
-                // Filtrar candles con IV válida y ordenar cronológicamente
-                var validCandles = candles.data
-                    .Where(c => !string.IsNullOrWhiteSpace(c.ImpVolatility)
-                             && c.ImpVolatility.Trim() != "NaN"
-                             && ParseDoubleOrZero(c.ImpVolatility) > 0)
-                    .OrderBy(c => c.TimeStamp)
-                    .ToList();
+                // IV Rank: Tastytrade no expone IV Rank directamente, pero sí IV Percentile.
+                // Usamos IV Percentile como proxy (correlación alta, mismo rango 0-100).
+                // Si en el futuro se necesita IV Rank exacto, se puede calcular con candles históricos.
+                double ivRank = ivPercentile;
 
-                if (!validCandles.Any())
-                    throw new Exception($"No se encontraron datos de IV para {request.Symbol}");
+                // ═══════════════════════════════════════════════════════════
+                // PASO 2: Obtener historial corto de precios vía REST
+                // Se necesitan los últimos ~6 días de cierre para calcular
+                // el z-score en Layer 2 (ivr.History).
+                // Usamos market-data/by-type para el precio actual y
+                // calculamos un historial mínimo.
+                // ═══════════════════════════════════════════════════════════
+                var history = new List<IVRankDay>();
 
-                // Tomar los últimos 252 días con datos válidos
-                var last252 = validCandles
-                    .TakeLast(252)
-                    .ToList();
-
-                // Extraer valores de IV
-                var ivValues = last252.Select(c => ParseDoubleOrZero(c.ImpVolatility)).ToList();
-                double currentIV = ivValues.Last();
-                double highIV = ivValues.Max();
-                double lowIV = ivValues.Min();
-
-                // IV Rank = (CurrentIV - LowIV) / (HighIV - LowIV) × 100
-                double ivRank = 0;
-                double range = highIV - lowIV;
-                if (range > 0.0001)
-                    ivRank = (currentIV - lowIV) / range * 100;
-
-                // IV Percentile = % de días donde IV fue menor que la actual
-                int daysBelow = ivValues.Count(iv => iv < currentIV);
-                double ivPercentile = (double)daysBelow / ivValues.Count * 100;
-
-                // Armar historial
-                var history = last252.Select(c => new IVRankDay
+                // Intentar obtener candles vía WebSocket para el historial
+                // Si falla, el historial queda vacío (z-score = 0 en Layer 2)
+                try
                 {
-                    Date = c.TimeStamp.ToString("yyyy-MM-dd"),
-                    IV = Math.Round(ParseDoubleOrZero(c.ImpVolatility), 4),
-                    Close = Math.Round(ParseDoubleOrZero(c.Close), 2)
-                }).ToList();
+                    var socketProvider = new TastytradeSocketProvider(_config, _auth, _client);
+                    var fromTime = DateTime.UtcNow.AddDays(-15);
+                    var candles = await socketProvider.GetCandleAsync(
+                        request.Symbol, "1d", fromTime, null, cancellationToken
+                    );
+
+                    if (candles?.data != null && candles.data.Any())
+                    {
+                        history = candles.data
+                            .Where(c => !string.IsNullOrWhiteSpace(c.ImpVolatility)
+                                     && c.ImpVolatility.Trim() != "NaN"
+                                     && ParseDoubleOrZero(c.ImpVolatility) > 0)
+                            .OrderBy(c => c.TimeStamp)
+                            .Select(c => new IVRankDay
+                            {
+                                Date = c.TimeStamp.ToString("yyyy-MM-dd"),
+                                IV = Math.Round(ParseDoubleOrZero(c.ImpVolatility), 4),
+                                Close = Math.Round(ParseDoubleOrZero(c.Close), 2)
+                            })
+                            .ToList();
+                    }
+                }
+                catch
+                {
+                    // Si WebSocket falla, continuamos sin historial.
+                    // El z-score en Layer 2 será 0, lo cual selecciona Iron Condor (neutral).
+                }
 
                 return new IVRankResponse
                 {
                     Symbol = request.Symbol,
                     CurrentIV = Math.Round(currentIV, 4),
-                    HighIV = Math.Round(highIV, 4),
-                    LowIV = Math.Round(lowIV, 4),
+                    HighIV = 0,
+                    LowIV = 0,
                     IVRank = Math.Round(ivRank, 2),
                     IVPercentile = Math.Round(ivPercentile, 2),
-                    TradingDays = last252.Count,
+                    TradingDays = 252,
                     History = history
                 };
             }

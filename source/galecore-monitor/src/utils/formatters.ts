@@ -1,4 +1,5 @@
-export function fmtPrice(n: number, decimals = 2): string {
+export function fmtPrice(n: number | null | undefined, decimals = 2): string {
+  if (n == null) return '—';
   return n.toLocaleString('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
