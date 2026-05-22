@@ -3,7 +3,6 @@ import { X, RefreshCw } from 'lucide-react';
 import { GexChart } from '../chart/GexChart';
 import { ValidationLayers } from '../validation/ValidationLayers';
 import { useMarketStore } from '../../store/useMarketStore';
-import { useRulesStore } from '../../store/useRulesStore';
 import { fetchGammaExposure, fetchValidationLayer } from '../../api/analytics';
 import { GammaExposureResponse, ValidationLayerApiResponse } from '../../types/api';
 import { fmtTime, isStale } from '../../utils/formatters';
@@ -52,7 +51,6 @@ const DETAIL_HEIGHT = 500;
 
 export function TickerDetail({ symbol, onClose }: Props) {
   const ticker = useMarketStore((s) => s.tickers[symbol]);
-  const { rules } = useRulesStore();
 
   const [vlData, setVlData] = useState<ValidationLayerApiResponse | null>(null);
   const [gexData, setGexData] = useState<GammaExposureResponse | null>(null);
