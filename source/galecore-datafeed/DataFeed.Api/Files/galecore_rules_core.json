@@ -21,7 +21,7 @@
   },
   "universe": {
     "mode": "whitelist",
-    "tickers": ["SPY", "QQQ"],
+    "tickers": ["SPY", "QQQ", "SKM"],
     "min_avg_daily_volume_underlying": 5000000
   },
   "data_availability": {

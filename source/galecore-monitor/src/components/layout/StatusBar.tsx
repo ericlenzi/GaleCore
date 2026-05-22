@@ -38,9 +38,11 @@ export function StatusBar({ connectionStatus, lastUpdate }: Props) {
       letterSpacing: '0.04em',
       userSelect: 'none',
     }}>
-      {/* Left: status indicators */}
+      {/* Left: empty for balance */}
+      <div />
+
+      {/* Right: status + last update + clock */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        {/* System */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span
             className={isOnline ? 'pulse-dot' : ''}
@@ -53,22 +55,6 @@ export function StatusBar({ connectionStatus, lastUpdate }: Props) {
           />
           <span style={{ color: systemColor, fontWeight: 600 }}>{systemLabel}</span>
         </div>
-
-      </div>
-
-      {/* Center: brand */}
-      <div style={{
-        position: 'absolute', left: '50%', transform: 'translateX(-50%)',
-        letterSpacing: '0.22em',
-        fontSize: 11,
-        fontWeight: 600,
-        color: 'var(--text-muted)',
-      }}>
-        GALECORE
-      </div>
-
-      {/* Right: last update + clock */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
         {lastUpdateStr && (
           <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
             upd <span style={{ color: 'var(--text-secondary)' }}>{lastUpdateStr}</span>

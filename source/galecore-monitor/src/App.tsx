@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './index.css';
 import { LoginScreen } from './components/LoginScreen';
 import { StatusBar } from './components/layout/StatusBar';
+import { Sidebar } from './components/layout/Sidebar';
 import { TabNav, Tab } from './components/layout/TabNav';
 import { Home } from './pages/Home';
 import { PortfolioManager } from './pages/PortfolioManager';
@@ -47,15 +48,18 @@ function Dashboard() {
   useEffect(() => { setSocketStatus(status); }, [status]);
 
   return (
-    <div className="flex flex-col" style={{ minHeight: '100vh', backgroundColor: 'var(--bg-primary)' }}>
-      <StatusBar connectionStatus={socketStatus} lastUpdate={lastUpdate} />
-      <TabNav active={tab} onChange={setTab} />
-      <main className="flex-1 overflow-auto">
-        {tab === 'inicio'     && <Home />}
-        {tab === 'portfolio'  && <PortfolioManager />}
-        {tab === 'monitor'    && <Monitor />}
-        {tab === 'estrategia' && <Strategy />}
-      </main>
+    <div className="flex" style={{ height: '100vh', backgroundColor: 'var(--bg-primary)' }}>
+      <Sidebar />
+      <div className="flex flex-col flex-1 min-w-0">
+        <StatusBar connectionStatus={socketStatus} lastUpdate={lastUpdate} />
+        <TabNav active={tab} onChange={setTab} />
+        <main className="flex-1 overflow-auto">
+          {tab === 'inicio'     && <Home />}
+          {tab === 'portfolio'  && <PortfolioManager />}
+          {tab === 'monitor'    && <Monitor />}
+          {tab === 'estrategia' && <Strategy />}
+        </main>
+      </div>
     </div>
   );
 }
