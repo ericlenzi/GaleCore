@@ -1,6 +1,6 @@
 import React from 'react';
-import { TickerState, SignalType, LayerStatus } from '../../types/market';
-import { fmtPrice, fmtPct, calcChange, fmtTime, isStale, fmtGex } from '../../utils/formatters';
+import { TickerState, LayerStatus } from '../../types/market';
+import { fmtPrice, fmtPct, calcChange, fmtTime, isStale } from '../../utils/formatters';
 
 interface Props {
   ticker: TickerState;
@@ -9,11 +9,14 @@ interface Props {
   onClick: () => void;
 }
 
-function SignalBadge({ signal }: { signal: SignalType }) {
-  const cfg =
-    signal === 'OPERAR'    ? { color: '#22c55e', bg: 'var(--green-muted)',  border: 'var(--green-border)'  } :
-    signal === 'ESPERAR'   ? { color: '#f59e0b', bg: 'var(--yellow-muted)', border: 'var(--yellow-border)' } :
-                             { color: '#f43f5e', bg: 'var(--red-muted)',    border: 'var(--red-border)'    };
+function MarketStatusBadge({ extendedTradingHours }: { extendedTradingHours: boolean | null | undefined }) {
+  const isOpen = extendedTradingHours === false;
+  const isClosed = extendedTradingHours === true;
+  const cfg = isOpen
+    ? { color: '#22c55e', bg: 'var(--green-muted)', border: 'var(--green-border)', label: 'OPEN' }
+    : isClosed
+    ? { color: '#f43f5e', bg: 'var(--red-muted)', border: 'var(--red-border)', label: 'CLOSED' }
+    : { color: '#f59e0b', bg: 'var(--yellow-muted)', border: 'var(--yellow-border)', label: '—' };
   return (
     <span style={{
       fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
@@ -21,24 +24,8 @@ function SignalBadge({ signal }: { signal: SignalType }) {
       color: cfg.color, backgroundColor: cfg.bg, border: `1px solid ${cfg.border}`,
       fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap', lineHeight: 1.4,
     }}>
-      {signal}
+      {cfg.label}
     </span>
-  );
-}
-
-function LayerRow({ label, ok, value }: { label: string; ok: boolean | null; value: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
-      <span style={{
-        width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-        backgroundColor: ok === null ? 'transparent' : ok ? 'var(--green)' : 'var(--red-gc)',
-        border: ok === null ? '1px solid var(--text-muted)' : 'none',
-      }} />
-      <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{label}</span>
-      <span style={{ color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace', marginLeft: 'auto', fontSize: 10 }} className="tabular-nums">
-        {value}
-      </span>
-    </div>
   );
 }
 
@@ -70,7 +57,7 @@ export function TickerCard({ ticker, layers, selected, onClick }: Props) {
         <span style={{ color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: 13, letterSpacing: '0.05em' }}>
           {ticker.symbol}
         </span>
-        <SignalBadge signal={layers.signal} />
+        <MarketStatusBadge extendedTradingHours={ticker.extendedTradingHours} />
       </div>
 
       {/* Price + change */}
@@ -86,18 +73,6 @@ export function TickerCard({ ticker, layers, selected, onClick }: Props) {
             }}>
               {fmtPrice(ticker.price)}
             </div>
-            {ticker.extendedTradingHours != null && (
-              <div className="flex items-center gap-1" style={{ fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }}>
-                <span style={{
-                  width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                  backgroundColor: !ticker.extendedTradingHours ? 'var(--green)' : 'var(--text-muted)',
-                  boxShadow: !ticker.extendedTradingHours ? '0 0 4px var(--green)' : 'none',
-                }} />
-                <span style={{ color: 'var(--text-muted)', textAlign: 'center' }}>
-                  {!ticker.extendedTradingHours ? 'open' : 'closed'}
-                </span>
-              </div>
-            )}
           </div>
           <div className="tabular-nums" style={{ fontSize: 12, fontWeight: 500, color: changeColor, fontFamily: 'JetBrains Mono, monospace', marginTop: 2 }}>
             {positive ? '+' : ''}{fmtPrice(changeAbs, 2)}{' '}
@@ -132,17 +107,6 @@ export function TickerCard({ ticker, layers, selected, onClick }: Props) {
           <div className="skeleton" style={{ height: 12, width: '55%', marginTop: 5 }} />
         </div>
       )}
-
-      {/* Divider */}
-      <div style={{ borderTop: '1px solid var(--border-dark)', marginBottom: 10 }} />
-
-      {/* Layer rows */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <LayerRow label="GEX"      ok={layers.gexOk}             value={layers.gexValue != null ? fmtGex(layers.gexValue) : '—'} />
-        <LayerRow label="IV Rank"  ok={layers.ivRankOk}          value={ticker.ivRank != null ? `${ticker.ivRank.toFixed(0)}` : '—'} />
-        <LayerRow label="Spot>ZGL" ok={layers.spotAboveZgl}      value={layers.zglValue != null ? fmtPrice(layers.zglValue, 0) : '—'} />
-        <LayerRow label="VIX TS"   ok={layers.vixTermStructureOk} value={layers.vixTermStructureOk !== null ? (layers.vixTermStructureOk ? 'OK' : 'NO') : '—'} />
-      </div>
 
       {/* Timestamp */}
       <div style={{ textAlign: 'right', marginTop: 10, fontSize: 9, fontFamily: 'JetBrains Mono, monospace', color: stale ? 'var(--yellow-gc)' : 'var(--text-muted)' }}>

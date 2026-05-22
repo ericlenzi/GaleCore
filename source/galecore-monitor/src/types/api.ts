@@ -285,6 +285,7 @@ export interface QuoteResponse {
 
 // ─── Account API ──────────────────────────────────────────────────────────────
 export interface BalancesResponse {
+  accountNumber: string;
   netLiquidatingValue: number;
   buyingPower: number;
   cash: number;

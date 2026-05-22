@@ -46,7 +46,7 @@ export function AccountSummary() {
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
-          Cuenta
+          Account{balances?.accountNumber ? ` · ${balances.accountNumber}` : ''}
         </span>
         <button
           onClick={handleRefresh}
@@ -84,12 +84,12 @@ export function AccountSummary() {
           <Row label="Buying Power" value={fmtCurrency(balances.buyingPower)} />
           <Row label="Cash" value={fmtCurrency(balances.cash)} />
           <div style={{ borderTop: '1px solid var(--border-dark)', marginTop: 6, paddingTop: 6 }}>
-            <Row label="Posiciones" value={`${positions.length}`} />
+            <Row label="Positions" value={`${positions.length}`} />
           </div>
         </div>
       ) : (
         <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          Sin datos
+          No data
         </div>
       )}
 

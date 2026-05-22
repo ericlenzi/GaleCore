@@ -9,6 +9,10 @@ export async function fetchBalances(): Promise<BalancesResponse> {
   const raw = ((data as any)?.data ?? data) as Record<string, unknown>;
 
   return {
+    accountNumber:
+      (raw.accountNumber as string) ??
+      (raw['account-number'] as string) ?? '',
+
     netLiquidatingValue:
       (raw.netLiquidatingValue as number) ??
       (raw.netLiquidation as number) ??
