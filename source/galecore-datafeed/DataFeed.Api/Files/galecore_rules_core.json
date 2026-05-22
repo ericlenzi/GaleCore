@@ -75,15 +75,15 @@
     },
     "iv30_atm_roc_pct": {
       "type": "formula",
-      "formula": "((iv30_today - iv30_3d_ago) / iv30_3d_ago) * 100",
-      "window_days": 3,
+      "formula": "((iv30_today - iv30_5d_ago) / iv30_5d_ago) * 100",
+      "window_days": 5,
       "iv30_today": {
-        "source": "/Data/Tastytrade/MarketData/Candle?Symbol={SYMBOL}&Interval=1d → ImpVolatility última vela (×100)",
+        "source": "/Data/Tastytrade/Market-metrics/VolatilityData → impliedVolatilityIndex (×100)",
         "field": "IV30_0d"
       },
-      "iv30_3d_ago": {
-        "source": "/App.Analytics/ImpliedVolatility?Symbol={SYMBOL} → IV30_3d (ImpVolatility vela −3 sesiones ×100)",
-        "field": "IV30_3d"
+      "iv30_5d_ago": {
+        "source": "/Data/Tastytrade/Market-metrics/VolatilityData → impliedVolatilityIndex - impliedVolatilityIndex5DayChange (×100)",
+        "field": "IV30_5d"
       },
       "endpoint": "/App.Analytics/ImpliedVolatility → IV30RocPct"
     },
@@ -263,13 +263,13 @@
         },
         {
           "id": "iv_momentum",
-          "label": "IV aceleración ≤ 15%",
+          "label": "IV aceleración ≤ 12%",
           "metric":    { "ref": "definitions.iv30_atm_roc_pct" },
           "operator":  "lte",
-          "threshold": { "value": 15.0 },
+          "threshold": { "value": 12.0 },
           "source": "/App.Analytics/ImpliedVolatility?Symbol={SYMBOL} → IV30RocPct",
           "on_fail": "wait_for_stabilization",
-          "note": "IV en expansión rápida indica régimen de stress activo. IV30RocPct = ((IV30_0d − IV30_3d) / IV30_3d) × 100."
+          "note": "IV en expansión rápida indica régimen de stress activo. IV30RocPct = ((IV30_0d − IV30_5d) / IV30_5d) × 100. Ventana de 5 días con umbral ajustado."
         },
         {
           "id": "gex_total",
