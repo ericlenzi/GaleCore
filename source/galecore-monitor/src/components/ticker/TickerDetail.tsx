@@ -201,8 +201,6 @@ export function TickerDetail({ symbol, onClose }: Props) {
           <ValidationLayers
             symbol={symbol}
             layers={layers}
-            ivRank={ticker?.ivRank ?? null}
-            iv30={ticker?.iv30 ?? null}
             vlData={vlData}
           />
         </div>

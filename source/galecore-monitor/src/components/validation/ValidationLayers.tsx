@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { LayerStatus } from '../../types/market';
 import { ValidationLayerApiResponse } from '../../types/api';
 import { fmtPrice, fmtGex } from '../../utils/formatters';
@@ -6,8 +6,6 @@ import { fmtPrice, fmtGex } from '../../utils/formatters';
 interface Props {
   symbol: string;
   layers: LayerStatus;
-  ivRank: number | null;
-  iv30: number | null;
   vlData: ValidationLayerApiResponse | null;
 }
 
@@ -31,25 +29,70 @@ function DotSmall({ ok }: { ok: boolean | null }) {
   );
 }
 
+interface TooltipRow { label: string; value: string }
+
 interface MetricCellProps {
   label: string;
   value: string;
   sub: string;
   ok: boolean | null;
+  tooltip?: TooltipRow[];
 }
 
-function MetricCell({ label, value, sub, ok }: MetricCellProps) {
+function MetricCell({ label, value, sub, ok, tooltip }: MetricCellProps) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const valueColor = ok === null ? 'var(--text-secondary)' : ok ? 'var(--green)' : 'var(--red-gc)';
+
+  const handleEnter = (e: React.MouseEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setPos({ x: rect.left + rect.width / 2, y: rect.bottom + 6 });
+  };
+
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      padding: '7px 8px',
-      gap: 2,
-      backgroundColor: 'var(--bg-tertiary)',
-      borderRadius: 6,
-      minWidth: 0,
-    }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        padding: '7px 8px',
+        gap: 2,
+        backgroundColor: 'var(--bg-tertiary)',
+        borderRadius: 6,
+        minWidth: 0,
+        cursor: tooltip ? 'help' : undefined,
+      }}
+      onMouseEnter={tooltip ? handleEnter : undefined}
+      onMouseLeave={tooltip ? () => setPos(null) : undefined}
+    >
+      {pos && tooltip && (
+        <div style={{
+          position: 'fixed',
+          top: pos.y,
+          left: pos.x,
+          transform: 'translateX(-50%)',
+          padding: '6px 10px',
+          backgroundColor: 'var(--bg-primary)',
+          border: '1px solid var(--border)',
+          borderRadius: 6,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+          zIndex: 9999,
+          whiteSpace: 'nowrap',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 3,
+          pointerEvents: 'none',
+        }}>
+          {tooltip.map((r) => (
+            <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+              <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                {r.label}
+              </span>
+              <span className="tabular-nums" style={{ fontSize: 10, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }}>
+                {r.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       <span style={{
         fontSize: 8.5,
         fontWeight: 600,
@@ -158,7 +201,8 @@ function fmtOI(v: number): string {
   return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${v}`;
 }
 
-export function ValidationLayers({ symbol, layers, ivRank, vlData }: Props) {
+export function ValidationLayers({ symbol, layers, vlData }: Props) {
+  const l1 = vlData?.layer1;
   const l2 = vlData?.layer2;
   const l3 = vlData?.layer3;
   const l4 = vlData?.layer4;
@@ -194,9 +238,13 @@ export function ValidationLayers({ symbol, layers, ivRank, vlData }: Props) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5 }}>
         <MetricCell
           label="IV Rank"
-          value={ivRank != null ? `${ivRank.toFixed(0)}` : '—'}
+          value={layers.ivRankValue != null ? `${layers.ivRankValue.toFixed(0)}` : '—'}
           sub={layers.ivRankOk === null ? 'sin datos' : layers.ivRankOk ? '25–65 ✓' : '25–65 ✗'}
           ok={layers.ivRankOk}
+          tooltip={l1?.ivRank ? [
+            { label: 'Valor', value: l1.ivRank.value.toFixed(2) },
+            { label: 'Rango', value: `${l1.ivRank.min} – ${l1.ivRank.max}` },
+          ] : undefined}
         />
         <MetricCell
           label="GEX"
@@ -209,6 +257,10 @@ export function ValidationLayers({ symbol, layers, ivRank, vlData }: Props) {
           value={layers.vixTermStructureOk === null ? '—' : layers.vixTermStructureOk ? 'OK' : 'INV'}
           sub={layers.vixTermStructureOk === null ? 'esperando' : layers.vixTermStructureOk ? '9D < 3M ✓' : '9D > 3M ✗'}
           ok={layers.vixTermStructureOk}
+          tooltip={l1?.vixTermStructure ? [
+            { label: 'IV 9D', value: l1.vixTermStructure.iV30_9d?.toFixed(2) ?? '—' },
+            { label: 'IV 3M', value: l1.vixTermStructure.iV30_90d?.toFixed(2) ?? '—' },
+          ] : undefined}
         />
         <MetricCell
           label="Spot > ZGL"
