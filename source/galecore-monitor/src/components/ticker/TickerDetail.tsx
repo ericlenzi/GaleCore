@@ -1,17 +1,19 @@
-import React, { useState, useCallback } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { X, RefreshCw } from 'lucide-react';
 import { GexChart } from '../chart/GexChart';
 import { ValidationLayers } from '../validation/ValidationLayers';
 import { useMarketStore } from '../../store/useMarketStore';
-import { fetchValidationLayer } from '../../api/analytics';
-import { GammaExposureResponse, ValidationLayerApiResponse } from '../../types/api';
-import { fmtTime, isStale } from '../../utils/formatters';
+import { useValidationStore } from '../../store/useValidationStore';
 import { LayerStatus, SignalType } from '../../types/market';
+import { ValidationLayerApiResponse } from '../../types/api';
+import { fmtTime, isStale } from '../../utils/formatters';
 
 interface Props {
   symbol: string;
   onClose: () => void;
 }
+
+const AUTO_REFRESH_MS = 30_000;
 
 function mapValidationToLayers(v: ValidationLayerApiResponse): LayerStatus {
   const l1 = v.layer1;
@@ -61,59 +63,23 @@ const DETAIL_HEIGHT = 500;
 
 export function TickerDetail({ symbol, onClose }: Props) {
   const ticker = useMarketStore((s) => s.tickers[symbol]);
+  const cached = useValidationStore((s) => s.cache[symbol]);
+  const loading = useValidationStore((s) => s.loading[symbol] ?? false);
+  const error = useValidationStore((s) => s.error[symbol] ?? null);
+  const fetchValidation = useValidationStore((s) => s.fetchValidation);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [vlData, setVlData] = useState<ValidationLayerApiResponse | null>(null);
-  const [gexData, setGexData] = useState<GammaExposureResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [updated, setUpdated] = useState<Date | null>(null);
+  // Initial load (only if no cache) + auto-refresh every 30s
+  useEffect(() => {
+    if (!cached) fetchValidation(symbol);
 
-  const loadData = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    fetchValidationLayer(symbol)
-      .then((vl) => {
-        setVlData(vl);
-        if (vl.gexData) {
-          const g = vl.gexData;
-          const strikes = g.strikes ?? [];
-          const callWallStrike = strikes.reduce(
-            (best, s) => (s.callGEX > best.callGEX ? s : best),
-            strikes[0] ?? { strike: 0, callGEX: 0, putGEX: 0, netGEX: 0 },
-          );
-          const putWallStrike = strikes.reduce(
-            (best, s) => (s.putGEX < best.putGEX ? s : best),
-            strikes[0] ?? { strike: 0, callGEX: 0, putGEX: 0, netGEX: 0 },
-          );
-          const netGex = strikes.reduce((sum, s) => sum + s.netGEX, 0) / 1000;
-          setGexData({
-            symbol: vl.symbol,
-            spot: g.spot,
-            dte: g.dte,
-            expiration: g.expiration ?? '',
-            zeroGammaLevel: g.gammaZeroLevel ?? 0,
-            netGex,
-            callWall: callWallStrike.strike,
-            putWall: putWallStrike.strike,
-            strikes: strikes.map((s) => ({
-              strike: s.strike,
-              callGex: s.callGEX,
-              putGex: s.putGEX,
-              netGex: s.netGEX,
-              callOI: s.callOI,
-              putOI: s.putOI,
-              callDelta: s.callDelta,
-              putDelta: s.putDelta,
-            })),
-          });
-        }
-        setUpdated(new Date());
-      })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [symbol]);
+    intervalRef.current = setInterval(() => fetchValidation(symbol), AUTO_REFRESH_MS);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [symbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  React.useEffect(() => { loadData(); }, [loadData]);
+  const vlData = cached?.vlData ?? null;
+  const gexData = cached?.gexData ?? null;
+  const updated = cached?.updatedAt ?? null;
 
   const layers: LayerStatus = vlData
     ? mapValidationToLayers(vlData)
@@ -165,7 +131,7 @@ export function TickerDetail({ symbol, onClose }: Props) {
             </span>
           )}
           <button
-            onClick={loadData}
+            onClick={() => fetchValidation(symbol)}
             disabled={loading}
             className="btn"
             title="Refrescar validación"

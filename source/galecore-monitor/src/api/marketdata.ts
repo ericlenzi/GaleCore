@@ -2,13 +2,19 @@ import apiClient from './client';
 import { MarketDataByTypeApiResponse, MarketDataByTypeResponse, QuoteResponse, CandleItem } from '../types/api';
 
 export async function fetchMarketDataByType(symbol: string): Promise<MarketDataByTypeResponse> {
+  const results = await fetchMarketDataBatch([symbol]);
+  const item = results[0];
+  if (!item) throw new Error(`No market data for ${symbol}`);
+  return item;
+}
+
+export async function fetchMarketDataBatch(symbols: string[]): Promise<MarketDataByTypeResponse[]> {
   const { data } = await apiClient.get<MarketDataByTypeApiResponse>(
     '/Data/Tastytrade/MarketData/ByType',
-    { params: { Symbol: symbol } }
+    { params: { Symbol: symbols.join(',') } }
   );
-  const item = data?.data?.items?.[0];
-  if (!item) throw new Error(`No market data for ${symbol}`);
-  return {
+  const items = data?.data?.items ?? [];
+  return items.map((item) => ({
     symbol:    item.symbol,
     open:      item.open,
     prevClose: item.prevClose,
@@ -16,7 +22,7 @@ export async function fetchMarketDataByType(symbol: string): Promise<MarketDataB
     bid:       item.bid,
     ask:       item.ask,
     volume:    item.volume,
-  };
+  }));
 }
 
 export async function fetchQuote(symbol: string): Promise<QuoteResponse> {
