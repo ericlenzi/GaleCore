@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Check, X as XIcon } from 'lucide-react';
 import { LayerStatus } from '../../types/market';
 import { ValidationLayerApiResponse } from '../../types/api';
-import { fmtPrice, fmtGex } from '../../utils/formatters';
+import { fmtPrice, fmtGex, signalColor } from '../../utils/formatters';
 
 interface Props {
   symbol: string;
@@ -251,21 +250,19 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
           }}>
             Signal
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {layers.signal === 'OPERAR' ? (
-              <Check size={14} style={{ color: 'var(--green)', flexShrink: 0 }} />
-            ) : (
-              <XIcon size={14} style={{ color: 'var(--red-gc)', flexShrink: 0 }} />
-            )}
-            <span className="tabular-nums" style={{
-              fontSize: 14, fontWeight: 700,
-              color: layers.signal === 'OPERAR' ? 'var(--green)' : layers.signal === 'ESPERAR' ? 'var(--text-secondary)' : 'var(--red-gc)',
-              fontFamily: 'JetBrains Mono, monospace',
-              letterSpacing: '-0.02em', lineHeight: 1.1,
-            }}>
-              {layers.signal}
-            </span>
-          </div>
+          <span
+            style={{
+              fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
+              padding: '3px 10px', borderRadius: 4, textTransform: 'uppercase',
+              fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap',
+              color: signalColor(layers.signal),
+              backgroundColor: signalColor(layers.signal) + '22',
+              border: `1px solid ${signalColor(layers.signal)}44`,
+              alignSelf: 'flex-start',
+            }}
+          >
+            {layers.signal}
+          </span>
         </div>
       </div>
 

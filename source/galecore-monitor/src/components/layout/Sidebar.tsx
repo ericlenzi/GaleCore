@@ -13,32 +13,20 @@ export function Sidebar() {
       height: '100%',
       overflow: 'hidden',
     }}>
-      {/* Logo */}
+      {/* Logo — height matches StatusBar + TabNav (36 + 36 = 72px) */}
       <div style={{
-        padding: '20px 16px 16px',
+        height: 72,
+        padding: '0 10px',
         borderBottom: '1px solid var(--border-dark)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
       }}>
-        <div style={{
-          fontFamily: 'JetBrains Mono, monospace',
-          fontWeight: 700,
-          fontSize: 15,
-          letterSpacing: '0.22em',
-          color: 'var(--text-primary)',
-          textAlign: 'center',
-        }}>
-          GALECORE
-        </div>
-        <div style={{
-          fontFamily: 'Inter, sans-serif',
-          fontSize: 8,
-          letterSpacing: '0.18em',
-          textTransform: 'uppercase',
-          color: 'var(--text-muted)',
-          textAlign: 'center',
-          marginTop: 3,
-        }}>
-          Trading Monitor
-        </div>
+        <img
+          src="/logo-galecore.png"
+          alt="GaleCore"
+          style={{ width: '100%', objectFit: 'contain' }}
+        />
       </div>
 
       {/* Account — always visible */}
