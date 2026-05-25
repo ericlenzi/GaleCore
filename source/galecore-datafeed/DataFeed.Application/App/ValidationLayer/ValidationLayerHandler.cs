@@ -37,7 +37,25 @@ namespace DataFeed.Application.App.ValidationLayer
                 Symbol = symbol,
                 Profile = request.Profile,
                 Timestamp = DateTime.UtcNow,
-                SpotPrice = gex.Spot
+                SpotPrice = gex.Spot,
+                GexData = new ValidationGexData
+                {
+                    Spot = gex.Spot,
+                    DTE = gex.DTE,
+                    Expiration = gex.Expiration,
+                    GammaZeroLevel = gex.GammaZeroLevel,
+                    Strikes = gex.Strikes.Select(s => new ValidationGexStrike
+                    {
+                        Strike = s.Strike,
+                        CallGEX = s.CallGEX,
+                        PutGEX = s.PutGEX,
+                        NetGEX = s.NetGEX,
+                        CallOI = s.CallOI,
+                        PutOI = s.PutOI,
+                        CallDelta = s.CallDelta,
+                        PutDelta = s.PutDelta,
+                    }).ToList()
+                }
             };
 
             // === LAYER 1 ===

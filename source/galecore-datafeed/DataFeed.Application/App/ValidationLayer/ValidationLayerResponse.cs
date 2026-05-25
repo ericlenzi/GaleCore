@@ -13,6 +13,29 @@ namespace DataFeed.Application.App.ValidationLayer
         public Layer2StrikesResult? Layer2 { get; set; }
         public Layer3MicroResult? Layer3 { get; set; }
         public Layer4SizingResult? Layer4 { get; set; }
+
+        public ValidationGexData? GexData { get; set; }
+    }
+
+    public class ValidationGexData
+    {
+        public double Spot { get; set; }
+        public int DTE { get; set; }
+        public string Expiration { get; set; }
+        public double? GammaZeroLevel { get; set; }
+        public List<ValidationGexStrike> Strikes { get; set; } = new();
+    }
+
+    public class ValidationGexStrike
+    {
+        public double Strike { get; set; }
+        public double CallGEX { get; set; }
+        public double PutGEX { get; set; }
+        public double NetGEX { get; set; }
+        public long CallOI { get; set; }
+        public long PutOI { get; set; }
+        public double CallDelta { get; set; }
+        public double PutDelta { get; set; }
     }
 
     // --- Layer 1: Régimen Macro y GEX ---
