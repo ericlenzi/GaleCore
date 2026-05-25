@@ -177,6 +177,26 @@ export interface ValidationLayerApiResponse {
   layer2: Layer2StrikesResult | null;
   layer3: Layer3MicroResult | null;
   layer4: Layer4SizingResult | null;
+  gexData: ValidationGexData | null;
+}
+
+export interface ValidationGexData {
+  spot: number;
+  dte: number;
+  expiration: string;
+  gammaZeroLevel: number | null;
+  strikes: ValidationGexStrike[];
+}
+
+export interface ValidationGexStrike {
+  strike: number;
+  callGEX: number;
+  putGEX: number;
+  netGEX: number;
+  callOI: number;
+  putOI: number;
+  callDelta: number;
+  putDelta: number;
 }
 
 export interface Layer1MacroResult {

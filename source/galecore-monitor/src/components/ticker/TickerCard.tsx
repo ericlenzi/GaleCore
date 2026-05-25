@@ -1,10 +1,9 @@
 import React from 'react';
-import { TickerState, LayerStatus } from '../../types/market';
+import { TickerState } from '../../types/market';
 import { fmtPrice, fmtPct, calcChange, fmtTime, isStale } from '../../utils/formatters';
 
 interface Props {
   ticker: TickerState;
-  layers: LayerStatus;
   selected: boolean;
   onClick: () => void;
 }
@@ -29,7 +28,7 @@ function MarketStatusBadge({ extendedTradingHours }: { extendedTradingHours: boo
   );
 }
 
-export function TickerCard({ ticker, layers, selected, onClick }: Props) {
+export function TickerCard({ ticker, selected, onClick }: Props) {
   // Use prevClose as change basis (like TradingView); fallback to open
   const basis      = ticker.prevClose && ticker.prevClose > 0 ? ticker.prevClose : ticker.open;
   const { abs: changeAbs, pct: changePct } = calcChange(ticker.price, basis);

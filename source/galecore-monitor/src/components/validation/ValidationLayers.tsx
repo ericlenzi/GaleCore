@@ -124,6 +124,30 @@ function InfoItem({ label, value, mono = true }: { label: string; value: string;
   );
 }
 
+function ListRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '2px 0',
+      borderBottom: '1px solid var(--border-dark)',
+    }}>
+      <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+        {label}
+      </span>
+      <span className="tabular-nums" style={{
+        fontSize: 11,
+        color: 'var(--text-secondary)',
+        fontFamily: 'JetBrains Mono, monospace',
+        fontWeight: 600,
+      }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
 const structureLabels: Record<string, string> = {
   iron_condor: 'IC',
   put_credit_spread: 'PCS',
@@ -166,7 +190,7 @@ export function ValidationLayers({ symbol, layers, ivRank, vlData }: Props) {
         {symbol} · Capas de validación
       </div>
 
-      {/* ── Grid Capa 1: 3 columnas × 2 filas ── */}
+      {/* ── Grid Capa 1: 4 checks + señal ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5 }}>
         <MetricCell
           label="IV Rank"
@@ -186,58 +210,52 @@ export function ValidationLayers({ symbol, layers, ivRank, vlData }: Props) {
           sub={layers.vixTermStructureOk === null ? 'esperando' : layers.vixTermStructureOk ? '9D < 3M ✓' : '9D > 3M ✗'}
           ok={layers.vixTermStructureOk}
         />
-
-        <MetricCell
-          label="ZGL"
-          value={layers.zglValue != null ? fmtPrice(layers.zglValue, 0) : '—'}
-          sub="Gamma Zero"
-          ok={null}
-        />
         <MetricCell
           label="Spot > ZGL"
           value={layers.spotAboveZgl === null ? '—' : layers.spotAboveZgl ? 'SÍ' : 'NO'}
           sub={layers.spotAboveZgl === null ? 'sin datos' : layers.spotAboveZgl ? 'encima ✓' : 'abajo ✗'}
           ok={layers.spotAboveZgl}
         />
-        <MetricCell
-          label="Señal"
-          value={layers.signal}
-          sub={layers.signal === 'OPERAR' ? 'todos OK' : layers.signal === 'ESPERAR' ? 'parcial' : 'no ok'}
-          ok={layers.signal === 'OPERAR' ? true : layers.signal === 'ESPERAR' ? null : false}
-        />
+        <div style={{ gridColumn: 'span 2', display: 'grid', alignItems: 'stretch' }}>
+          <MetricCell
+            label="Señal"
+            value={layers.signal}
+            sub={layers.signal === 'OPERAR' ? 'todos OK' : layers.signal === 'ESPERAR' ? 'parcial' : 'no ok'}
+            ok={layers.signal === 'OPERAR' ? true : layers.signal === 'ESPERAR' ? null : false}
+          />
+        </div>
       </div>
 
       {/* ── Motor de Strikes ── */}
-      <InfoLine>
+      <div style={{
+        backgroundColor: 'var(--bg-tertiary)',
+        borderRadius: 6,
+        padding: '8px 10px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+      }}>
         <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#a78bfa', fontFamily: 'Inter, sans-serif' }}>
           Motor de Strikes
         </span>
-        <InfoItem label="EM" value={emDetail !== '—' ? `${emDetail} pts` : '—'} />
-        <InfoItem label="Call Wall" value={layers.callWall != null ? fmtPrice(layers.callWall, 0) : '—'} />
-        <InfoItem label="Put Wall"  value={layers.putWall  != null ? fmtPrice(layers.putWall,  0) : '—'} />
+        <ListRow label="ZGL" value={layers.zglValue != null ? fmtPrice(layers.zglValue, 0) : '—'} />
+        <ListRow label="Call Wall" value={layers.callWall != null ? fmtPrice(layers.callWall, 0) : '—'} />
+        <ListRow label="Put Wall" value={layers.putWall != null ? fmtPrice(layers.putWall, 0) : '—'} />
         {l2 && (
           <>
-            <InfoItem label="Z" value={l2.zScore.toFixed(2)} />
-            <InfoItem label="Estr" value={structureLabels[l2.selectedStructure] ?? l2.selectedStructure} />
+            <ListRow label="Z-Score" value={l2.zScore.toFixed(2)} />
+            <ListRow label="Estructura" value={structureLabels[l2.selectedStructure] ?? l2.selectedStructure} />
+            {l2.shortPutStrike != null && (
+              <ListRow label="Short Put" value={`${fmtPrice(l2.shortPutStrike, 0)} (Δ${l2.shortPutDelta?.toFixed(2) ?? '?'})`} />
+            )}
+            {l2.shortCallStrike != null && (
+              <ListRow label="Short Call" value={`${fmtPrice(l2.shortCallStrike, 0)} (Δ${l2.shortCallDelta?.toFixed(2) ?? '?'})`} />
+            )}
+            <ListRow label="Dentro de muros" value={l2.strikesInsideWalls ? '✓' : '✗'} />
           </>
         )}
-      </InfoLine>
-
-      {/* Short strikes detail */}
-      {l2 && (l2.shortPutStrike || l2.shortCallStrike) && (
-        <InfoLine>
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#a78bfa', fontFamily: 'Inter, sans-serif' }}>
-            Strikes
-          </span>
-          {l2.shortPutStrike != null && (
-            <InfoItem label="Short P" value={`${fmtPrice(l2.shortPutStrike, 0)} (Δ${l2.shortPutDelta?.toFixed(2) ?? '?'})`} />
-          )}
-          {l2.shortCallStrike != null && (
-            <InfoItem label="Short C" value={`${fmtPrice(l2.shortCallStrike, 0)} (Δ${l2.shortCallDelta?.toFixed(2) ?? '?'})`} />
-          )}
-          <InfoItem label="Muros" value={l2.strikesInsideWalls ? '✓' : '✗'} />
-        </InfoLine>
-      )}
+        <ListRow label="Expected Move" value={emDetail !== '—' ? `${emDetail} pts` : '—'} />
+      </div>
 
       {/* ── Microestructura ── */}
       {l3 && (
@@ -254,32 +272,30 @@ export function ValidationLayers({ symbol, layers, ivRank, vlData }: Props) {
       )}
 
       {/* ── Sizing ── */}
-      <InfoLine>
+      <div style={{
+        backgroundColor: 'var(--bg-tertiary)',
+        borderRadius: 6,
+        padding: '8px 10px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+      }}>
         <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--green)', fontFamily: 'Inter, sans-serif' }}>
           Sizing
         </span>
         {l4 ? (
           <>
-            <InfoItem
-              label="Máx riesgo"
-              value={`$${l4.maxRiskAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
-            />
-            <InfoItem
-              label="Posiciones"
-              value={`${l4.openPositions} / ${l4.maxPositions}`}
-            />
-            <InfoItem
-              label="Heat"
-              value={`${l4.currentHeatPct.toFixed(1)}% / ${l4.maxHeatPct.toFixed(1)}%`}
-            />
+            <ListRow label="Máx riesgo" value={`$${l4.maxRiskAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} />
+            <ListRow label="Posiciones" value={`${l4.openPositions} / ${l4.maxPositions}`} />
+            <ListRow label="Heat" value={`${l4.currentHeatPct.toFixed(1)}% / ${l4.maxHeatPct.toFixed(1)}%`} />
           </>
         ) : (
           <>
-            <InfoItem label="Máx riesgo" value="—" />
-            <InfoItem label="Posiciones" value="—" />
+            <ListRow label="Máx riesgo" value="—" />
+            <ListRow label="Posiciones" value="—" />
           </>
         )}
-      </InfoLine>
+      </div>
     </div>
   );
 }

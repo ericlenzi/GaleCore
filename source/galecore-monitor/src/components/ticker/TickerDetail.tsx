@@ -3,7 +3,7 @@ import { X, RefreshCw } from 'lucide-react';
 import { GexChart } from '../chart/GexChart';
 import { ValidationLayers } from '../validation/ValidationLayers';
 import { useMarketStore } from '../../store/useMarketStore';
-import { fetchGammaExposure, fetchValidationLayer } from '../../api/analytics';
+import { fetchValidationLayer } from '../../api/analytics';
 import { GammaExposureResponse, ValidationLayerApiResponse } from '../../types/api';
 import { fmtTime, isStale } from '../../utils/formatters';
 import { LayerStatus, SignalType } from '../../types/market';
@@ -17,12 +17,22 @@ function mapValidationToLayers(v: ValidationLayerApiResponse): LayerStatus {
   const l1 = v.layer1;
   const l2 = v.layer2;
   const l3 = v.layer3;
+  const g = v.gexData;
 
   const signalMap: Record<string, SignalType> = {
     'OPERAR': 'OPERAR',
     'ESPERAR': 'ESPERAR',
     'NO_OPERAR': 'NO OPERAR',
   };
+
+  let gexCallWall: number | null = null;
+  let gexPutWall: number | null = null;
+  if (g && g.strikes?.length) {
+    const cw = g.strikes.reduce((best, s) => (s.callGEX > best.callGEX ? s : best), g.strikes[0]);
+    const pw = g.strikes.reduce((best, s) => (s.putGEX < best.putGEX ? s : best), g.strikes[0]);
+    gexCallWall = cw.strike;
+    gexPutWall = pw.strike;
+  }
 
   return {
     vixTermStructureOk: l1?.vixTermStructure.passed ?? null,
@@ -31,11 +41,11 @@ function mapValidationToLayers(v: ValidationLayerApiResponse): LayerStatus {
     gexOk: l1?.gexTotal.passed ?? null,
     gexValue: l1?.gexTotal.value ?? null,
     spotAboveZgl: l1?.spotVsZGL.passed ?? null,
-    zglValue: l1?.spotVsZGL.zgl ?? null,
+    zglValue: l1?.spotVsZGL.zgl ?? g?.gammaZeroLevel ?? null,
 
     expectedMove: l2?.expectedMove ?? null,
-    callWall: l2?.callWall ?? null,
-    putWall: l2?.putWall ?? null,
+    callWall: l2?.callWall ?? gexCallWall,
+    putWall: l2?.putWall ?? gexPutWall,
 
     atmStrike: l3?.atmStrike ?? null,
     atmCallOI: l3?.shortCallOI?.value ?? null,
@@ -61,13 +71,42 @@ export function TickerDetail({ symbol, onClose }: Props) {
   const loadData = useCallback(() => {
     setLoading(true);
     setError(null);
-    Promise.all([
-      fetchValidationLayer(symbol),
-      fetchGammaExposure(symbol),
-    ])
-      .then(([vl, gex]) => {
+    fetchValidationLayer(symbol)
+      .then((vl) => {
         setVlData(vl);
-        setGexData(gex);
+        if (vl.gexData) {
+          const g = vl.gexData;
+          const strikes = g.strikes ?? [];
+          const callWallStrike = strikes.reduce(
+            (best, s) => (s.callGEX > best.callGEX ? s : best),
+            strikes[0] ?? { strike: 0, callGEX: 0, putGEX: 0, netGEX: 0 },
+          );
+          const putWallStrike = strikes.reduce(
+            (best, s) => (s.putGEX < best.putGEX ? s : best),
+            strikes[0] ?? { strike: 0, callGEX: 0, putGEX: 0, netGEX: 0 },
+          );
+          const netGex = strikes.reduce((sum, s) => sum + s.netGEX, 0) / 1000;
+          setGexData({
+            symbol: vl.symbol,
+            spot: g.spot,
+            dte: g.dte,
+            expiration: g.expiration ?? '',
+            zeroGammaLevel: g.gammaZeroLevel ?? 0,
+            netGex,
+            callWall: callWallStrike.strike,
+            putWall: putWallStrike.strike,
+            strikes: strikes.map((s) => ({
+              strike: s.strike,
+              callGex: s.callGEX,
+              putGex: s.putGEX,
+              netGex: s.netGEX,
+              callOI: s.callOI,
+              putOI: s.putOI,
+              callDelta: s.callDelta,
+              putDelta: s.putDelta,
+            })),
+          });
+        }
         setUpdated(new Date());
       })
       .catch(e => setError(e.message))
