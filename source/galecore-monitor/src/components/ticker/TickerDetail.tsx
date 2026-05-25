@@ -81,6 +81,15 @@ export function TickerDetail({ symbol, onClose }: Props) {
   const gexData = cached?.gexData ?? null;
   const updated = cached?.updatedAt ?? null;
 
+  const iv30 = (() => {
+    const l2 = vlData?.layer2;
+    const g = vlData?.gexData;
+    if (l2 && l2.expectedMove > 0 && g && g.spot > 0 && g.dte > 0) {
+      return (l2.expectedMove / g.spot) / Math.sqrt(g.dte / 365) * 100;
+    }
+    return undefined;
+  })();
+
   const layers: LayerStatus = vlData
     ? mapValidationToLayers(vlData)
     : {
@@ -117,7 +126,7 @@ export function TickerDetail({ symbol, onClose }: Props) {
           color: 'var(--text-primary)',
           letterSpacing: '0.04em',
         }}>
-          {symbol} · Detalle
+          {symbol} · Details
         </span>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -137,7 +146,7 @@ export function TickerDetail({ symbol, onClose }: Props) {
             title="Refrescar validación"
           >
             <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
-            Validar
+            Reload
           </button>
           <button
             onClick={onClose}
@@ -182,14 +191,21 @@ export function TickerDetail({ symbol, onClose }: Props) {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               height: '100%', gap: 8, fontSize: 12, color: 'var(--text-muted)',
             }}>
-              <span className="spinner" /> Cargando…
+              <span className="spinner" /> Loading…
+            </div>
+          ) : !gexData ? (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              height: '100%', fontSize: 12, color: 'var(--text-muted)',
+            }}>
+              No GEX data
             </div>
           ) : (
             <GexChart
               symbol={symbol}
               currentPrice={ticker?.price ?? 0}
               openPrice={ticker?.open ?? 0}
-              iv30={ticker?.iv30}
+              iv30={iv30}
               gexData={gexData}
             />
           )}

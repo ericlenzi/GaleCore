@@ -15,7 +15,7 @@ function MarketStatusBadge({ extendedTradingHours }: { extendedTradingHours: boo
     ? { color: '#22c55e', bg: 'var(--green-muted)', border: 'var(--green-border)', label: 'OPEN' }
     : isClosed
     ? { color: '#f43f5e', bg: 'var(--red-muted)', border: 'var(--red-border)', label: 'CLOSED' }
-    : { color: '#f59e0b', bg: 'var(--yellow-muted)', border: 'var(--yellow-border)', label: '—' };
+    : { color: '#f59e0b', bg: 'var(--yellow-muted)', border: 'var(--yellow-border)', label: 'CLOSED' };
   return (
     <span style={{
       fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',

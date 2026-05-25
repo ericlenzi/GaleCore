@@ -133,39 +133,6 @@ function MetricCell({ label, value, sub, ok, tooltip }: MetricCellProps) {
   );
 }
 
-function InfoLine({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 12,
-      padding: '6px 10px',
-      backgroundColor: 'var(--bg-tertiary)',
-      borderRadius: 6,
-      flexWrap: 'wrap',
-    }}>
-      {children}
-    </div>
-  );
-}
-
-function InfoItem({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <span style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-      <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-        {label}
-      </span>
-      <span className="tabular-nums" style={{
-        fontSize: 11,
-        color: 'var(--text-secondary)',
-        fontFamily: mono ? 'JetBrains Mono, monospace' : 'Inter, sans-serif',
-        fontWeight: 600,
-      }}>
-        {value}
-      </span>
-    </span>
-  );
-}
 
 function ListRow({ label, value }: { label: string; value: string }) {
   return (
@@ -231,7 +198,7 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
         paddingBottom: 6,
         borderBottom: '1px solid var(--border-dark)',
       }}>
-        {symbol} · Capas de validación
+        {symbol} · Validations Layer
       </div>
 
       {/* ── Grid Capa 1: 4 checks + señal ── */}
@@ -242,8 +209,8 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
           sub={layers.ivRankOk === null ? 'sin datos' : layers.ivRankOk ? '25–65 ✓' : '25–65 ✗'}
           ok={layers.ivRankOk}
           tooltip={l1?.ivRank ? [
-            { label: 'Valor', value: l1.ivRank.value.toFixed(2) },
-            { label: 'Rango', value: `${l1.ivRank.min} – ${l1.ivRank.max}` },
+            { label: 'Value', value: l1.ivRank.value.toFixed(2) },
+            { label: 'Range', value: `${l1.ivRank.min} – ${l1.ivRank.max}` },
           ] : undefined}
         />
         <MetricCell
@@ -288,7 +255,7 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
         gap: 6,
       }}>
         <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#a78bfa', fontFamily: 'Inter, sans-serif' }}>
-          Motor de Strikes
+          Strikes Engine
         </span>
         <ListRow label="ZGL" value={layers.zglValue != null ? fmtPrice(layers.zglValue, 0) : '—'} />
         <ListRow label="Call Wall" value={layers.callWall != null ? fmtPrice(layers.callWall, 0) : '—'} />
@@ -311,16 +278,24 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
 
       {/* ── Microestructura ── */}
       {l3 && (
-        <InfoLine>
+        <div style={{
+          backgroundColor: 'var(--bg-tertiary)',
+          borderRadius: 6,
+          padding: '8px 10px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+        }}>
           <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--yellow-gc)', fontFamily: 'Inter, sans-serif' }}>
-            Microestructura
+            Microstructure
           </span>
-          <InfoItem label="ATM" value={fmtPrice(l3.atmStrike, 0)} />
-          <InfoItem label="OI Short" value={`C:${fmtOI(l3.shortCallOI.value)} P:${fmtOI(l3.shortPutOI.value)}`} />
+          <ListRow label="ATM Strike" value={fmtPrice(l3.atmStrike, 0)} />
+          <ListRow label="Call OI" value={fmtOI(l3.shortCallOI.value)} />
+          <ListRow label="Put OI" value={fmtOI(l3.shortPutOI.value)} />
           {l3.atmCallDelta != null && (
-            <InfoItem label="Δ" value={l3.atmCallDelta.toFixed(2)} />
+            <ListRow label="ATM Delta" value={l3.atmCallDelta.toFixed(2)} />
           )}
-        </InfoLine>
+        </div>
       )}
 
       {/* ── Sizing ── */}
@@ -338,13 +313,13 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
         {l4 ? (
           <>
             <ListRow label="Máx riesgo" value={`$${l4.maxRiskAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} />
-            <ListRow label="Posiciones" value={`${l4.openPositions} / ${l4.maxPositions}`} />
+            <ListRow label="Positions" value={`${l4.openPositions} / ${l4.maxPositions}`} />
             <ListRow label="Heat" value={`${l4.currentHeatPct.toFixed(1)}% / ${l4.maxHeatPct.toFixed(1)}%`} />
           </>
         ) : (
           <>
             <ListRow label="Máx riesgo" value="—" />
-            <ListRow label="Posiciones" value="—" />
+            <ListRow label="Positions" value="—" />
           </>
         )}
       </div>

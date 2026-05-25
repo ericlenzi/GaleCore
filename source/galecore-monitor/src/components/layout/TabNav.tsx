@@ -9,10 +9,10 @@ interface Props {
 }
 
 const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
-  { id: 'inicio',     label: 'Inicio',            Icon: LayoutDashboard },
+  { id: 'inicio',     label: 'Main',              Icon: LayoutDashboard },
   { id: 'portfolio',  label: 'Portfolio Manager',  Icon: BarChart2       },
   { id: 'monitor',    label: 'Monitor',            Icon: Activity        },
-  { id: 'estrategia', label: 'Estrategia',         Icon: BookOpen        },
+  { id: 'estrategia', label: 'Strategy',           Icon: BookOpen        },
 ];
 
 export function TabNav({ active, onChange }: Props) {
