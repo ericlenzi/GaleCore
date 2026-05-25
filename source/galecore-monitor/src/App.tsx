@@ -53,9 +53,9 @@ function Dashboard() {
       <div className="flex flex-col flex-1 min-w-0">
         <StatusBar connectionStatus={socketStatus} lastUpdate={lastUpdate} />
         <TabNav active={tab} onChange={setTab} />
-        <main className="flex-1 overflow-auto">
-          {tab === 'inicio'     && <Home />}
-          {tab === 'portfolio'  && <PortfolioManager />}
+        <main className="flex-1 overflow-auto" style={{ position: 'relative' }}>
+          <div style={{ display: tab === 'inicio' ? 'block' : 'none', height: '100%', overflow: 'auto' }}><Home /></div>
+          <div style={{ display: tab === 'portfolio' ? 'block' : 'none', height: '100%', overflow: 'auto' }}><PortfolioManager /></div>
           {tab === 'monitor'    && <Monitor />}
           {tab === 'estrategia' && <Strategy />}
         </main>
