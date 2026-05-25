@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Check, X as XIcon } from 'lucide-react';
 import { LayerStatus } from '../../types/market';
 import { ValidationLayerApiResponse } from '../../types/api';
 import { fmtPrice, fmtGex } from '../../utils/formatters';
@@ -235,13 +236,36 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
           sub={layers.spotAboveZgl === null ? 'sin datos' : layers.spotAboveZgl ? 'encima ✓' : 'abajo ✗'}
           ok={layers.spotAboveZgl}
         />
-        <div style={{ gridColumn: 'span 2', display: 'grid', alignItems: 'stretch' }}>
-          <MetricCell
-            label="Señal"
-            value={layers.signal}
-            sub={layers.signal === 'OPERAR' ? 'todos OK' : layers.signal === 'ESPERAR' ? 'parcial' : 'no ok'}
-            ok={layers.signal === 'OPERAR' ? true : layers.signal === 'ESPERAR' ? null : false}
-          />
+        <div style={{
+          gridColumn: 'span 2',
+          display: 'flex',
+          flexDirection: 'column',
+          padding: '7px 8px',
+          gap: 4,
+          backgroundColor: 'var(--bg-tertiary)',
+          borderRadius: 6,
+        }}>
+          <span style={{
+            fontSize: 8.5, fontWeight: 600, letterSpacing: '0.09em',
+            textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif',
+          }}>
+            Signal
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {layers.signal === 'OPERAR' ? (
+              <Check size={14} style={{ color: 'var(--green)', flexShrink: 0 }} />
+            ) : (
+              <XIcon size={14} style={{ color: 'var(--red-gc)', flexShrink: 0 }} />
+            )}
+            <span className="tabular-nums" style={{
+              fontSize: 14, fontWeight: 700,
+              color: layers.signal === 'OPERAR' ? 'var(--green)' : layers.signal === 'ESPERAR' ? 'var(--text-secondary)' : 'var(--red-gc)',
+              fontFamily: 'JetBrains Mono, monospace',
+              letterSpacing: '-0.02em', lineHeight: 1.1,
+            }}>
+              {layers.signal}
+            </span>
+          </div>
         </div>
       </div>
 
