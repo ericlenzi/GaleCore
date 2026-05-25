@@ -207,7 +207,7 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
         <MetricCell
           label="IV Rank"
           value={layers.ivRankValue != null ? `${layers.ivRankValue.toFixed(0)}` : '—'}
-          sub={layers.ivRankOk === null ? 'sin datos' : layers.ivRankOk ? '25–65 ✓' : '25–65 ✗'}
+          sub={layers.ivRankOk === null ? '—' : layers.ivRankOk ? '25–65 ✓' : '25–65 ✗'}
           ok={layers.ivRankOk}
           tooltip={l1?.ivRank ? [
             { label: 'Value', value: l1.ivRank.value.toFixed(2) },
@@ -217,13 +217,13 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
         <MetricCell
           label="GEX"
           value={layers.gexValue != null ? fmtGex(layers.gexValue) : '—'}
-          sub={layers.gexOk === null ? 'sin datos' : layers.gexOk ? `≥umbral ✓` : `<umbral ✗`}
+          sub={layers.gexOk === null ? '—' : layers.gexOk ? `≥threshold ✓` : `<threshold ✗`}
           ok={layers.gexOk}
         />
         <MetricCell
           label="VIX TS"
           value={layers.vixTermStructureOk === null ? '—' : layers.vixTermStructureOk ? 'OK' : 'INV'}
-          sub={layers.vixTermStructureOk === null ? 'esperando' : layers.vixTermStructureOk ? '9D < 3M ✓' : '9D > 3M ✗'}
+          sub={layers.vixTermStructureOk === null ? '—' : layers.vixTermStructureOk ? '9D < 3M ✓' : '9D > 3M ✗'}
           ok={layers.vixTermStructureOk}
           tooltip={l1?.vixTermStructure ? [
             { label: 'IV 9D', value: l1.vixTermStructure.iV30_9d?.toFixed(2) ?? '—' },
@@ -232,8 +232,8 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
         />
         <MetricCell
           label="Spot > ZGL"
-          value={layers.spotAboveZgl === null ? '—' : layers.spotAboveZgl ? 'SÍ' : 'NO'}
-          sub={layers.spotAboveZgl === null ? 'sin datos' : layers.spotAboveZgl ? 'encima ✓' : 'abajo ✗'}
+          value={layers.spotAboveZgl === null ? '—' : layers.spotAboveZgl ? 'YES' : 'NO'}
+          sub={layers.spotAboveZgl === null ? '—' : layers.spotAboveZgl ? 'above ✓' : 'below ✗'}
           ok={layers.spotAboveZgl}
         />
         <div style={{
