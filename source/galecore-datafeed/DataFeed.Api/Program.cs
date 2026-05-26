@@ -1,5 +1,6 @@
 using System.Reflection;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
 using MediatR;
 using DataFeed.Infrastructure;
 using DataFeed.Infrastructure.Providers.Tastytrade;
@@ -57,6 +58,7 @@ namespace DataFeed
                 .AddNewtonsoftJsonProtocol(options =>
                 {
                     options.PayloadSerializerSettings.ReferenceLoopHandling = ReferenceLoopHandling.Ignore;
+                    options.PayloadSerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
                 });
 
             // Streaming: DxLink persistente + broadcaster SignalR

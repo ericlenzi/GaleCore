@@ -9,11 +9,6 @@ using Websocket.Client;
 
 namespace DataFeed.Infrastructure.Providers.Tastytrade
 {
-    /// <summary>
-    /// IHostedService que mantiene una conexión DXLink persistente.
-    /// Multiplexa FEED_SUBSCRIPTION para los símbolos suscriptos por clientes del Hub.
-    /// No afecta los endpoints REST existentes que usan el modo one-shot.
-    /// </summary>
     public class DxLinkStreamingService : IHostedService, IDxLinkStreamingService, IDisposable
     {
         private readonly ITastytradeOAuth _auth;
@@ -26,9 +21,16 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         private bool _handshakeComplete;
         private CancellationTokenSource? _cts;
 
+        // Handshake synchronization
+        private TaskCompletionSource<bool>? _authTcs;
+        private TaskCompletionSource<bool>? _channelTcs;
+
         // Reference counting: (symbol, eventType) -> cantidad de suscriptores
         private readonly ConcurrentDictionary<(string Symbol, string EventType), int> _subscriptions = new();
         private readonly object _subLock = new();
+
+        // Pending subscriptions queued before handshake completes
+        private readonly ConcurrentQueue<List<object>> _pendingSubscriptions = new();
 
         public DxLinkStreamingService(
             ITastytradeOAuth auth,
@@ -85,13 +87,17 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
                 _socket = new WebsocketClient(url)
                 {
-                    ReconnectTimeout = null // Manejamos reconexión manualmente
+                    ReconnectTimeout = null
                 };
 
                 _socket.ReconnectionHappened.Subscribe(info =>
                 {
-                    _logger.LogInformation("DxLink reconectado: {Type}", info.Type);
-                    _ = OnReconnectedAsync();
+                    // Skip initial connection — handshake is done below in ConnectAsync
+                    if (info.Type != ReconnectionType.Initial)
+                    {
+                        _logger.LogInformation("DxLink reconectado: {Type}", info.Type);
+                        _ = OnReconnectedAsync();
+                    }
                 });
 
                 _socket.DisconnectionHappened.Subscribe(info =>
@@ -111,14 +117,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                 await _socket.Start();
                 _isConnected = true;
 
-                // Handshake DXLink
-                Send(new { type = "SETUP", channel = 0, version = "0.1-DXF-JS/0.3.0", keepaliveTimeout = 60, acceptKeepaliveTimeout = 60 });
-                Send(new { type = "AUTH", channel = 0, token });
-                Send(new { type = "CHANNEL_REQUEST", channel = 3, service = "FEED", parameters = new { contract = "AUTO" } });
-                Send(new { type = "FEED_SETUP", channel = 3, acceptDataFormat = "FULL", parameters = new { } });
-
-                _handshakeComplete = true;
-                _logger.LogInformation("DxLink conectado y handshake completo");
+                await DoHandshakeAsync(token);
             }
             catch (Exception ex)
             {
@@ -137,6 +136,47 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             }
         }
 
+        private async Task DoHandshakeAsync(string token)
+        {
+            _handshakeComplete = false;
+            _authTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _channelTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            // Step 1: SETUP
+            Send(new { type = "SETUP", channel = 0, version = "0.1-DXF-JS/0.3.0", keepaliveTimeout = 60, acceptKeepaliveTimeout = 60 });
+
+            // Step 2: AUTH — send and wait for AUTH_STATE: AUTHORIZED
+            Send(new { type = "AUTH", channel = 0, token });
+            _logger.LogInformation("DxLink: esperando AUTH_STATE AUTHORIZED...");
+
+            if (await Task.WhenAny(_authTcs.Task, Task.Delay(10000)) != _authTcs.Task)
+            {
+                _logger.LogError("DxLink: timeout esperando AUTH — reintentando conexión");
+                throw new TimeoutException("DxLink AUTH timeout");
+            }
+            _logger.LogInformation("DxLink: AUTH OK");
+
+            // Step 3: CHANNEL_REQUEST — wait for CHANNEL_OPENED
+            Send(new { type = "CHANNEL_REQUEST", channel = 3, service = "FEED", parameters = new { contract = "AUTO" } });
+            _logger.LogInformation("DxLink: esperando CHANNEL_OPENED...");
+
+            if (await Task.WhenAny(_channelTcs.Task, Task.Delay(10000)) != _channelTcs.Task)
+            {
+                _logger.LogError("DxLink: timeout esperando CHANNEL_OPENED — reintentando conexión");
+                throw new TimeoutException("DxLink CHANNEL_OPENED timeout");
+            }
+            _logger.LogInformation("DxLink: CHANNEL OK");
+
+            // Step 4: FEED_SETUP
+            Send(new { type = "FEED_SETUP", channel = 3, acceptDataFormat = "FULL", parameters = new { } });
+
+            _handshakeComplete = true;
+            _logger.LogInformation("DxLink handshake completo — listo para suscripciones");
+
+            // Flush any subscriptions queued during handshake
+            FlushPendingSubscriptions();
+        }
+
         private async Task ReconnectWithDelayAsync()
         {
             _logger.LogInformation("Reintentando conexión DxLink en 5 segundos...");
@@ -153,16 +193,10 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
         private async Task OnReconnectedAsync()
         {
-            // Después de reconectar, re-autenticar y re-suscribir todo
             try
             {
                 var authws = await _auth.GetWsOAuthApiAsync();
-                Send(new { type = "SETUP", channel = 0, version = "0.1-DXF-JS/0.3.0", keepaliveTimeout = 60, acceptKeepaliveTimeout = 60 });
-                Send(new { type = "AUTH", channel = 0, token = authws.Data.Token });
-                Send(new { type = "CHANNEL_REQUEST", channel = 3, service = "FEED", parameters = new { contract = "AUTO" } });
-                Send(new { type = "FEED_SETUP", channel = 3, acceptDataFormat = "FULL", parameters = new { } });
-
-                _handshakeComplete = true;
+                await DoHandshakeAsync(authws.Data.Token);
 
                 // Re-suscribir todas las suscripciones activas
                 var activeSubs = _subscriptions
@@ -188,6 +222,15 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             }
         }
 
+        private void FlushPendingSubscriptions()
+        {
+            while (_pendingSubscriptions.TryDequeue(out var toAdd))
+            {
+                Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = toAdd });
+                _logger.LogInformation("FEED_SUBSCRIPTION pendiente enviado ({Count} items)", toAdd.Count);
+            }
+        }
+
         #endregion
 
         #region Suscripciones con reference counting
@@ -206,7 +249,6 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                     var currentCount = _subscriptions.GetOrAdd(key, 0);
                     _subscriptions[key] = currentCount + 1;
 
-                    // Solo enviar FEED_SUBSCRIPTION add cuando pasa de 0 a 1
                     if (currentCount == 0)
                     {
                         toAdd.Add(new { type = eventType, symbol });
@@ -214,17 +256,19 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                 }
             }
 
-            if (toAdd.Count > 0 && _handshakeComplete)
+            if (toAdd.Count > 0)
             {
-                Send(new
+                if (_handshakeComplete)
                 {
-                    type = "FEED_SUBSCRIPTION",
-                    channel = 3,
-                    add = toAdd
-                });
-
-                _logger.LogInformation("Suscripción DxLink: {Symbol} -> [{EventTypes}]",
-                    symbol, string.Join(", ", eventTypes));
+                    Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = toAdd });
+                    _logger.LogInformation("FEED_SUBSCRIPTION enviado: {Symbol} -> [{EventTypes}]",
+                        symbol, string.Join(", ", eventTypes));
+                }
+                else
+                {
+                    _pendingSubscriptions.Enqueue(toAdd);
+                    _logger.LogInformation("FEED_SUBSCRIPTION encolado (handshake pendiente): {Symbol}", symbol);
+                }
             }
         }
 
@@ -243,7 +287,6 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                     var newCount = currentCount - 1;
                     _subscriptions[key] = newCount;
 
-                    // Solo enviar FEED_SUBSCRIPTION remove cuando llega a 0
                     if (newCount == 0)
                     {
                         toRemove.Add(new { type = eventType, symbol });
@@ -289,20 +332,37 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                 var json = JObject.Parse(message.Text);
                 var type = json["type"]?.ToString();
 
-                if (type == "KEEPALIVE")
+                switch (type)
                 {
-                    // Responder keepalive para mantener la conexión viva
-                    Send(new { type = "KEEPALIVE", channel = 0 });
-                    return;
-                }
+                    case "KEEPALIVE":
+                        Send(new { type = "KEEPALIVE", channel = 0 });
+                        return;
 
-                if (type == "FEED_DATA")
-                {
-                    _ = ProcessFeedDataAsync(json, message.Text);
-                }
-                else if (type == "ERROR")
-                {
-                    _logger.LogError("Error DxLink: {Message}", message.Text);
+                    case "FEED_DATA":
+                        _ = ProcessFeedDataAsync(json);
+                        return;
+
+                    case "AUTH_STATE":
+                        var state = json["state"]?.ToString();
+                        _logger.LogInformation("DxLink AUTH_STATE: {State}", state);
+                        if (state == "AUTHORIZED")
+                            _authTcs?.TrySetResult(true);
+                        return;
+
+                    case "CHANNEL_OPENED":
+                        var ch = json["channel"]?.Value<int>() ?? 0;
+                        _logger.LogInformation("DxLink CHANNEL_OPENED: channel={Channel}", ch);
+                        if (ch == 3)
+                            _channelTcs?.TrySetResult(true);
+                        return;
+
+                    case "ERROR":
+                        _logger.LogError("DxLink ERROR: {Message}", message.Text);
+                        return;
+
+                    default:
+                        _logger.LogInformation("DxLink msg: {Type}", type);
+                        return;
                 }
             }
             catch (Exception ex)
@@ -311,7 +371,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             }
         }
 
-        private async Task ProcessFeedDataAsync(JObject json, string rawMessage)
+        private async Task ProcessFeedDataAsync(JObject json)
         {
             try
             {
