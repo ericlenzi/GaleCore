@@ -84,20 +84,12 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             });
 
             await socket.Start();
+            await DxLinkHandshake.PerformAsync(socket, token);
 
-            void Send(object msg)
-            {
-                var json = JsonConvert.SerializeObject(msg);
-                socket.Send(json);
-            }
+            void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
 
             string symball = symbol + "{=" + interval + "}";
             var unixFromTime = new DateTimeOffset(fromTime, TimeSpan.Zero).ToUnixTimeMilliseconds();
-
-            Send(new { type = "SETUP", channel = 0, version = "0.1-DXF-JS/0.3.0", keepaliveTimeout = 60, acceptKeepaliveTimeout = 60 });
-            Send(new { type = "AUTH", channel = 0, token });
-            Send(new { type = "CHANNEL_REQUEST", channel = 3, service = "FEED", parameters = new { contract = "AUTO" } });
-            Send(new { type = "FEED_SETUP", channel = 3, acceptDataFormat = "FULL", parameters = new { } });
 
             Send(new
             {
@@ -160,17 +152,9 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             });
 
             await socket.Start();
+            await DxLinkHandshake.PerformAsync(socket, token);
 
-            void Send(object msg)
-            {
-                var json = JsonConvert.SerializeObject(msg);
-                socket.Send(json);
-            }
-
-            Send(new { type = "SETUP", channel = 0, version = "0.1-DXF-JS/0.3.0", keepaliveTimeout = 60, acceptKeepaliveTimeout = 60 });
-            Send(new { type = "AUTH", channel = 0, token });
-            Send(new { type = "CHANNEL_REQUEST", channel = 3, service = "FEED", parameters = new { contract = "AUTO" } });
-            Send(new { type = "FEED_SETUP", channel = 3, acceptDataFormat = "FULL", parameters = new { } });
+            void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
 
             Send(new
             {
@@ -182,10 +166,8 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                 }
             });
 
-            // ⏳ Esperar dato o timeout de 10 segundos
             await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(10), cancellationToken));
 
-            // 🔌 Desuscribir
             Send(new
             {
                 type = "FEED_SUBSCRIPTION",
@@ -226,17 +208,9 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             });
 
             await socket.Start();
+            await DxLinkHandshake.PerformAsync(socket, token);
 
-            void Send(object msg)
-            {
-                var json = JsonConvert.SerializeObject(msg);
-                socket.Send(json);
-            }
-
-            Send(new { type = "SETUP", channel = 0, version = "0.1-DXF-JS/0.3.0", keepaliveTimeout = 60, acceptKeepaliveTimeout = 60 });
-            Send(new { type = "AUTH", channel = 0, token });
-            Send(new { type = "CHANNEL_REQUEST", channel = 3, service = "FEED", parameters = new { contract = "AUTO" } });
-            Send(new { type = "FEED_SETUP", channel = 3, acceptDataFormat = "FULL", parameters = new { } });
+            void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
 
             Send(new
             {
@@ -248,10 +222,8 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                 }
             });
 
-            // ⏳ Esperar dato o timeout de 10 segundos
             await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(10), cancellationToken));
 
-            // 🔌 Desuscribir
             Send(new
             {
                 type = "FEED_SUBSCRIPTION",
@@ -292,17 +264,9 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             });
 
             await socket.Start();
+            await DxLinkHandshake.PerformAsync(socket, token);
 
-            void Send(object msg)
-            {
-                var json = JsonConvert.SerializeObject(msg);
-                socket.Send(json);
-            }
-
-            Send(new { type = "SETUP", channel = 0, version = "0.1-DXF-JS/0.3.0", keepaliveTimeout = 60, acceptKeepaliveTimeout = 60 });
-            Send(new { type = "AUTH", channel = 0, token });
-            Send(new { type = "CHANNEL_REQUEST", channel = 3, service = "FEED", parameters = new { contract = "AUTO" } });
-            Send(new { type = "FEED_SETUP", channel = 3, acceptDataFormat = "FULL", parameters = new { } });
+            void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
 
             Send(new
             {
@@ -314,10 +278,8 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                 }
             });
 
-            // ⏳ Esperar dato o timeout de 10 segundos
             await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(10), cancellationToken));
 
-            // 🔌 Desuscribir
             Send(new
             {
                 type = "FEED_SUBSCRIPTION",
@@ -387,17 +349,9 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             });
 
             await socket.Start();
+            await DxLinkHandshake.PerformAsync(socket, token);
 
-            void Send(object msg)
-            {
-                var json = JsonConvert.SerializeObject(msg);
-                socket.Send(json);
-            }
-
-            Send(new { type = "SETUP", channel = 0, version = "0.1-DXF-JS/0.3.0", keepaliveTimeout = 60, acceptKeepaliveTimeout = 60 });
-            Send(new { type = "AUTH", channel = 0, token });
-            Send(new { type = "CHANNEL_REQUEST", channel = 3, service = "FEED", parameters = new { contract = "AUTO" } });
-            Send(new { type = "FEED_SETUP", channel = 3, acceptDataFormat = "FULL", parameters = new { } });
+            void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
 
             // Suscribir a Trade + Quote, y Greeks solo si es opción
             var subscriptions = new List<object>
@@ -481,13 +435,9 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             });
 
             await socket.Start();
+            await DxLinkHandshake.PerformAsync(socket, token);
 
             void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
-
-            Send(new { type = "SETUP", channel = 0, version = "0.1-DXF-JS/0.3.0", keepaliveTimeout = 60, acceptKeepaliveTimeout = 60 });
-            Send(new { type = "AUTH", channel = 0, token });
-            Send(new { type = "CHANNEL_REQUEST", channel = 3, service = "FEED", parameters = new { contract = "AUTO" } });
-            Send(new { type = "FEED_SETUP", channel = 3, acceptDataFormat = "FULL", parameters = new { } });
 
             var subscriptions = optionStreamerSymbols
                 .Select(sym => (object)new { type = "Quote", symbol = sym })
@@ -495,7 +445,6 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
             Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = subscriptions });
 
-            // Esperar todos los quotes o timeout de 15 segundos
             await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(15), cancellationToken));
 
             Send(new { type = "FEED_SUBSCRIPTION", channel = 3, remove = subscriptions });
@@ -576,13 +525,9 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             });
 
             await socket.Start();
+            await DxLinkHandshake.PerformAsync(socket, token);
 
             void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
-
-            Send(new { type = "SETUP", channel = 0, version = "0.1-DXF-JS/0.3.0", keepaliveTimeout = 60, acceptKeepaliveTimeout = 60 });
-            Send(new { type = "AUTH", channel = 0, token });
-            Send(new { type = "CHANNEL_REQUEST", channel = 3, service = "FEED", parameters = new { contract = "AUTO" } });
-            Send(new { type = "FEED_SETUP", channel = 3, acceptDataFormat = "FULL", parameters = new { } });
 
             // Suscribir a Greeks (IV real-time) y Candle (OI del cierre anterior)
             var fromTime = new DateTimeOffset(DateTime.UtcNow.Date.AddDays(-2), TimeSpan.Zero).ToUnixTimeMilliseconds();
@@ -708,18 +653,9 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             });
 
             await socket.Start();
+            await DxLinkHandshake.PerformAsync(socket, token);
 
-            void Send(object msg)
-            {
-                var json = JsonConvert.SerializeObject(msg);
-                socket.Send(json);
-            }
-
-            // Handshake
-            Send(new { type = "SETUP", channel = 0, version = "0.1-DXF-JS/0.3.0", keepaliveTimeout = 60, acceptKeepaliveTimeout = 60 });
-            Send(new { type = "AUTH", channel = 0, token });
-            Send(new { type = "CHANNEL_REQUEST", channel = 3, service = "FEED", parameters = new { contract = "AUTO" } });
-            Send(new { type = "FEED_SETUP", channel = 3, acceptDataFormat = "FULL", parameters = new { } });
+            void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
 
             // Suscripción masiva: subyacente + todas las opciones en un solo mensaje
             var fromTime = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero).ToUnixTimeMilliseconds();
