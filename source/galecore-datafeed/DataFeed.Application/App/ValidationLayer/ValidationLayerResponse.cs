@@ -48,8 +48,16 @@ namespace DataFeed.Application.App.ValidationLayer
 
         public VixTermStructureCheck VixTermStructure { get; set; }
         public IVRankCheck IVRank { get; set; }
+        public IVMomentumCheck IVMomentum { get; set; }
         public GexTotalCheck GexTotal { get; set; }
         public SpotVsZglCheck SpotVsZGL { get; set; }
+    }
+
+    public class IVMomentumCheck
+    {
+        public bool Passed { get; set; }
+        public double? Value { get; set; }
+        public double Threshold { get; set; }
     }
 
     public class VixTermStructureCheck

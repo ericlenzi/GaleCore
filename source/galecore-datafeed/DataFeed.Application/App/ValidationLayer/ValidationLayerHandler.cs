@@ -138,6 +138,16 @@ namespace DataFeed.Application.App.ValidationLayer
                 Max = ivMax
             };
 
+            double ivMomentumThreshold = GetDouble(macro, "iv_momentum", "threshold") ?? 12.0;
+            bool ivMomentumPassed = iv.IV30RocPct.HasValue && Math.Abs(iv.IV30RocPct.Value) <= ivMomentumThreshold;
+
+            var ivMomentumCheck = new IVMomentumCheck
+            {
+                Passed = ivMomentumPassed,
+                Value = iv.IV30RocPct,
+                Threshold = ivMomentumThreshold
+            };
+
             var symbolRules = macro?["gex_total"]?["symbol_rules"]?[symbol];
             string gexMetric = symbolRules?["metric"]?.GetValue<string>() ?? "absolute_billion_usd";
             double gexMinValue = symbolRules?["min_value"]?.GetValue<double>() ?? 100;
@@ -164,12 +174,12 @@ namespace DataFeed.Application.App.ValidationLayer
                 BufferPct = bufferPct
             };
 
-            var checks = new[] { vixPassed, ivRankPassed, gexPassed, spotPassed };
+            var checks = new[] { vixPassed, ivRankPassed, ivMomentumPassed, gexPassed, spotPassed };
             int passed = checks.Count(c => c);
             int total = checks.Length;
 
             string signal = passed == total ? "OPERAR"
-                : passed >= 3 ? "ESPERAR"
+                : passed >= total - 1 ? "ESPERAR"
                 : "NO_OPERAR";
 
             return new Layer1MacroResult
@@ -179,6 +189,7 @@ namespace DataFeed.Application.App.ValidationLayer
                 TotalChecks = total,
                 VixTermStructure = vixCheck,
                 IVRank = ivRankCheck,
+                IVMomentum = ivMomentumCheck,
                 GexTotal = gexCheck,
                 SpotVsZGL = spotCheck
             };
