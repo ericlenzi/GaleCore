@@ -230,13 +230,22 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
           ] : undefined}
         />
         <MetricCell
+          label="IV Momentum"
+          value={layers.ivMomentumValue != null ? `${layers.ivMomentumValue.toFixed(1)}%` : '—'}
+          sub={layers.ivMomentumOk === null ? '—' : layers.ivMomentumOk ? '≤12% ✓' : '>12% ✗'}
+          ok={layers.ivMomentumOk}
+          tooltip={l1?.ivMomentum ? [
+            { label: 'ROC 5d', value: l1.ivMomentum.value != null ? `${l1.ivMomentum.value.toFixed(2)}%` : '—' },
+            { label: 'Threshold', value: `≤ ${l1.ivMomentum.threshold}%` },
+          ] : undefined}
+        />
+        <MetricCell
           label="Spot > ZGL"
           value={layers.spotAboveZgl === null ? '—' : layers.spotAboveZgl ? 'YES' : 'NO'}
           sub={layers.spotAboveZgl === null ? '—' : layers.spotAboveZgl ? 'above ✓' : 'below ✗'}
           ok={layers.spotAboveZgl}
         />
         <div style={{
-          gridColumn: 'span 2',
           display: 'flex',
           flexDirection: 'column',
           padding: '7px 8px',

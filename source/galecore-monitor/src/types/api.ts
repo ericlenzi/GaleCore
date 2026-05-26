@@ -205,6 +205,7 @@ export interface Layer1MacroResult {
   totalChecks: number;
   vixTermStructure: { passed: boolean; iV30_9d: number | null; iV30_90d: number | null; maxVixAbsolute: number | null };
   ivRank: { passed: boolean; value: number; min: number; max: number };
+  ivMomentum: { passed: boolean; value: number | null; threshold: number };
   gexTotal: { passed: boolean; value: number; metric: string; threshold: number };
   spotVsZGL: { passed: boolean; spot: number; zgl: number | null; bufferPct: number };
 }

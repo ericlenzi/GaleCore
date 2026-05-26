@@ -34,6 +34,8 @@ export interface LayerStatus {
   vixTermStructureOk: boolean | null;    // VIX9D < VIX3M
   ivRankOk: boolean | null;              // 25–65
   ivRankValue: number | null;
+  ivMomentumOk: boolean | null;          // IV ROC ≤ 12%
+  ivMomentumValue: number | null;
   gexOk: boolean | null;                 // ≥ $100B
   gexValue: number | null;               // in billions
   spotAboveZgl: boolean | null;          // Spot > ZGL

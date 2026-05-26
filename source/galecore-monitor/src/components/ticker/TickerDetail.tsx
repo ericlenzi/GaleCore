@@ -40,6 +40,8 @@ function mapValidationToLayers(v: ValidationLayerApiResponse): LayerStatus {
     vixTermStructureOk: l1?.vixTermStructure.passed ?? null,
     ivRankOk: l1?.ivRank.passed ?? null,
     ivRankValue: l1?.ivRank.value ?? null,
+    ivMomentumOk: l1?.ivMomentum?.passed ?? null,
+    ivMomentumValue: l1?.ivMomentum?.value ?? null,
     gexOk: l1?.gexTotal.passed ?? null,
     gexValue: l1?.gexTotal.value ?? null,
     spotAboveZgl: l1?.spotVsZGL.passed ?? null,
@@ -94,6 +96,7 @@ export function TickerDetail({ symbol, onClose }: Props) {
     ? mapValidationToLayers(vlData)
     : {
         vixTermStructureOk: null, ivRankOk: null, ivRankValue: null,
+        ivMomentumOk: null, ivMomentumValue: null,
         gexOk: null, gexValue: null, spotAboveZgl: null, zglValue: null,
         expectedMove: null, callWall: null, putWall: null,
         atmStrike: null, atmCallOI: null, atmPutOI: null,
