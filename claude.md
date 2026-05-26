@@ -51,6 +51,13 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
 
 ### Backend DataFeed
 
+- Fuente de verdad — JSON de reglas
+  El archivo `galecore_rules_core.json` (y sus overlays `live` / `paper`) es la fuente de verdad del sistema.
+  Toda la lógica de validación, selección de estructura, cálculos de strikes y parámetros de riesgo están definidos ahí.
+  **Regla de trabajo:** ante cualquier cambio de lógica o parámetro, primero se actualiza el JSON y luego se ajustan
+  los endpoints o handlers del backend para reflejar ese cambio. Nunca al revés.
+  El backend expone el JSON tal cual vía `/App/GaleCore/Rules/*` — no lo interpreta ni lo transforma.
+
 - Resumen del proyecto
   Solución .NET Core Web API API DataFeed (ASP.NET Core/.NET 8) que provee acceso a datos del mercado y cuenta de trading vía Tastytrade/DXLink.
   
@@ -121,6 +128,14 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
 
 
 ### Frontend Monitor
+
+- Fuente de verdad — JSON de reglas
+  El archivo `galecore_rules_core.json` es el contrato que guía qué debe mostrar el frontend y cómo.
+  La estructura `macro_regime` y sus checks corresponden a la pantalla de inicio (Home / TickerCard).
+  La estructura `position_builder` y sus layers corresponden al portfolio manager (Positions).
+  **Regla de trabajo:** ante cualquier cambio de lógica, labels o estructura de validación, primero se actualiza
+  el JSON y luego se ajusta el frontend para reflejar ese cambio. El frontend lee el JSON vía
+  `/App/GaleCore/Rules/Core` y debe renderizar lo que el JSON declara, sin hardcodear lógica de negocio.
 
 - Resumen del proyecto:
   Dashboard de trading en **React + TypeScript + Create React App** para el sistema GaleCore.
