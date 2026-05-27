@@ -7,6 +7,7 @@ using DataFeed.Application.App.GammaExposure;
 using DataFeed.Application.App.ImpliedVolatility;
 using DataFeed.Application.App.IVRank;
 using DataFeed.Application.App.ValidationLayer;
+using DataFeed.Application.App.PositionBuilder;
 
 namespace DataFeed.Controllers
 {
@@ -58,6 +59,14 @@ namespace DataFeed.Controllers
         [Tags("App.GaleCore")]
         [HttpGet("GaleCore/ValidationLayer")]
         public async Task<IActionResult> ValidationLayerAsync([FromQuery] ValidationLayerRequest request)
+        {
+            request.RulesJson = await LoadMergedRulesJsonAsync(request.Profile);
+            return await Handle(request);
+        }
+
+        [Tags("App.GaleCore")]
+        [HttpGet("GaleCore/PositionBuilder")]
+        public async Task<IActionResult> PositionBuilderAsync([FromQuery] PositionBuilderRequest request)
         {
             request.RulesJson = await LoadMergedRulesJsonAsync(request.Profile);
             return await Handle(request);

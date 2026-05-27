@@ -9,5 +9,8 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         Task BroadcastTradeAsync(string symbol, object tradeData);
         Task BroadcastQuoteAsync(string symbol, object quoteData);
         Task BroadcastGreeksAsync(string symbol, object greeksData);
+
+        /// <summary>Emite ReceiveFlow al grupo "flow_{symbol}" con el snapshot de flow agresivo.</summary>
+        Task BroadcastFlowAsync(string symbol, object flowData);
     }
 }

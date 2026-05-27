@@ -13,6 +13,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
     {
         private readonly ITastytradeOAuth _auth;
         private readonly IMarketDataBroadcaster _broadcaster;
+        private readonly IFlowAggregatorService _flowAggregator;
         private readonly ILogger<DxLinkStreamingService> _logger;
 
         private WebsocketClient? _socket;
@@ -35,10 +36,12 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         public DxLinkStreamingService(
             ITastytradeOAuth auth,
             IMarketDataBroadcaster broadcaster,
+            IFlowAggregatorService flowAggregator,
             ILogger<DxLinkStreamingService> logger)
         {
             _auth = auth;
             _broadcaster = broadcaster;
+            _flowAggregator = flowAggregator;
             _logger = logger;
         }
 
@@ -311,6 +314,80 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             return Task.CompletedTask;
         }
 
+        public async Task SubscribeBatchAsync(IEnumerable<string> symbols, string[] eventTypes)
+        {
+            await EnsureConnectedAsync();
+
+            var toAdd = new List<object>();
+
+            lock (_subLock)
+            {
+                foreach (var symbol in symbols)
+                {
+                    foreach (var eventType in eventTypes)
+                    {
+                        var key = (symbol, eventType);
+                        var currentCount = _subscriptions.GetOrAdd(key, 0);
+                        _subscriptions[key] = currentCount + 1;
+
+                        if (currentCount == 0)
+                        {
+                            toAdd.Add(new { type = eventType, symbol });
+                        }
+                    }
+                }
+            }
+
+            if (toAdd.Count > 0)
+            {
+                if (_handshakeComplete)
+                {
+                    Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = toAdd });
+                    _logger.LogInformation("FEED_SUBSCRIPTION batch enviado: {Count} items", toAdd.Count);
+                }
+                else
+                {
+                    _pendingSubscriptions.Enqueue(toAdd);
+                    _logger.LogInformation("FEED_SUBSCRIPTION batch encolado (handshake pendiente): {Count} items", toAdd.Count);
+                }
+            }
+        }
+
+        public Task UnsubscribeBatchAsync(IEnumerable<string> symbols, string[] eventTypes)
+        {
+            var toRemove = new List<object>();
+
+            lock (_subLock)
+            {
+                foreach (var symbol in symbols)
+                {
+                    foreach (var eventType in eventTypes)
+                    {
+                        var key = (symbol, eventType);
+                        if (!_subscriptions.TryGetValue(key, out var currentCount) || currentCount <= 0)
+                            continue;
+
+                        var newCount = currentCount - 1;
+                        _subscriptions[key] = newCount;
+
+                        if (newCount == 0)
+                        {
+                            toRemove.Add(new { type = eventType, symbol });
+                            _subscriptions.TryRemove(key, out _);
+                        }
+                    }
+                }
+            }
+
+            if (toRemove.Count > 0 && _handshakeComplete)
+            {
+                Send(new { type = "FEED_SUBSCRIPTION", channel = 3, remove = toRemove });
+                _logger.LogInformation("Desuscripción batch DxLink: {Count} items", toRemove.Count);
+            }
+
+            return Task.CompletedTask;
+        }
+
         private async Task EnsureConnectedAsync()
         {
             if (!_isConnected || !_handshakeComplete)
@@ -386,18 +463,29 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                     if (string.IsNullOrEmpty(eventType) || string.IsNullOrEmpty(eventSymbol))
                         continue;
 
+                    // Detectar si el simbolo es una opcion (formato DxFeed: ".SPY260620C530")
+                    bool isOption = eventSymbol.StartsWith(".");
+
                     switch (eventType)
                     {
                         case "Trade":
                             var trade = item.ToObject<TradeEvent>();
                             if (trade != null)
+                            {
                                 await _broadcaster.BroadcastTradeAsync(eventSymbol, trade);
+                                if (isOption)
+                                    _flowAggregator.OnOptionTrade(eventSymbol, trade);
+                            }
                             break;
 
                         case "Quote":
                             var quote = item.ToObject<QuoteEvent>();
                             if (quote != null)
+                            {
                                 await _broadcaster.BroadcastQuoteAsync(eventSymbol, quote);
+                                if (isOption)
+                                    _flowAggregator.OnOptionQuote(eventSymbol, quote);
+                            }
                             break;
 
                         case "Greeks":

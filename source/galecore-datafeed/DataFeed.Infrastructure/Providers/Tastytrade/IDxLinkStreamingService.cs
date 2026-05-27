@@ -15,5 +15,16 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         /// Remueve suscripciones para un símbolo. Si el ref count llega a 0, envía FEED_SUBSCRIPTION remove.
         /// </summary>
         Task UnsubscribeAsync(string symbol, string[] eventTypes);
+
+        /// <summary>
+        /// Batch subscribe: suscribe multiples simbolos en un solo FEED_SUBSCRIPTION.
+        /// Mas eficiente que llamar SubscribeAsync en loop (ej: option chain completa).
+        /// </summary>
+        Task SubscribeBatchAsync(IEnumerable<string> symbols, string[] eventTypes);
+
+        /// <summary>
+        /// Batch unsubscribe: desuscribe multiples simbolos en un solo FEED_SUBSCRIPTION remove.
+        /// </summary>
+        Task UnsubscribeBatchAsync(IEnumerable<string> symbols, string[] eventTypes);
     }
 }
