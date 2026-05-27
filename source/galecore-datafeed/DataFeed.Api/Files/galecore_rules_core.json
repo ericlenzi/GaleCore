@@ -1,10 +1,10 @@
 {
   "_meta": {
-    "version": "1.1.0",
+    "version": "1.1.1",
     "strategy": "gale_core_gamma_premium",
     "profile": "core",
-    "last_updated": "2026-05-26",
-    "notes": ""
+    "last_updated": "2026-05-27",
+    "notes": "v1.1.1: reemplaza gex_sign por gex_skew en structure_selection. gex_sign = negativo es inalcanzable dado que macro_regime requiere GEX >= 50B. gex_skew mide asimetría callGEX/putGEX dentro del entorno siempre positivo garantizado por macro. Fix: wall checks (outside, no inside). Fix: defensive_roll min_dte_remaining 22→28."
   },
   "principles": {
     "cash_is_a_position": true,
@@ -28,7 +28,7 @@
     "available_today": [
       "iv_rank", "iv_percentile", "iv9d", "iv30", "iv3m",
       "iv_zscore_from_252d_history",
-      "gex_net_billions", "gex_sign", "gamma_zero_level", "call_wall", "put_wall",
+      "gex_net_billions", "gex_skew_call_put_ratio", "gamma_zero_level", "call_wall", "put_wall",
       "gex_by_strike", "delta_by_strike", "oi_by_strike",
       "spot_price", "vix_absolute_via_ticker",
       "bid_ask_quote", "account_net_liq", "account_positions",
@@ -118,14 +118,18 @@
       "endpoint": "/App.Analytics/IVRank → history[].iv (252 entradas)",
       "interpretation": "iv_zscore > 1.5 → IV cara, régimen de alta vol | iv_zscore < -1.5 → IV barata, régimen de baja vol"
     },
-    "gex_sign": {
-      "type": "derived",
-      "formula": "sign(gex_total.netGEX)",
-      "values": {
-        "positive": "netGEX > 0 → positive_gamma → dealers amortiguan movimiento → mean reversion",
-        "negative": "netGEX < 0 → negative_gamma → dealers persiguen precio → continuation / breakout"
+    "gex_skew": {
+      "type": "formula",
+      "formula": "callGEX / (callGEX + abs(putGEX))",
+      "range": "[0.0, 1.0]",
+      "interpretation": {
+        "gt_0.6": "call_dominant — call wall más fuerte, soporte estructural arriba → favorece put_credit_spread",
+        "lt_0.4": "put_dominant — put wall más fuerte, soporte estructural abajo → favorece call_credit_spread",
+        "between_0.4_0.6": "symmetric — ancla equilibrada → favorece iron_condor"
       },
-      "endpoint": "/App.Analytics/GammaExposure → netGEX"
+      "thresholds": { "call_dominant": 0.6, "put_dominant": 0.4 },
+      "note": "Siempre se evalúa dentro de un entorno GEX positivo (macro_regime.gex_total lo garantiza). Mide asimetría direccional de muros, no el signo neto.",
+      "endpoint": "/App.Analytics/GammaExposure → callGEX y putGEX"
     },
     "trend_ema": {
       "type": "formula",
@@ -400,81 +404,79 @@
           },
           "structure_selection": {
             "method": "multi_factor",
-            "description": "Selección de estructura basada en 5 dimensiones: z-score de precio, signo de GEX, flow agresivo, régimen de volatilidad realizada y tendencia EMA.",
+            "description": "Selección de estructura basada en 4 dimensiones activas: z-score de precio, asimetría de GEX (skew), flow agresivo y tendencia EMA.",
             "thresholds": {
               "neutral_z": 1.0,
               "extreme_z": 1.5
             },
             "inputs": {
               "price_zscore": { "ref": "definitions.directional_zscore" },
-              "iv_zscore":    { "ref": "definitions.iv_zscore" },
-              "gex_sign":     { "ref": "definitions.gex_sign" },
+              "gex_skew":     { "ref": "definitions.gex_skew" },
               "trend":        { "ref": "definitions.trend_ema" },
-              "vol_regime":   { "ref": "definitions.realized_vol_regime" },
               "flow":         { "ref": "definitions.aggressive_flow" }
             },
             "evaluation_order": "sequential_first_match",
             "rules": [
               {
                 "id": 1,
-                "name": "neutral_positive_gamma",
-                "label": "Mercado neutro — Positive Gamma",
+                "name": "neutral_symmetric_gex",
+                "label": "Mercado neutro — GEX simétrico",
                 "conditions": {
                   "price_zscore_abs": "< neutral_z (1.0)",
-                  "gex_sign": "positive"
+                  "gex_skew": "symmetric"
                 },
                 "output": "iron_condor",
-                "rationale": "Precio en zona central + dealers amortiguan. El spot está anclado, el theta decay es predecible. Escenario óptimo para vender prima por ambos lados."
+                "rationale": "Precio en zona central, call wall y put wall equidistantes. Ancla equilibrada. Escenario óptimo para vender prima por ambos lados."
               },
               {
                 "id": 2,
-                "name": "bullish_continuation",
-                "label": "Continuación alcista — Negative Gamma + Bullish Flow",
+                "name": "bullish_call_dominant",
+                "label": "Alcista — Call Wall dominante + Bullish Flow",
                 "conditions": {
                   "price_zscore": "> extreme_z (1.5)",
-                  "gex_sign": "negative",
+                  "gex_skew": "call_dominant",
                   "flow": "bullish",
                   "trend": "up"
                 },
                 "output": "put_credit_spread",
-                "rationale": "Dealers persiguen precio al alza (no amortiguan). Flow confirma dirección. Trend acompaña. Vender put premium a favor del momentum es la estructura con mayor POP esperado."
+                "rationale": "Precio extendido al alza. Call wall fuerte crea soporte estructural arriba. Flow y trend confirman. Vender put premium debajo del movimiento con el muro de calls como respaldo."
               },
               {
                 "id": 3,
-                "name": "bearish_continuation",
-                "label": "Continuación bajista — Negative Gamma + Bearish Flow",
+                "name": "bearish_put_dominant",
+                "label": "Bajista — Put Wall dominante + Bearish Flow",
                 "conditions": {
                   "price_zscore": "< -extreme_z (-1.5)",
-                  "gex_sign": "negative",
+                  "gex_skew": "put_dominant",
                   "flow": "bearish",
                   "trend": "down"
                 },
                 "output": "call_credit_spread",
-                "rationale": "Dealers persiguen precio a la baja. Flow confirma dirección. Trend acompaña. Vender call premium a favor del momentum."
+                "rationale": "Precio extendido a la baja. Put wall fuerte crea soporte estructural abajo. Flow y trend confirman. Vender call premium arriba del movimiento."
               },
               {
                 "id": 4,
                 "name": "bullish_exhaustion",
-                "label": "Agotamiento alcista — Positive Gamma + Bearish Flow",
+                "label": "Agotamiento alcista — Put Wall dominante + Bearish Flow",
                 "conditions": {
                   "price_zscore": "> extreme_z (1.5)",
-                  "gex_sign": "positive",
+                  "gex_skew": "put_dominant",
                   "flow": "bearish"
                 },
                 "output": "call_credit_spread",
-                "rationale": "Precio extendido arriba pero dealers amortiguan (mean reversion estructural). El flow contrarian bajista confirma agotamiento del movimiento. Vender call premium es la apuesta de reversión."
+                "rationale": "Precio extendido arriba pero el put wall domina (soporte abajo, no arriba). Flow contrarian bajista confirma agotamiento. Mean reversion probable."
               },
               {
                 "id": 5,
                 "name": "bearish_exhaustion",
-                "label": "Agotamiento bajista — Positive Gamma + Bullish Flow",
+                "label": "Agotamiento bajista — Call Wall dominante + Bullish Flow",
                 "conditions": {
                   "price_zscore": "< -extreme_z (-1.5)",
-                  "gex_sign": "positive",
+                  "gex_skew": "call_dominant",
                   "flow": "bullish"
                 },
                 "output": "put_credit_spread",
-                "rationale": "Precio extendido abajo pero dealers amortiguan. Flow contrarian alcista confirma agotamiento. Vender put premium es la apuesta de reversión."
+                "rationale": "Precio extendido abajo pero el call wall domina (soporte arriba). Flow contrarian alcista confirma agotamiento. Mean reversion probable."
               },
               {
                 "id": 6,
@@ -758,7 +760,7 @@
     },
     "defensive_roll": {
       "trigger_unrealized_loss_pct_of_initial_credit_gte": 1.0,
-      "min_dte_remaining": 22,
+      "min_dte_remaining": 28,
       "min_net_credit_for_roll": 0.20,
       "max_rolls_per_position": 1,
       "slippage_rule_ref": "definitions.slippage_roll"

@@ -71,7 +71,7 @@ namespace DataFeed.Application.App.PositionBuilder
             double extremeZ = structureConfig?["thresholds"]?["extreme_z"]?.GetValue<double>() ?? 1.5;
 
             double priceZScore = VLH.ComputePriceZScore(candles, ivAtm);
-            string gexSign = gex.NetGEX > 0 ? "positive" : "negative";
+            string gexSkew = VLH.ComputeGexSkew(gex.CallGEX, gex.PutGEX);
             var (ema20, ema50, trendSignal) = VLH.ComputeTrend(candles);
             var (rv10d, rv30d, realizedVolSignal) = VLH.ComputeRealizedVol(candles);
 
@@ -82,9 +82,11 @@ namespace DataFeed.Application.App.PositionBuilder
 
             // === STRUCTURE SELECTION ===
             var (selectedStructure, ruleId, ruleName, ruleLabel) = VLH.EvaluateStructureRules(
-                structureConfig, priceZScore, gexSign, trendSignal, neutralZ, extremeZ);
+                structureConfig, priceZScore, gexSkew, trendSignal, neutralZ, extremeZ);
 
             // === BUILD STRUCTURE INPUTS ===
+            double gexSkewRaw = (gex.CallGEX + Math.Abs(gex.PutGEX)) > 0
+                ? gex.CallGEX / (gex.CallGEX + Math.Abs(gex.PutGEX)) : 0.5;
             var structureInputs = new StructureInputs
             {
                 PriceZScore = new PriceZScoreInput
@@ -96,11 +98,13 @@ namespace DataFeed.Application.App.PositionBuilder
                 },
                 GexSign = new GexSignInput
                 {
-                    Value = gexSign,
-                    NetGexBillions = gex.NetGEX,
-                    Interpretation = gexSign == "positive"
-                        ? "dealers cubren gamma — mean reversion regime"
-                        : "dealers persiguen precio — continuation regime"
+                    Value = gexSkew,
+                    NetGexBillions = Math.Round(gexSkewRaw, 3),
+                    Interpretation = gexSkew == "call_dominant"
+                        ? "call wall domina — soporte estructural arriba"
+                        : gexSkew == "put_dominant"
+                            ? "put wall domina — soporte estructural abajo"
+                            : "GEX simétrico — ancla equilibrada"
                 },
                 Trend = new TrendInput
                 {
@@ -244,7 +248,7 @@ namespace DataFeed.Application.App.PositionBuilder
                 StructureRuleId = ruleId,
                 StructureRuleName = ruleName,
                 StructureRuleLabel = ruleLabel,
-                GexSign = gexSign,
+                GexSign = gexSkew,
                 TrendSignal = trendSignal,
                 Ema20 = ema20.HasValue ? Math.Round(ema20.Value, 2) : null,
                 Ema50 = ema50.HasValue ? Math.Round(ema50.Value, 2) : null,
