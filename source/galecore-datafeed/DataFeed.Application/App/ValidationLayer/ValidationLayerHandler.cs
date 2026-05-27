@@ -271,13 +271,13 @@ namespace DataFeed.Application.App.ValidationLayer
             double extremeZ = structureConfig?["thresholds"]?["extreme_z"]?.GetValue<double>() ?? 1.5;
 
             double priceZScore = ComputePriceZScore(candles, ivAtm);
-            string gexSign = gex.NetGEX > 0 ? "positive" : "negative";
+            string gexSkew = ComputeGexSkew(gex.CallGEX, gex.PutGEX);
             var (ema20, ema50, trendSignal) = ComputeTrend(candles);
             var (rv10d, rv30d, realizedVolSignal) = ComputeRealizedVol(candles);
 
             // --- Evaluación de reglas de estructura (sequential first-match) ---
             var (selectedStructure, ruleId, ruleName, ruleLabel) = EvaluateStructureRules(
-                structureConfig, priceZScore, gexSign, trendSignal, neutralZ, extremeZ);
+                structureConfig, priceZScore, gexSkew, trendSignal, neutralZ, extremeZ);
 
             // Si ninguna regla matcheó (no_trade), Layer 2 falla
             if (selectedStructure == "no_trade")
@@ -296,7 +296,7 @@ namespace DataFeed.Application.App.ValidationLayer
                     StructureRuleId = ruleId,
                     StructureRuleName = ruleName,
                     StructureRuleLabel = ruleLabel,
-                    GexSign = gexSign,
+                    GexSign = gexSkew,
                     TrendSignal = trendSignal,
                     Ema20 = ema20.HasValue ? Math.Round(ema20.Value, 2) : null,
                     Ema50 = ema50.HasValue ? Math.Round(ema50.Value, 2) : null,
@@ -362,9 +362,9 @@ namespace DataFeed.Application.App.ValidationLayer
                     }
                 }
 
-                bool putInsideWall = !shortPutStrike.HasValue || !putWall.HasValue || shortPutStrike.Value >= putWall.Value;
-                bool callInsideWall = !shortCallStrike.HasValue || !callWall.HasValue || shortCallStrike.Value <= callWall.Value;
-                strikesInsideWalls = putInsideWall && callInsideWall;
+                bool putOutsideWall = !shortPutStrike.HasValue || !putWall.HasValue || shortPutStrike.Value < putWall.Value;
+                bool callOutsideWall = !shortCallStrike.HasValue || !callWall.HasValue || shortCallStrike.Value > callWall.Value;
+                strikesInsideWalls = putOutsideWall && callOutsideWall;
             }
 
             bool hasValidStrikes = selectedStructure switch
@@ -808,7 +808,7 @@ namespace DataFeed.Application.App.ValidationLayer
         /// Las condiciones de flow se tratan como satisfechas (pass-through) hasta Fase 5-6.
         /// </summary>
         internal static (string structure, int? ruleId, string? ruleName, string? ruleLabel) EvaluateStructureRules(
-            JsonNode? structureConfig, double priceZScore, string gexSign, string trendSignal,
+            JsonNode? structureConfig, double priceZScore, string gexSkew, string trendSignal,
             double neutralZ, double extremeZ)
         {
             var rulesArray = structureConfig?["rules"]?.AsArray();
@@ -838,7 +838,7 @@ namespace DataFeed.Application.App.ValidationLayer
                 foreach (var cond in condObj)
                 {
                     bool condMet = EvaluateCondition(cond.Key, cond.Value?.GetValue<string>(),
-                        priceZScore, gexSign, trendSignal, neutralZ, extremeZ);
+                        priceZScore, gexSkew, trendSignal, neutralZ, extremeZ);
 
                     if (!condMet)
                     {
@@ -858,7 +858,7 @@ namespace DataFeed.Application.App.ValidationLayer
         /// Evalúa una condición individual de una regla de estructura.
         /// </summary>
         internal static bool EvaluateCondition(string conditionKey, string? conditionValue,
-            double priceZScore, string gexSign, string trendSignal,
+            double priceZScore, string gexSkew, string trendSignal,
             double neutralZ, double extremeZ)
         {
             return conditionKey switch
@@ -866,24 +866,36 @@ namespace DataFeed.Application.App.ValidationLayer
                 // |price_zscore| < neutral_z
                 "price_zscore_abs" => Math.Abs(priceZScore) < neutralZ,
 
-                // price_zscore > extreme_z (positive)
+                // price_zscore > extreme_z (positive direction)
                 "price_zscore" when conditionValue?.Contains(">") == true => priceZScore > extremeZ,
 
-                // price_zscore < -extreme_z (negative)
+                // price_zscore < -extreme_z (negative direction)
                 "price_zscore" when conditionValue?.Contains("<") == true => priceZScore < -extremeZ,
 
-                // gex_sign match
-                "gex_sign" => gexSign == conditionValue,
+                // gex_skew: bucket match (call_dominant / put_dominant / symmetric)
+                "gex_skew" => gexSkew == conditionValue,
 
                 // trend match
                 "trend" => trendSignal == conditionValue,
 
-                // flow: no disponible en REST, se trata como pass-through hasta Fase 5-6
+                // flow: pass-through (resuelto por FlowAggregatorService en PositionBuilder)
                 "flow" => true,
 
                 // Condición desconocida: pass (fail-safe)
                 _ => true
             };
+        }
+
+        /// <summary>
+        /// Clasifica el GEX en un bucket de skew según la proporción callGEX / (callGEX + |putGEX|).
+        /// Siempre se evalúa en entorno GEX positivo (garantizado por macro_regime.gex_total).
+        /// </summary>
+        internal static string ComputeGexSkew(double callGex, double putGex)
+        {
+            double denominator = callGex + Math.Abs(putGex);
+            if (denominator == 0) return "symmetric";
+            double skew = callGex / denominator;
+            return skew > 0.6 ? "call_dominant" : skew < 0.4 ? "put_dominant" : "symmetric";
         }
 
         // ═══════════════════════════════════════════════════════════════════════

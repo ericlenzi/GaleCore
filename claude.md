@@ -83,6 +83,33 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   The API runs on local http://localhost:7001 (IIS Express) and opens Swagger UI at /swagger.
   The API runs on production: https://datafeed-g5b4dkfccda5hkdh.chilecentral-01.azurewebsites.net/swagger/index.html
 
+- Endpoints GaleCore
+  * `GET /App/GaleCore/MacroRegime` — corre Layer 1 (macro_regime). Responde `macroRegime` con checks de VIX, IV Rank, GEX total, spot vs ZGL.
+  * `GET /App/GaleCore/ValidationLayer` — corre las 4 capas en cascada con shortcircuit. Response: `macroRegime` + `positionBuilder`. Handler: `ValidationLayerHandler.cs`.
+  * `GET /App/GaleCore/PositionBuilder` — corre capas 2-4 solo (presupone que el caller ya validó macro). Expone `structureInputs` completos (priceZScore, gexSkew, trend, realizedVol, aggressiveFlow). Handler: `PositionBuilderHandler.cs`.
+  * WebSocket `/hubs/marketdata`:
+    - `Subscribe(symbol)` → `ReceiveTrade`, `ReceiveQuote` (precio del subyacente)
+    - `SubscribeFlow(symbol)` → `ReceiveFlow` cada 30s (flow de opciones via `FlowBroadcastService`)
+
+- Lógica compartida
+  Los métodos estáticos internos de `ValidationLayerHandler.cs` son compartidos por `PositionBuilderHandler.cs` (alias `VLH`):
+  * `ComputeGexSkew(callGex, putGex)` — calcula `callGEX / (callGEX + |putGEX|)`, devuelve `"call_dominant"`, `"put_dominant"` o `"symmetric"`
+  * `ComputePriceZScore(ret5d, ivAtm)` — normaliza retorno en unidades de vol diaria
+  * `ComputeTrend(candles)` — EMA 20 vs EMA 50, señal `"up"` / `"down"` / `"flat"`
+  * `ComputeRealizedVol(candles, window)` — RV en base anualizada
+  * `EvaluateStructureRules(config, priceZScore, gexSkew, trend, flow)` — evalúa las 5 reglas del JSON en orden, devuelve la primera que matchea
+  * `EvaluateCondition(condition, priceZScore, gexSkew, trend, flow)` — evalúa una condición individual
+
+- FlowAggregatorService
+  Singleton que clasifica trades de opciones por agresión (ask-side = bullish, bid-side = bearish).
+  Filtra por premium >= $25K. Calcula `netDeltaFlow = (bullish - bearish) / (bullish + bearish)`.
+  `FlowBroadcastService` lee el agregador y emite `ReceiveFlow` al hub cada 30s o en cambio de signo de `netDeltaFlow`.
+
+- gex_skew (reemplaza gex_sign)
+  La capa macro_regime requiere `netGEX >= 50B`, por lo tanto el GEX es siempre positivo en operación.
+  `gex_sign: "negative"` es inalcanzable. Se reemplazó por `gex_skew` que mide la asimetría de muros:
+  `gex_skew = callGEX / (callGEX + |putGEX|)` → `call_dominant` (>0.6), `put_dominant` (<0.4), `symmetric` (0.4-0.6)
+
 - Seguridad
   * API Key Middleware:
     Valida header X-API-KEY en cada request
@@ -179,19 +206,20 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   ├── api/
   │   ├── client.ts           # axios instance con X-API-KEY interceptor
   │   ├── rules.ts            # /App/GaleCore/Rules/*
-  │   ├── analytics.ts        # /App.Analytics/*
+  │   ├── analytics.ts        # /App.Analytics/* + fetchPositionBuilder()
   │   ├── marketdata.ts       # /Data/Tastytrade/MarketData/*
   │   └── account.ts          # /Data/Account/*
   ├── socket/
-  │   └── useMarketSocket.ts  # Hook SignalR: connect, subscribe, disconnect
+  │   └── useMarketSocket.ts  # Hook SignalR: connect, subscribe/unsubscribe, subscribeFlow/unsubscribeFlow, ReceiveFlow handler
   ├── store/
   │   ├── useMarketStore.ts   # Estado de precios y Greeks en tiempo real (Zustand)
   │   ├── useAccountStore.ts  # Balances y posiciones
-  │   └── useRulesStore.ts    # Rules/tickers cargados desde /App/GaleCore/Rules/Core
+  │   ├── useRulesStore.ts    # Rules/tickers cargados desde /App/GaleCore/Rules/Core
+  │   └── useFlowStore.ts     # Snapshots de flow de opciones (ReceiveFlow → FlowPayload)
   ├── components/
   │   ├── layout/
   │   │   ├── StatusBar.tsx       # Barra superior: estado sistema, estado mercado, hora
-  │   │   └── TabNav.tsx          # Tabs: Inicio / Posiciones / Estrategia
+  │   │   └── TabNav.tsx          # Tabs: Inicio / Portfolio / Estrategia
   │   ├── ticker/
   │   │   ├── TickerCard.tsx      # Card por ticker: precio, variación, capas de validación
   │   │   ├── TickerGrid.tsx      # Grid de TickerCards
@@ -201,19 +229,21 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   │   ├── account/
   │   │   └── AccountSummary.tsx  # Net Liq, Buying Power, Cash
   │   ├── positions/
-  │   │   ├── PositionMonitor.tsx # Tab Posiciones: tabla de posiciones abiertas
+  │   │   ├── PositionMonitor.tsx # Tabla de posiciones abiertas
   │   │   ├── PositionRow.tsx     # Fila individual con P&L, Greeks, alertas
-  │   │   └── NewPositionForm.tsx # Formulario de ingreso de posición manual
+  │   │   ├── NewPositionForm.tsx # Formulario de ingreso de posición manual
+  │   │   └── SuggestedCard.tsx   # Card de operación sugerida con badge de flow en tiempo real
   │   ├── validation/
-  │   │   └── ValidationLayers.tsx # Las 4 capas con semáforo + valores numéricos
+  │   │   └── ValidationLayers.tsx # macroRegime (6 checks) + positionBuilder layers con semáforo
   │   └── strategy/
   │       └── StrategyReference.tsx # Tab Estrategia: reglas, umbrales, protocolo de ajuste
   ├── pages/
   │   ├── Home.tsx            # Tab Inicio
-  │   ├── Positions.tsx       # Tab Posiciones
+  │   ├── PortfolioManager.tsx # Tab Portfolio: PositionBuilder API + flow en tiempo real
+  │   ├── Positions.tsx       # Tab Posiciones abiertas
   │   └── Strategy.tsx        # Tab Estrategia
   ├── types/
-  │   ├── api.ts              # Tipos de respuesta de la API
+  │   ├── api.ts              # Tipos de respuesta: PositionBuilderApiResponse, FlowPayload, FlowSide, FlowTrade
   │   ├── market.ts           # Tipos de mercado (ticker state, capas, señal)
   │   └── position.ts         # Tipos de posiciones y P&L
   ├── utils/
