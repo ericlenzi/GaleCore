@@ -4,15 +4,19 @@ import { useMarketStore } from '../store/useMarketStore';
 import { useRulesStore } from '../store/useRulesStore';
 import { useAccountStore } from '../store/useAccountStore';
 import { fetchMarketDataByType } from '../api/marketdata';
-import { fetchIVRank, fetchImpliedVolatility, fetchPositionBuilder } from '../api/analytics';
+import { fetchIVRank, fetchImpliedVolatility, fetchPositionBuilder, fetchValidationLayer } from '../api/analytics';
+import { ConnectionStatus } from '../socket/useMarketSocket';
+import { ValidationLayerApiResponse } from '../types/api';
 import { fmtPrice, fmtGex } from '../utils/formatters';
 import { PositionBuilderApiResponse, LegSymbols } from '../types/api';
+import { TickerState } from '../types/market';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
 interface Props {
   subscribeLeg: (occ: string) => void;
   unsubscribeLeg: (occ: string) => void;
+  socketStatus: ConnectionStatus;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -145,7 +149,7 @@ function Td({ children, right, center }: { children: React.ReactNode; right?: bo
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export function PortfolioManager({ subscribeLeg, unsubscribeLeg }: Props) {
+export function PortfolioManager({ subscribeLeg, unsubscribeLeg, socketStatus }: Props) {
   const { tickers: symbols = [], rules } = useRulesStore();
   const marketStore = useMarketStore();
   const { tickers } = marketStore;
@@ -157,9 +161,12 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg }: Props) {
   const loadedRef = useRef<Record<string, boolean>>({});
   const subscribedLegsRef = useRef<string[]>([]);
 
-  // PB data per symbol
+  // PB data per symbol (structure/strikes/premiums)
   const [pbData, setPbData] = useState<Record<string, PositionBuilderApiResponse>>({});
   const [pbLoading, setPbLoading] = useState<Record<string, boolean>>({});
+
+  // VL data per symbol (authoritative signal with macro)
+  const [vlData, setVlData] = useState<Record<string, ValidationLayerApiResponse>>({});
 
   // Load market data for underlying
   useEffect(() => {
@@ -177,12 +184,18 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg }: Props) {
     });
   }, [symbols.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch PositionBuilder
+  // Fetch PositionBuilder + ValidationLayer
   const fetchAllPB = useCallback(() => {
     symbols.forEach(symbol => {
       setPbLoading(prev => ({ ...prev, [symbol]: true }));
-      fetchPositionBuilder(symbol)
-        .then(data => setPbData(prev => ({ ...prev, [symbol]: data })))
+      Promise.all([
+        fetchPositionBuilder(symbol),
+        fetchValidationLayer(symbol),
+      ])
+        .then(([pb, vl]) => {
+          setPbData(prev => ({ ...prev, [symbol]: pb }));
+          setVlData(prev => ({ ...prev, [symbol]: vl }));
+        })
         .catch(() => {})
         .finally(() => setPbLoading(prev => ({ ...prev, [symbol]: false })));
     });
@@ -190,8 +203,10 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg }: Props) {
 
   useEffect(() => { if (symbols.length > 0) fetchAllPB(); }, [symbols.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Subscribe / unsubscribe option leg OCC symbols when PB data changes
+  // Subscribe / unsubscribe option leg OCC symbols when PB data or socket status changes
   useEffect(() => {
+    if (socketStatus !== 'connected') return;
+
     // Unsubscribe previous legs
     subscribedLegsRef.current.forEach(occ => unsubscribeLeg(occ));
 
@@ -212,9 +227,17 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg }: Props) {
     return () => {
       newLegs.forEach(occ => unsubscribeLeg(occ));
     };
-  }, [JSON.stringify(Object.fromEntries(Object.entries(pbData).map(([k, v]) => [k, v.strikeEngine?.legSymbols])))]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [socketStatus, JSON.stringify(Object.fromEntries(Object.entries(pbData).map(([k, v]) => [k, v.strikeEngine?.legSymbols])))]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const anyLoading = symbols.some(s => pbLoading[s]);
+
+  // Sort: priorityScore desc (calculado por la API según position_builder.ranking) → symbol asc (tiebreak estable)
+  const sortedSymbols = [...symbols].sort((a, b) => {
+    const scoreA = pbData[a]?.strikeEngine?.priorityScore ?? -1;
+    const scoreB = pbData[b]?.strikeEngine?.priorityScore ?? -1;
+    if (scoreB !== scoreA) return scoreB - scoreA;
+    return a.localeCompare(b);
+  });
 
   return (
     <div style={{ padding: '14px 16px', minHeight: '100%', backgroundColor: 'var(--bg-primary)' }}>
@@ -273,6 +296,7 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg }: Props) {
               <Th span={4} center muted>Strikes</Th>
               <Th span={4} center muted>Premium (live)</Th>
               <Th rowSpan={2} right>Net Credit</Th>
+              <Th rowSpan={2} right>1/3 Rule</Th>
               <Th rowSpan={2} right>POP</Th>
               <Th rowSpan={2} right>Máx Profit</Th>
               <Th rowSpan={2} right>Máx Loss</Th>
@@ -291,11 +315,12 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg }: Props) {
             </tr>
           </thead>
           <tbody>
-            {symbols.map((symbol, idx) => (
+            {sortedSymbols.map((symbol, idx) => (
               <PortfolioRow
                 key={symbol}
                 symbol={symbol}
                 pb={pbData[symbol] ?? null}
+                vl={vlData[symbol] ?? null}
                 loading={pbLoading[symbol] ?? false}
                 tickers={tickers}
                 rowBg={idx % 2 === 0 ? 'var(--bg-primary)' : 'rgba(17,30,51,0.4)'}
@@ -307,7 +332,8 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg }: Props) {
 
       <p style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 8, fontFamily: 'Inter, sans-serif', lineHeight: 1.6 }}>
         EM = Expected Move · ZGL = Gamma Zero Level · BPR = Buying Power Requirement por contrato · POP = proxy (1−|Δ|)×100
-        · Premiums y crédito en tiempo real del socket (dot verde = live). Máx Profit / Loss / BPR se recalculan con crédito live.
+        · 1/3 Rule = crédito / ancho spread (target ≥ 33.3% · verde ≥ 33.3% · amarillo 25–33% · rojo &lt; 25%)
+        · Premiums, crédito y 1/3 Rule en tiempo real del socket (dot verde = live). Máx Profit / Loss / BPR se recalculan con crédito live.
       </p>
     </div>
   );
@@ -318,12 +344,13 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg }: Props) {
 interface RowProps {
   symbol: string;
   pb: PositionBuilderApiResponse | null;
+  vl: ValidationLayerApiResponse | null;
   loading: boolean;
-  tickers: ReturnType<typeof useMarketStore>['tickers'];
+  tickers: Record<string, TickerState>;
   rowBg: string;
 }
 
-function PortfolioRow({ symbol, pb, loading, tickers, rowBg }: RowProps) {
+function PortfolioRow({ symbol, pb, vl, loading, tickers, rowBg }: RowProps) {
   const t = tickers[symbol];
   const se = pb?.strikeEngine;
   const rs = pb?.riskAndSizing;
@@ -368,7 +395,7 @@ function PortfolioRow({ symbol, pb, loading, tickers, rowBg }: RowProps) {
       <tr style={{ backgroundColor: rowBg }}>
         <Td><MonoVal color="var(--text-primary)">{symbol}</MonoVal></Td>
         <Td><span style={{ opacity: 0.4, fontSize: 10 }}>…</span></Td>
-        {Array.from({ length: 21 }).map((_, i) => <Td key={i}><Dash /></Td>)}
+        {Array.from({ length: 22 }).map((_, i) => <Td key={i}><Dash /></Td>)}
       </tr>
     );
   }
@@ -386,9 +413,18 @@ function PortfolioRow({ symbol, pb, loading, tickers, rowBg }: RowProps) {
         )}
       </Td>
 
-      {/* Señal */}
+      {/* Señal — usa VL (todas las capas) si disponible, fallback a PB */}
       <Td center>
-        {pb ? <SignalPill signal={pb.overallSignal} /> : <Dash />}
+        {vl ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+            <SignalPill signal={vl.overallSignal} />
+            {vl.failedAtLayer != null && (
+              <span style={{ fontSize: 7, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>
+                falla L{vl.failedAtLayer}
+              </span>
+            )}
+          </div>
+        ) : pb ? <SignalPill signal={pb.overallSignal} /> : <Dash />}
       </Td>
 
       {/* Precio */}
@@ -475,6 +511,23 @@ function PortfolioRow({ symbol, pb, loading, tickers, rowBg }: RowProps) {
         ) : rs?.maxProfit != null ? (
           <MonoVal color="var(--text-muted)">${fmtPrice(Number(rs.maxProfit) / 100 / contracts, 2)}</MonoVal>
         ) : <Dash />}
+      </Td>
+
+      {/* 1/3 Rule — credit / spread_width × 100. Target ≥ 33.3% */}
+      <Td right>
+        {(() => {
+          const liveRatio = netCreditLive != null && spreadWidth != null && spreadWidth > 0
+            ? (netCreditLive / spreadWidth) * 100 : null;
+          const ratio = liveRatio ?? se?.creditRatio ?? null;
+          if (ratio == null) return <Dash />;
+          const color = ratio >= 33.3 ? '#22c55e' : ratio >= 25 ? '#f59e0b' : '#f43f5e';
+          return (
+            <span>
+              <MonoVal color={color}>{ratio.toFixed(1)}%</MonoVal>
+              {liveRatio != null && <LiveDot live />}
+            </span>
+          );
+        })()}
       </Td>
 
       {/* POP */}

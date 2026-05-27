@@ -110,6 +110,20 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   `gex_sign: "negative"` es inalcanzable. Se reemplazó por `gex_skew` que mide la asimetría de muros:
   `gex_skew = callGEX / (callGEX + |putGEX|)` → `call_dominant` (>0.6), `put_dominant` (<0.4), `symmetric` (0.4-0.6)
 
+- Ranking de oportunidades (position_builder.ranking)
+  Cuando hay múltiples tickers operables, el orden de prioridad viene del JSON → API → frontend.
+  Criterio: regla 1/3 Tastytrade como métrica de calidad del spread.
+  El nodo `position_builder.ranking` declara: `priorityScore = (pop/100)*0.6 + (credit/width)*0.4`.
+  El backend computa `strikeEngine.creditRatio` (= credit/width×100, target ≥ 33.3%) y `strikeEngine.priorityScore`
+  en `PositionBuilderHandler.cs`, después de tener el crédito snapshot de microstructure.
+  El frontend ordena `sortedSymbols` por `priorityScore desc` y muestra `creditRatio` en columna "1/3 Rule"
+  con semáforo: verde ≥ 33.3%, amarillo 25–33%, rojo < 25%.
+
+- legSymbols — formato DXLink streamer (no OCC)
+  `strikeEngine.legSymbols` contiene símbolos en formato DXLink (ej: `.SPY260717P695`), NO formato OCC.
+  DXLink no interpreta OCC. Los símbolos vienen de `GammaExposureStrike.CallStreamerSymbol / PutStreamerSymbol`
+  poblados en `GammaExposureHandler.cs` desde el `strikeMap` de la cadena de opciones de Tastytrade.
+
 - Seguridad
   * API Key Middleware:
     Valida header X-API-KEY en cada request

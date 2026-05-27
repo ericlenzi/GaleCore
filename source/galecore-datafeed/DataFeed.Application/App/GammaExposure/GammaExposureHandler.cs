@@ -149,6 +149,7 @@ namespace DataFeed.Application.App.GammaExposure
 
                     if (optType == "C")
                     {
+                        strikeResult.CallStreamerSymbol = streamerSym;
                         strikeResult.CallDelta = Math.Round(delta, 5);
                         strikeResult.CallGamma = Math.Round(gamma, 7);
                         strikeResult.CallIV = Math.Round(iv, 4);
@@ -157,6 +158,7 @@ namespace DataFeed.Application.App.GammaExposure
                     }
                     else
                     {
+                        strikeResult.PutStreamerSymbol = streamerSym;
                         strikeResult.PutDelta = Math.Round(delta, 5);
                         strikeResult.PutGamma = Math.Round(gamma, 7);
                         strikeResult.PutIV = Math.Round(iv, 4);

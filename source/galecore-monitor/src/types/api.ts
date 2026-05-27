@@ -259,7 +259,11 @@ export interface StrikeEngineResult {
   rv30d: number | null;
   /** Proxy POP: (1 - |delta|) × 100. IC = mínimo de ambos lados. */
   pop: number | null;
-  /** Símbolos OCC por leg — suscribir al socket para quotes live. */
+  /** Regla 1/3 Tastytrade: credit/spread_width × 100. Target ≥ 33.3%. Fuente: definitions.credit_ratio. */
+  creditRatio: number | null;
+  /** Score compuesto de prioridad: (pop/100)*0.6 + (credit/width)*0.4. Fuente: position_builder.ranking. */
+  priorityScore: number | null;
+  /** Símbolos DXLink streamer por leg — suscribir al socket para quotes live. */
   legSymbols: LegSymbols | null;
 }
 

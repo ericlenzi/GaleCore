@@ -397,7 +397,7 @@ namespace DataFeed.Application.App.ValidationLayer
                 StructureRuleId = ruleId,
                 StructureRuleName = ruleName,
                 StructureRuleLabel = ruleLabel,
-                GexSign = gexSign,
+                GexSign = gexSkew,
                 TrendSignal = trendSignal,
                 Ema20 = ema20.HasValue ? Math.Round(ema20.Value, 2) : null,
                 Ema50 = ema50.HasValue ? Math.Round(ema50.Value, 2) : null,
