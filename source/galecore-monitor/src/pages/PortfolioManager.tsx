@@ -160,7 +160,6 @@ export function PortfolioManager() {
 
   const ivRankMin  = rules?.options_filters?.iv_rank?.min ?? 25;
   const ivRankMax  = rules?.options_filters?.iv_rank?.max ?? 65;
-  const dteIdeal   = rules?.trade_construction?.dte_target?.ideal ?? 35;
   const maxConc    = rules?.risk_limits?.max_concurrent_positions ?? 3;
   const riskPct    = rules?.risk_limits?.risk_per_trade_pct ?? 0.02;
   const riskMaxUsd = rules?.risk_limits?.risk_per_trade_usd_max ?? 10000;
