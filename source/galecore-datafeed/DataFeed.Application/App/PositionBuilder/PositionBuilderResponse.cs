@@ -15,6 +15,11 @@ namespace DataFeed.Application.App.PositionBuilder
         public double SpotPrice { get; set; }
         public string OverallSignal { get; set; }
 
+        /// <summary>GEX total neto en billions USD. Fuente: definitions.gex_total.</summary>
+        public double? NetGexBillions { get; set; }
+        /// <summary>Gamma Zero Level. Fuente: definitions.gamma_zero_level.</summary>
+        public double? GammaZeroLevel { get; set; }
+
         public StructureInputs StructureInputs { get; set; }
         public SelectedStructureResult SelectedStructure { get; set; }
 
@@ -53,7 +58,8 @@ namespace DataFeed.Application.App.PositionBuilder
     public class GexSignInput
     {
         public string Value { get; set; }
-        public double NetGexBillions { get; set; }
+        /// <summary>Ratio callGEX / (callGEX + |putGEX|) en rango [0, 1]. Ver definitions.gex_skew.</summary>
+        public double SkewRatio { get; set; }
         public string Interpretation { get; set; }
     }
 

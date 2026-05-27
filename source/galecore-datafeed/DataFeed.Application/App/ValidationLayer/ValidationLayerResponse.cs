@@ -129,6 +129,20 @@ namespace DataFeed.Application.App.ValidationLayer
         public string? RealizedVolSignal { get; set; }
         public double? Rv10d { get; set; }
         public double? Rv30d { get; set; }
+
+        // Portfolio Manager fields
+        /// <summary>Proxy POP: (1 - |short_delta|) * 100. IC = min de ambos lados.</summary>
+        public double? Pop { get; set; }
+        /// <summary>Símbolos OCC de cada leg — el frontend suscribe al socket para quotes live.</summary>
+        public LegSymbols? LegSymbols { get; set; }
+    }
+
+    public class LegSymbols
+    {
+        public string? ShortPut { get; set; }
+        public string? LongPut { get; set; }
+        public string? ShortCall { get; set; }
+        public string? LongCall { get; set; }
     }
 
     // --- Microstructure (Layer 3) ---
@@ -195,6 +209,12 @@ namespace DataFeed.Application.App.ValidationLayer
         public double CurrentHeatPct { get; set; }
         public double MaxHeatPct { get; set; }
         public bool HeatOk { get; set; }
+
+        // Portfolio Manager fields (calculados con crédito snapshot — el frontend recalcula con live)
+        public int Contracts { get; set; }
+        public decimal MaxProfit { get; set; }
+        public decimal MaxLoss { get; set; }
+        public decimal BuyingPowerReq { get; set; }
     }
 
     // ═══════════════════════════════════════════════════════════════════════

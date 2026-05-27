@@ -99,7 +99,7 @@ namespace DataFeed.Application.App.PositionBuilder
                 GexSign = new GexSignInput
                 {
                     Value = gexSkew,
-                    NetGexBillions = Math.Round(gexSkewRaw, 3),
+                    SkewRatio = Math.Round(gexSkewRaw, 3),
                     Interpretation = gexSkew == "call_dominant"
                         ? "call wall domina — soporte estructural arriba"
                         : gexSkew == "put_dominant"
@@ -151,6 +151,8 @@ namespace DataFeed.Application.App.PositionBuilder
                     Profile = request.Profile,
                     Timestamp = DateTime.UtcNow,
                     SpotPrice = spot,
+                    NetGexBillions = gex.NetGEX,
+                    GammaZeroLevel = gex.GammaZeroLevel,
                     OverallSignal = "NO_OPERAR",
                     StructureInputs = structureInputs,
                     SelectedStructure = selectedStructureResult,
@@ -215,9 +217,10 @@ namespace DataFeed.Application.App.PositionBuilder
                     }
                 }
 
-                bool putInsideWall = !shortPutStrike.HasValue || !gex.PutWall.HasValue || shortPutStrike.Value >= gex.PutWall.Value;
-                bool callInsideWall = !shortCallStrike.HasValue || !gex.CallWall.HasValue || shortCallStrike.Value <= gex.CallWall.Value;
-                strikesInsideWalls = putInsideWall && callInsideWall;
+                // short put debe quedar OTM del put wall (por debajo), short call OTM del call wall (por arriba)
+                bool putOutsideWall = !shortPutStrike.HasValue || !gex.PutWall.HasValue || shortPutStrike.Value < gex.PutWall.Value;
+                bool callOutsideWall = !shortCallStrike.HasValue || !gex.CallWall.HasValue || shortCallStrike.Value > gex.CallWall.Value;
+                strikesInsideWalls = putOutsideWall && callOutsideWall;
             }
 
             bool hasValidStrikes = selectedStructure switch
@@ -226,6 +229,24 @@ namespace DataFeed.Application.App.PositionBuilder
                 "put_credit_spread" => shortPutStrike.HasValue,
                 "call_credit_spread" => shortCallStrike.HasValue,
                 _ => false
+            };
+
+            // POP proxy: (1 - |delta|) * 100 por lado; IC = mínimo de ambos
+            double? pop = null;
+            if (selectedStructure == "iron_condor" && shortPutDelta.HasValue && shortCallDelta.HasValue)
+                pop = Math.Round(Math.Min((1 - Math.Abs(shortPutDelta.Value)) * 100, (1 - Math.Abs(shortCallDelta.Value)) * 100), 1);
+            else if (selectedStructure == "put_credit_spread" && shortPutDelta.HasValue)
+                pop = Math.Round((1 - Math.Abs(shortPutDelta.Value)) * 100, 1);
+            else if (selectedStructure == "call_credit_spread" && shortCallDelta.HasValue)
+                pop = Math.Round((1 - Math.Abs(shortCallDelta.Value)) * 100, 1);
+
+            // Leg symbols OCC — el frontend los suscribe al socket para quotes live
+            var legSymbols = new LegSymbols
+            {
+                ShortPut  = shortPutStrike.HasValue  ? VLH.BuildOccSymbol(symbol, gex.Expiration, shortPutStrike.Value,  'P') : null,
+                LongPut   = longPutStrike.HasValue   ? VLH.BuildOccSymbol(symbol, gex.Expiration, longPutStrike.Value,   'P') : null,
+                ShortCall = shortCallStrike.HasValue ? VLH.BuildOccSymbol(symbol, gex.Expiration, shortCallStrike.Value, 'C') : null,
+                LongCall  = longCallStrike.HasValue  ? VLH.BuildOccSymbol(symbol, gex.Expiration, longCallStrike.Value,  'C') : null,
             };
 
             var strikeEngine = new StrikeEngineResult
@@ -254,7 +275,9 @@ namespace DataFeed.Application.App.PositionBuilder
                 Ema50 = ema50.HasValue ? Math.Round(ema50.Value, 2) : null,
                 RealizedVolSignal = realizedVolSignal,
                 Rv10d = rv10d.HasValue ? Math.Round(rv10d.Value, 2) : null,
-                Rv30d = rv30d.HasValue ? Math.Round(rv30d.Value, 2) : null
+                Rv30d = rv30d.HasValue ? Math.Round(rv30d.Value, 2) : null,
+                Pop = pop,
+                LegSymbols = legSymbols
             };
 
             if (strikeEngine.Signal == "NO_OPERAR")
@@ -263,6 +286,7 @@ namespace DataFeed.Application.App.PositionBuilder
                 {
                     Symbol = symbol, Profile = request.Profile,
                     Timestamp = DateTime.UtcNow, SpotPrice = spot,
+                    NetGexBillions = gex.NetGEX, GammaZeroLevel = gex.GammaZeroLevel,
                     OverallSignal = "NO_OPERAR",
                     StructureInputs = structureInputs,
                     SelectedStructure = selectedStructureResult,
@@ -316,6 +340,7 @@ namespace DataFeed.Application.App.PositionBuilder
                 {
                     Symbol = symbol, Profile = request.Profile,
                     Timestamp = DateTime.UtcNow, SpotPrice = spot,
+                    NetGexBillions = gex.NetGEX, GammaZeroLevel = gex.GammaZeroLevel,
                     OverallSignal = "NO_OPERAR",
                     StructureInputs = structureInputs,
                     SelectedStructure = selectedStructureResult,
@@ -353,6 +378,18 @@ namespace DataFeed.Application.App.PositionBuilder
             double currentHeatPct = netLiq > 0 ? (double)(estimatedHeat / netLiq) : 0;
             bool heatOk = currentHeatPct <= heatMaxPct;
 
+            // Contracts, MaxProfit, MaxLoss, BPR (snapshot con crédito del check — frontend recalcula con live)
+            double snapshotCredit = microstructure.CreditMinimum?.MidCredit ?? 0;
+            decimal maxRiskPerContract = snapshotCredit > 0
+                ? (decimal)((spreadWidth - snapshotCredit) * 100)
+                : (decimal)(spreadWidth * 100);
+            int contracts = maxRiskPerContract > 0
+                ? Math.Max(1, (int)Math.Floor(riskPerTrade / maxRiskPerContract))
+                : 1;
+            decimal maxProfit = (decimal)(snapshotCredit * 100) * contracts;
+            decimal maxLoss = maxRiskPerContract * contracts;
+            decimal bpr = maxRiskPerContract; // por contrato
+
             var riskAndSizing = new RiskAndSizingResult
             {
                 Signal = positionsAvailable && heatOk ? "OPERAR" : "NO_OPERAR",
@@ -364,7 +401,11 @@ namespace DataFeed.Application.App.PositionBuilder
                 PositionsAvailable = positionsAvailable,
                 CurrentHeatPct = Math.Round(currentHeatPct * 100, 2),
                 MaxHeatPct = heatMaxPct * 100,
-                HeatOk = heatOk
+                HeatOk = heatOk,
+                Contracts = contracts,
+                MaxProfit = Math.Round(maxProfit, 2),
+                MaxLoss = Math.Round(maxLoss, 2),
+                BuyingPowerReq = Math.Round(bpr, 2)
             };
 
             // === BUILD FINAL RESPONSE ===
@@ -379,6 +420,8 @@ namespace DataFeed.Application.App.PositionBuilder
                 Profile = request.Profile,
                 Timestamp = DateTime.UtcNow,
                 SpotPrice = spot,
+                NetGexBillions = gex.NetGEX,
+                GammaZeroLevel = gex.GammaZeroLevel,
                 OverallSignal = overallSignal,
                 StructureInputs = structureInputs,
                 SelectedStructure = selectedStructureResult,
