@@ -1,10 +1,10 @@
 {
   "_meta": {
-    "version": "1.1.1",
+    "version": "1.2.0",
     "strategy": "gale_core_gamma_premium",
     "profile": "core",
     "last_updated": "2026-05-27",
-    "notes": "v1.1.1: reemplaza gex_sign por gex_skew en structure_selection. gex_sign = negativo es inalcanzable dado que macro_regime requiere GEX >= 50B. gex_skew mide asimetría callGEX/putGEX dentro del entorno siempre positivo garantizado por macro. Fix: wall checks (outside, no inside). Fix: defensive_roll min_dte_remaining 22→28."
+    "notes": "v1.2.0: agrega definiciones leg_mid_price, max_profit, max_loss, buying_power_requirement. Amplía pop_proxy. Agrega display_config.portfolio_manager_table. Premiums y net_credit son realtime=true: vienen del socket (ReceiveQuote por OCC symbol), no del REST. Backend expone strikeEngine.legSymbols para que el frontend sepa qué suscribir."
   },
   "principles": {
     "cash_is_a_position": true,
@@ -225,7 +225,11 @@
     },
     "pop_proxy": {
       "type": "formula",
-      "formula": "(1 - abs(short_delta)) * 100"
+      "formula": "(1 - abs(short_delta)) * 100",
+      "unit": "percent",
+      "note": "Proxy de probabilidad de profit basado en el delta de la pata short. No es POP estadístico exacto pero es consistente con Black-Scholes.",
+      "applies_per_side": true,
+      "for_iron_condor": "min(pop_put_side, pop_call_side)"
     },
     "portfolio_heat": {
       "type": "formula",
@@ -291,6 +295,34 @@
       "applies_to": ["SPY"],
       "ex_dividend_months": ["marzo", "junio", "septiembre", "diciembre"],
       "ex_dividend_day": "tercer_viernes_del_mes"
+    },
+    "leg_mid_price": {
+      "type": "formula",
+      "formula": "(bid + ask) / 2",
+      "unit": "dollars_per_contract_unit",
+      "source": "socket — ReceiveQuote por símbolo OCC de cada leg",
+      "note": "Mid-price en tiempo real por leg. El frontend suscribe cada símbolo OCC via Subscribe(occSymbol) y computa el mid del quote recibido. No usar snapshot REST para display."
+    },
+    "max_profit": {
+      "type": "formula",
+      "formula": "net_credit_live * 100 * contracts",
+      "unit": "dollars",
+      "net_credit_live": "short_put_mid + short_call_mid - long_put_mid - long_call_mid (desde socket)",
+      "note": "Se calcula con el crédito neto live del socket. Máxima ganancia si ambas patas expiran OTM."
+    },
+    "max_loss": {
+      "type": "formula",
+      "formula": "(spread_width - net_credit_live) * 100 * contracts",
+      "unit": "dollars",
+      "net_credit_live": "ver leg_mid_price",
+      "note": "Pérdida máxima si el spread expira ITM completamente. Se actualiza con crédito live."
+    },
+    "buying_power_requirement": {
+      "type": "formula",
+      "formula": "(spread_width - net_credit_live) * 100",
+      "unit": "dollars_per_contract",
+      "net_credit_live": "ver leg_mid_price",
+      "note": "Capital bloqueado por contrato. Se actualiza con crédito live. Idéntico a max_loss por contrato."
     }
   },
   "macro_regime": {
@@ -775,6 +807,38 @@
   },
   "display_config": {
     "checks_render_order": "macro_regime.checks[] en orden de declaración / position_builder.layers[].checks[] en orden de declaración",
+    "portfolio_manager_table": {
+      "description": "Columnas del Portfolio Manager. El frontend debe renderizar exactamente estas columnas en este orden, leyendo los campos del endpoint /App/GaleCore/PositionBuilder.",
+      "columns": [
+        { "id": "ticker",           "label": "Ticker",             "source": "symbol" },
+        { "id": "signal",           "label": "Señal",              "source": "overallSignal" },
+        { "id": "price",            "label": "Precio Actual",      "source": "spotPrice" },
+        { "id": "call_wall",        "label": "Call Wall",          "source": "strikeEngine.callWall",           "ref": "definitions.call_wall" },
+        { "id": "zgl",              "label": "ZGL",                "source": "gammaZeroLevel",                  "ref": "definitions.gamma_zero_level" },
+        { "id": "put_wall",         "label": "Put Wall",           "source": "strikeEngine.putWall",            "ref": "definitions.put_wall" },
+        { "id": "z_spot",           "label": "Z-Spot",             "source": "structureInputs.priceZScore.value", "ref": "definitions.directional_zscore" },
+        { "id": "gex",              "label": "GEX",                "source": "netGexBillions",                  "ref": "definitions.gex_total", "unit": "billions_usd" },
+        { "id": "expected_move",    "label": "Expected Move",      "source": "strikeEngine.expectedMove",       "ref": "definitions.expected_move" },
+        { "id": "structure",        "label": "Posición Sugerida",  "source": "selectedStructure.output" },
+        { "id": "long_put",         "label": "Long Put",           "source": "strikeEngine.longPutStrike",      "group": "strikes" },
+        { "id": "short_put",        "label": "Short Put",          "source": "strikeEngine.shortPutStrike",     "group": "strikes" },
+        { "id": "short_call",       "label": "Short Call",         "source": "strikeEngine.shortCallStrike",    "group": "strikes" },
+        { "id": "long_call",        "label": "Long Call",          "source": "strikeEngine.longCallStrike",     "group": "strikes" },
+        { "id": "prem_long_put",    "label": "Long Put",           "source": "socket.ReceiveQuote[strikeEngine.legSymbols.longPut]",   "ref": "definitions.leg_mid_price", "group": "premium", "realtime": true },
+        { "id": "prem_short_put",   "label": "Short Put",          "source": "socket.ReceiveQuote[strikeEngine.legSymbols.shortPut]",  "ref": "definitions.leg_mid_price", "group": "premium", "realtime": true },
+        { "id": "prem_short_call",  "label": "Short Call",         "source": "socket.ReceiveQuote[strikeEngine.legSymbols.shortCall]", "ref": "definitions.leg_mid_price", "group": "premium", "realtime": true },
+        { "id": "prem_long_call",   "label": "Long Call",          "source": "socket.ReceiveQuote[strikeEngine.legSymbols.longCall]",  "ref": "definitions.leg_mid_price", "group": "premium", "realtime": true },
+        { "id": "net_credit",       "label": "Net Credit",         "source": "socket — computed from live leg quotes", "ref": "definitions.leg_mid_price", "realtime": true, "formula": "short_put_mid + short_call_mid - long_put_mid - long_call_mid" },
+        { "id": "pop",              "label": "POP",                "source": "strikeEngine.pop",                "ref": "definitions.pop_proxy" },
+        { "id": "max_profit",       "label": "Máx Profit",         "source": "riskAndSizing.maxProfit",         "ref": "definitions.max_profit" },
+        { "id": "max_loss",         "label": "Máx Drawdown",       "source": "riskAndSizing.maxLoss",           "ref": "definitions.max_loss" },
+        { "id": "bpr",              "label": "BPR",                "source": "riskAndSizing.buyingPowerReq",    "ref": "definitions.buying_power_requirement" }
+      ],
+      "column_groups": [
+        { "id": "strikes", "label": "Strikes",  "columns": ["long_put", "short_put", "short_call", "long_call"] },
+        { "id": "premium", "label": "Premium",  "columns": ["prem_long_put", "prem_short_put", "prem_short_call", "prem_long_call"] }
+      ]
+    },
     "alerts_priority": [
       "STOP_LOSS",
       "TIME_EXIT",
