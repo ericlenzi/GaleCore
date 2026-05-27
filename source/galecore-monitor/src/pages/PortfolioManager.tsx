@@ -8,7 +8,7 @@ import { fetchIVRank, fetchImpliedVolatility, fetchPositionBuilder, fetchValidat
 import { ConnectionStatus } from '../socket/useMarketSocket';
 import { ValidationLayerApiResponse } from '../types/api';
 import { fmtPrice, fmtGex } from '../utils/formatters';
-import { PositionBuilderApiResponse, LegSymbols } from '../types/api';
+import { PositionBuilderApiResponse } from '../types/api';
 import { TickerState } from '../types/market';
 
 // ── Props ────────────────────────────────────────────────────────────────────
