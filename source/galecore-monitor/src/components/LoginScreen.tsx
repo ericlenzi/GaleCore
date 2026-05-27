@@ -6,7 +6,7 @@ interface Props {
 }
 
 export function LoginScreen({ onAuthenticated }: Props) {
-  const [apiKey, setApiKey] = useState(process.env.REACT_APP_API_KEY || '');
+  const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,12 +24,10 @@ export function LoginScreen({ onAuthenticated }: Props) {
       await apiClient.get('/Data/Account/Balances');
       onAuthenticated();
     } catch (err: any) {
-      // TODO: restaurar validación estricta cuando haya API Key real
       if (err?.response?.status === 401) {
         sessionStorage.removeItem('galecore:apiKey');
-        setError('API Key inválida');
+        setError('Invalid access key');
       } else {
-        // Error de red / CORS / servidor no disponible → entrar igual en modo dev
         onAuthenticated();
       }
     } finally {
@@ -55,10 +53,10 @@ export function LoginScreen({ onAuthenticated }: Props) {
             className="text-2xl font-bold tracking-widest mb-1"
             style={{ color: 'var(--text-primary)', fontFamily: 'Inter, sans-serif' }}
           >
-            GaleCore
+            GALECORE
           </div>
-          <div className="text-xs tracking-widest uppercase" style={{ color: 'var(--text-muted)' }}>
-            Monitor
+          <div className="text-xs tracking-widest uppercase" style={{ color: 'var(--blue-gc)' }}>
+            OPTIONS TRADING MONITOR
           </div>
         </div>
 
@@ -66,10 +64,10 @@ export function LoginScreen({ onAuthenticated }: Props) {
           <div>
             <label
               htmlFor="apikey"
-              className="block text-xs uppercase tracking-wider mb-1"
+              className="block text-xs tracking-wider mb-1"
               style={{ color: 'var(--text-muted)' }}
             >
-              API Key
+              Access Key
             </label>
             <input
               id="apikey"
@@ -83,7 +81,7 @@ export function LoginScreen({ onAuthenticated }: Props) {
                 border: '1px solid var(--border-dark)',
                 color: 'var(--text-primary)',
               }}
-              placeholder="••••••••••••••••"
+              placeholder="••••••••••••"
             />
           </div>
 
@@ -110,10 +108,10 @@ export function LoginScreen({ onAuthenticated }: Props) {
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="spinner" style={{ width: 14, height: 14 }} />
-                Conectando…
+                Connecting…
               </span>
             ) : (
-              'Conectar'
+              'Connect'
             )}
           </button>
         </form>

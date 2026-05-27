@@ -1,11 +1,12 @@
 import React from 'react';
-import { LayoutDashboard, BarChart2, Activity, BookOpen } from 'lucide-react';
+import { LayoutDashboard, BarChart2, Activity, BookOpen, LogOut } from 'lucide-react';
 
 export type Tab = 'inicio' | 'portfolio' | 'monitor' | 'estrategia';
 
 interface Props {
   active: Tab;
   onChange: (tab: Tab) => void;
+  onLogout?: () => void;
 }
 
 const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
@@ -15,7 +16,7 @@ const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number 
   { id: 'estrategia', label: 'Strategy',           Icon: BookOpen        },
 ];
 
-export function TabNav({ active, onChange }: Props) {
+export function TabNav({ active, onChange, onLogout }: Props) {
   return (
     <nav
       className="flex items-center shrink-0"
@@ -23,6 +24,7 @@ export function TabNav({ active, onChange }: Props) {
         backgroundColor: 'var(--bg-secondary)',
         borderBottom: '1px solid var(--border-dark)',
         paddingLeft: 8,
+        paddingRight: 12,
         height: 36,
       }}
     >
@@ -49,6 +51,26 @@ export function TabNav({ active, onChange }: Props) {
           </button>
         );
       })}
+      {onLogout && (
+        <button
+          onClick={onLogout}
+          className="flex items-center gap-1.5 ml-auto text-xs uppercase tracking-wider"
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+            fontFamily: 'Inter, sans-serif',
+            fontWeight: 400,
+            whiteSpace: 'nowrap',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
+          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+        >
+          <LogOut size={12} />
+          LOGOUT
+        </button>
+      )}
     </nav>
   );
 }
