@@ -84,6 +84,7 @@ namespace DataFeed.Application.App.GammaExposure
         public double Strike { get; set; }
 
         // Call
+        public string? CallStreamerSymbol { get; set; }
         public double CallDelta { get; set; }
         public double CallGamma { get; set; }
         public double CallIV { get; set; }
@@ -91,6 +92,7 @@ namespace DataFeed.Application.App.GammaExposure
         public double CallGEX { get; set; }
 
         // Put
+        public string? PutStreamerSymbol { get; set; }
         public double PutDelta { get; set; }
         public double PutGamma { get; set; }
         public double PutIV { get; set; }

@@ -133,7 +133,18 @@ namespace DataFeed.Application.App.ValidationLayer
         // Portfolio Manager fields
         /// <summary>Proxy POP: (1 - |short_delta|) * 100. IC = min de ambos lados.</summary>
         public double? Pop { get; set; }
-        /// <summary>Símbolos OCC de cada leg — el frontend suscribe al socket para quotes live.</summary>
+        /// <summary>
+        /// Regla 1/3 Tastytrade: net_credit_snapshot / spread_width * 100.
+        /// Target ≥ 33.3%. Indica la calidad del spread: cobrar al menos 1/3 del ancho implica riesgo 2:1 y strikes ~16-20 delta.
+        /// Fuente: definitions.credit_ratio.
+        /// </summary>
+        public double? CreditRatio { get; set; }
+        /// <summary>
+        /// Score compuesto de prioridad: (pop/100)*0.6 + (credit/width)*0.4.
+        /// Fuente: position_builder.ranking. Mayor score = operar primero.
+        /// </summary>
+        public double? PriorityScore { get; set; }
+        /// <summary>Símbolos DXLink streamer de cada leg — el frontend suscribe al socket para quotes live.</summary>
         public LegSymbols? LegSymbols { get; set; }
     }
 

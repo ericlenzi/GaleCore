@@ -44,7 +44,7 @@ function Dashboard() {
       .finally(() => setLoadingPositions(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { status } = useMarketSocket(tickers);
+  const { status, subscribeLeg, unsubscribeLeg } = useMarketSocket(tickers);
   useEffect(() => { setSocketStatus(status); }, [status]);
 
   return (
@@ -55,7 +55,7 @@ function Dashboard() {
         <TabNav active={tab} onChange={setTab} />
         <main className="flex-1 overflow-auto" style={{ position: 'relative' }}>
           <div style={{ display: tab === 'inicio' ? 'block' : 'none', height: '100%', overflow: 'auto' }}><Home /></div>
-          <div style={{ display: tab === 'portfolio' ? 'block' : 'none', height: '100%', overflow: 'auto' }}><PortfolioManager /></div>
+          <div style={{ display: tab === 'portfolio' ? 'block' : 'none', height: '100%', overflow: 'auto' }}><PortfolioManager subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} /></div>
           {tab === 'monitor'    && <Monitor />}
           {tab === 'estrategia' && <Strategy />}
         </main>

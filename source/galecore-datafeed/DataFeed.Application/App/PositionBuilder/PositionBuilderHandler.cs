@@ -162,7 +162,21 @@ namespace DataFeed.Application.App.PositionBuilder
                         ExpectedMove = Math.Round(expectedMove, 2),
                         DTE = gex.DTE,
                         Expiration = gex.Expiration,
-                        SelectedStructure = "no_trade"
+                        CallWall = gex.CallWall,
+                        PutWall = gex.PutWall,
+                        ZScore = Math.Round(priceZScore, 4),
+                        SelectedStructure = "no_trade",
+                        StrikesInsideWalls = false,
+                        StructureRuleId = ruleId,
+                        StructureRuleName = ruleName,
+                        StructureRuleLabel = ruleLabel,
+                        GexSign = gexSkew,
+                        TrendSignal = trendSignal,
+                        Ema20 = ema20.HasValue ? Math.Round(ema20.Value, 2) : null,
+                        Ema50 = ema50.HasValue ? Math.Round(ema50.Value, 2) : null,
+                        RealizedVolSignal = realizedVolSignal,
+                        Rv10d = rv10d.HasValue ? Math.Round(rv10d.Value, 2) : null,
+                        Rv30d = rv30d.HasValue ? Math.Round(rv30d.Value, 2) : null
                     }
                 };
             }
@@ -181,6 +195,8 @@ namespace DataFeed.Application.App.PositionBuilder
             double? shortPutDelta = null, shortCallDelta = null;
             double? longPutStrike = null, longCallStrike = null;
             bool strikesInsideWalls = false;
+            GammaExposureStrike? putCandidate = null;
+            GammaExposureStrike? callCandidate = null;
 
             if (expectedMove > 0 && gex.Strikes.Count > 0)
             {
@@ -189,8 +205,11 @@ namespace DataFeed.Application.App.PositionBuilder
 
                 if (selectedStructure == "iron_condor" || selectedStructure == "put_credit_spread")
                 {
-                    var putCandidate = gex.Strikes
-                        .Where(s => s.Strike <= targetPut && Math.Abs(s.PutDelta) <= maxPutDelta && Math.Abs(s.PutDelta) > 0)
+                    putCandidate = gex.Strikes
+                        .Where(s => s.Strike <= targetPut
+                                 && Math.Abs(s.PutDelta) <= maxPutDelta
+                                 && Math.Abs(s.PutDelta) > 0
+                                 && (!gex.PutWall.HasValue || s.Strike < gex.PutWall.Value))
                         .OrderByDescending(s => s.Strike)
                         .FirstOrDefault();
 
@@ -204,8 +223,11 @@ namespace DataFeed.Application.App.PositionBuilder
 
                 if (selectedStructure == "iron_condor" || selectedStructure == "call_credit_spread")
                 {
-                    var callCandidate = gex.Strikes
-                        .Where(s => s.Strike >= targetCall && Math.Abs(s.CallDelta) <= maxCallDelta && Math.Abs(s.CallDelta) > 0)
+                    callCandidate = gex.Strikes
+                        .Where(s => s.Strike >= targetCall
+                                 && Math.Abs(s.CallDelta) <= maxCallDelta
+                                 && Math.Abs(s.CallDelta) > 0
+                                 && (!gex.CallWall.HasValue || s.Strike > gex.CallWall.Value))
                         .OrderBy(s => s.Strike)
                         .FirstOrDefault();
 
@@ -240,13 +262,18 @@ namespace DataFeed.Application.App.PositionBuilder
             else if (selectedStructure == "call_credit_spread" && shortCallDelta.HasValue)
                 pop = Math.Round((1 - Math.Abs(shortCallDelta.Value)) * 100, 1);
 
-            // Leg symbols OCC — el frontend los suscribe al socket para quotes live
+
+            // Leg symbols — DXLink streamer format (required by SignalR hub subscription)
             var legSymbols = new LegSymbols
             {
-                ShortPut  = shortPutStrike.HasValue  ? VLH.BuildOccSymbol(symbol, gex.Expiration, shortPutStrike.Value,  'P') : null,
-                LongPut   = longPutStrike.HasValue   ? VLH.BuildOccSymbol(symbol, gex.Expiration, longPutStrike.Value,   'P') : null,
-                ShortCall = shortCallStrike.HasValue ? VLH.BuildOccSymbol(symbol, gex.Expiration, shortCallStrike.Value, 'C') : null,
-                LongCall  = longCallStrike.HasValue  ? VLH.BuildOccSymbol(symbol, gex.Expiration, longCallStrike.Value,  'C') : null,
+                ShortPut  = putCandidate?.PutStreamerSymbol,
+                LongPut   = longPutStrike.HasValue
+                    ? gex.Strikes.OrderBy(s => Math.Abs(s.Strike - longPutStrike.Value)).FirstOrDefault()?.PutStreamerSymbol
+                    : null,
+                ShortCall = callCandidate?.CallStreamerSymbol,
+                LongCall  = longCallStrike.HasValue
+                    ? gex.Strikes.OrderBy(s => Math.Abs(s.Strike - longCallStrike.Value)).FirstOrDefault()?.CallStreamerSymbol
+                    : null,
             };
 
             var strikeEngine = new StrikeEngineResult
@@ -380,6 +407,17 @@ namespace DataFeed.Application.App.PositionBuilder
 
             // Contracts, MaxProfit, MaxLoss, BPR (snapshot con crédito del check — frontend recalcula con live)
             double snapshotCredit = microstructure.CreditMinimum?.MidCredit ?? 0;
+
+            // Regla 1/3 Tastytrade + Priority score — fuente: position_builder.ranking
+            // creditRatio = credit / spread_width * 100  (target ≥ 33.3%)
+            // priorityScore = (pop/100)*0.6 + (credit/width)*0.4
+            if (spreadWidth > 0 && snapshotCredit > 0)
+            {
+                double creditRatio = snapshotCredit / spreadWidth;
+                strikeEngine.CreditRatio = Math.Round(creditRatio * 100, 1);
+                if (strikeEngine.Pop.HasValue)
+                    strikeEngine.PriorityScore = Math.Round(strikeEngine.Pop.Value * 0.01 * 0.6 + creditRatio * 0.4, 4);
+            }
             decimal maxRiskPerContract = snapshotCredit > 0
                 ? (decimal)((spreadWidth - snapshotCredit) * 100)
                 : (decimal)(spreadWidth * 100);

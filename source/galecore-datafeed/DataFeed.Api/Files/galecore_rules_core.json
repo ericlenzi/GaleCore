@@ -1,10 +1,10 @@
 {
   "_meta": {
-    "version": "1.2.0",
+    "version": "1.3.1",
     "strategy": "gale_core_gamma_premium",
     "profile": "core",
     "last_updated": "2026-05-27",
-    "notes": "v1.2.0: agrega definiciones leg_mid_price, max_profit, max_loss, buying_power_requirement. Amplía pop_proxy. Agrega display_config.portfolio_manager_table. Premiums y net_credit son realtime=true: vienen del socket (ReceiveQuote por OCC symbol), no del REST. Backend expone strikeEngine.legSymbols para que el frontend sepa qué suscribir."
+    "notes": "v1.3.1: ranking usa regla 1/3 Tastytrade — credit/width como métrica de calidad del spread. priorityScore = (pop/100)*0.6 + (credit/width)*0.4. Backend expone strikeEngine.creditRatio (%) y strikeEngine.priorityScore. Frontend agrega columna 1/3 Rule en PM table."
   },
   "principles": {
     "cash_is_a_position": true,
@@ -172,7 +172,16 @@
     },
     "credit_ratio": {
       "type": "formula",
-      "formula": "net_credit / spread_width"
+      "formula": "net_credit / spread_width",
+      "unit": "ratio [0, 1]",
+      "target": ">= 0.333",
+      "interpretation": "Regla 1/3 Tastytrade: cobrar al menos 1/3 del ancho garantiza riesgo 2:1 y sitúa los strikes en ~16-20 delta (POP ~80%). Por debajo de 0.25 la operación es deficiente — demasiado riesgo por poca prima.",
+      "thresholds": {
+        "good":     { "min": 0.333, "label": "≥ 33% — cumple regla 1/3" },
+        "marginal": { "min": 0.250, "label": "25–33% — por debajo del target" },
+        "poor":     { "max": 0.250, "label": "< 25% — descartar" }
+      },
+      "endpoint": "strikeEngine.creditRatio (en %)"
     },
     "credit_ratio_min_by_iv_rank": {
       "type": "lookup_by_range",
@@ -418,6 +427,35 @@
   "position_builder": {
     "description": "Motor de construcción de posición. Se evalúa solo si macro_regime pasa.",
     "cascade_rule": "sequential_short_circuit",
+    "ranking": {
+      "description": "Criterio de priorización cuando hay múltiples tickers operables simultáneamente. El backend calcula priorityScore y lo expone en strikeEngine.priorityScore. El frontend ordena por ese campo descendente.",
+      "method": "composite_score",
+      "score_formula": "(pop / 100) * weight_pop + (credit / spread_width) * weight_credit",
+      "output_field": "strikeEngine.priorityScore",
+      "tiebreak": "symbol_asc",
+      "criteria": [
+        {
+          "id": "pop",
+          "label": "Probabilidad de Profit",
+          "metric": "pop_proxy",
+          "ref": "definitions.pop_proxy",
+          "direction": "desc",
+          "weight": 0.6,
+          "note": "POP como fracción [0,1]. Ponderado 60% del score total."
+        },
+        {
+          "id": "credit_ratio",
+          "label": "Regla 1/3 — Calidad del Spread",
+          "metric": "credit_ratio",
+          "ref": "definitions.credit_ratio",
+          "formula": "net_credit_snapshot / spread_width",
+          "direction": "desc",
+          "weight": 0.4,
+          "target": 0.333,
+          "note": "Regla 1/3 Tastytrade. Ratio [0,1], target ≥ 0.333. Ponderado 40% del score total."
+        }
+      ]
+    },
     "layers": [
       {
         "id": 2,
@@ -512,6 +550,30 @@
               },
               {
                 "id": 6,
+                "name": "bullish_extreme_symmetric",
+                "label": "Alcista extremo — GEX simétrico + Trend up",
+                "conditions": {
+                  "price_zscore": "> extreme_z (1.5)",
+                  "gex_skew": "symmetric",
+                  "trend": "up"
+                },
+                "output": "put_credit_spread",
+                "rationale": "Precio extendido al alza con GEX simétrico (muros equilibrados). Trend confirma momentum. Sin call wall dominante para respaldar upside, se vende put premium debajo del movimiento con la tendencia como soporte."
+              },
+              {
+                "id": 7,
+                "name": "bearish_extreme_symmetric",
+                "label": "Bajista extremo — GEX simétrico + Trend down",
+                "conditions": {
+                  "price_zscore": "< -extreme_z (-1.5)",
+                  "gex_skew": "symmetric",
+                  "trend": "down"
+                },
+                "output": "call_credit_spread",
+                "rationale": "Precio extendido a la baja con GEX simétrico. Trend confirma momentum bajista. Se vende call premium arriba del movimiento."
+              },
+              {
+                "id": 8,
                 "name": "no_trade_fallthrough",
                 "label": "Sin señal — ninguna condición satisfecha",
                 "conditions": "fallthrough",
@@ -829,6 +891,7 @@
         { "id": "prem_short_call",  "label": "Short Call",         "source": "socket.ReceiveQuote[strikeEngine.legSymbols.shortCall]", "ref": "definitions.leg_mid_price", "group": "premium", "realtime": true },
         { "id": "prem_long_call",   "label": "Long Call",          "source": "socket.ReceiveQuote[strikeEngine.legSymbols.longCall]",  "ref": "definitions.leg_mid_price", "group": "premium", "realtime": true },
         { "id": "net_credit",       "label": "Net Credit",         "source": "socket — computed from live leg quotes", "ref": "definitions.leg_mid_price", "realtime": true, "formula": "short_put_mid + short_call_mid - long_put_mid - long_call_mid" },
+        { "id": "credit_ratio",     "label": "1/3 Rule",           "source": "strikeEngine.creditRatio (snapshot) | live: net_credit_live / spread_width * 100", "ref": "definitions.credit_ratio", "unit": "percent", "thresholds": { "good": 33.3, "marginal": 25.0 }, "realtime": true },
         { "id": "pop",              "label": "POP",                "source": "strikeEngine.pop",                "ref": "definitions.pop_proxy" },
         { "id": "max_profit",       "label": "Máx Profit",         "source": "riskAndSizing.maxProfit",         "ref": "definitions.max_profit" },
         { "id": "max_loss",         "label": "Máx Drawdown",       "source": "riskAndSizing.maxLoss",           "ref": "definitions.max_loss" },
