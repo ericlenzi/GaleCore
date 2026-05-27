@@ -7,6 +7,7 @@ import {
   ImpliedVolatilityApiResponse,
   ImpliedVolatilityResponse,
   ValidationLayerApiResponse,
+  PositionBuilderApiResponse,
 } from '../types/api';
 
 export async function fetchGammaExposure(symbol: string): Promise<GammaExposureResponse> {
@@ -58,6 +59,17 @@ export async function fetchValidationLayer(
 ): Promise<ValidationLayerApiResponse> {
   const { data } = await apiClient.get<ValidationLayerApiResponse>(
     '/App/GaleCore/ValidationLayer',
+    { params: { Symbol: symbol, Profile: profile }, timeout: 120_000 }
+  );
+  return data;
+}
+
+export async function fetchPositionBuilder(
+  symbol: string,
+  profile: string = 'core',
+): Promise<PositionBuilderApiResponse> {
+  const { data } = await apiClient.get<PositionBuilderApiResponse>(
+    '/App/GaleCore/PositionBuilder',
     { params: { Symbol: symbol, Profile: profile }, timeout: 120_000 }
   );
   return data;

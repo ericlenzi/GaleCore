@@ -1,5 +1,6 @@
 import React from 'react';
 import { SuggestedSetup } from '../../types/position';
+import { useFlowStore } from '../../store/useFlowStore';
 
 interface Props {
   setup: SuggestedSetup;
@@ -46,6 +47,7 @@ function MetricRow({
 }
 
 export function SuggestedCard({ setup, symbol, canTrade, onRegister }: Props) {
+  const flowSnap = useFlowStore((s) => s.snapshots[symbol]);
   const oiOk    = setup.shortLegOI    != null ? setup.shortLegOI >= 1500                      : null;
   const deltaOk = setup.shortLegDelta != null ? Math.abs(setup.shortLegDelta) <= setup.maxDeltaAbs : null;
   const popOk   = setup.pop           != null ? setup.pop >= 75                                 : null;
@@ -116,13 +118,38 @@ export function SuggestedCard({ setup, symbol, canTrade, onRegister }: Props) {
         />
         <MetricRow
           label="Crédito"
-          value="Sin cotización"
+          value={setup.estimatedCredit != null ? `$${setup.estimatedCredit.toFixed(2)}` : 'Sin cotización'}
+          check={setup.estimatedCredit != null ? setup.estimatedCredit / setup.width >= setup.creditRatioMin : null}
         />
         <MetricRow
           label="Pérd. máx / cto."
           value={`$${(setup.width * 100).toLocaleString()}`}
         />
       </div>
+
+      {/* Flow signal */}
+      {flowSnap && (
+        <div style={{ borderTop: '1px solid var(--border-dark)', paddingTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Flow</span>
+          <div className="flex items-center gap-2">
+            <span
+              className="text-xs font-mono font-bold px-1.5 py-0.5 rounded"
+              style={{
+                color: flowSnap.signal === 'bullish' ? '#22c55e' : flowSnap.signal === 'bearish' ? '#f43f5e' : '#f59e0b',
+                backgroundColor: (flowSnap.signal === 'bullish' ? '#22c55e' : flowSnap.signal === 'bearish' ? '#f43f5e' : '#f59e0b') + '18',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                fontSize: 8.5,
+              }}
+            >
+              {flowSnap.signal}
+            </span>
+            <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+              ${((flowSnap.bullish.premiumUsd + flowSnap.bearish.premiumUsd) / 1000).toFixed(0)}k
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="flex items-center justify-between" style={{ borderTop: '1px solid var(--border-dark)', paddingTop: 6 }}>

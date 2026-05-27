@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { useMarketStore } from '../store/useMarketStore';
-import { TradePayload, QuotePayload } from '../types/api';
+import { useFlowStore } from '../store/useFlowStore';
+import { TradePayload, QuotePayload, FlowPayload } from '../types/api';
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -32,6 +33,7 @@ export function useMarketSocket(tickers: string[] = []) {
 
     connectionRef.current = connection;
 
+    // ── Price handlers ────────────────────────────────────────────────────
     connection.on('ReceiveTrade', (symbol: string, data: TradePayload) => {
       updatePrice(symbol, data);
     });
@@ -40,6 +42,12 @@ export function useMarketSocket(tickers: string[] = []) {
       updateQuote(symbol, data);
     });
 
+    // ── Flow handler ──────────────────────────────────────────────────────
+    connection.on('ReceiveFlow', (symbol: string, data: FlowPayload) => {
+      useFlowStore.getState().updateFlow(symbol, data);
+    });
+
+    // ── Reconnect logic ───────────────────────────────────────────────────
     connection.onreconnecting(() => {
       setStatus('connecting');
       tickers.forEach((s) => setStreaming(s, false));
@@ -47,9 +55,15 @@ export function useMarketSocket(tickers: string[] = []) {
 
     connection.onreconnected(() => {
       setStatus('connected');
+      // Re-subscribe price tickers
       tickers.forEach((symbol) => {
         connection.invoke('Subscribe', symbol, false).catch(console.error);
         setStreaming(symbol, true);
+      });
+      // Re-subscribe flow symbols
+      const flowSymbols = useFlowStore.getState().subscribedSymbols;
+      flowSymbols.forEach((symbol) => {
+        connection.invoke('SubscribeFlow', symbol, null, null).catch(console.error);
       });
     });
 
@@ -58,6 +72,7 @@ export function useMarketSocket(tickers: string[] = []) {
       tickers.forEach((s) => setStreaming(s, false));
     });
 
+    // ── Start connection ──────────────────────────────────────────────────
     setStatus('connecting');
     connection
       .start()
@@ -77,11 +92,39 @@ export function useMarketSocket(tickers: string[] = []) {
         tickers.forEach((symbol) => {
           connection.invoke('Unsubscribe', symbol, false).catch(() => {});
         });
+        // Unsubscribe flow symbols
+        const flowSymbols = useFlowStore.getState().subscribedSymbols;
+        flowSymbols.forEach((symbol) => {
+          connection.invoke('UnsubscribeFlow', symbol).catch(() => {});
+        });
       }
       connection.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickers.join(',')]);
 
-  return { status };
+  // ── Flow subscription methods ─────────────────────────────────────────
+  const subscribeFlow = useCallback(
+    (symbol: string, expirationDate?: string, flowWindowMinutes?: number) => {
+      const conn = connectionRef.current;
+      if (conn?.state === signalR.HubConnectionState.Connected) {
+        conn
+          .invoke('SubscribeFlow', symbol, expirationDate ?? null, flowWindowMinutes ?? null)
+          .then(() => useFlowStore.getState().addSubscription(symbol))
+          .catch(console.error);
+      }
+    },
+    [],
+  );
+
+  const unsubscribeFlow = useCallback((symbol: string) => {
+    const conn = connectionRef.current;
+    if (conn?.state === signalR.HubConnectionState.Connected) {
+      conn.invoke('UnsubscribeFlow', symbol).catch(console.error);
+    }
+    useFlowStore.getState().removeSubscription(symbol);
+    useFlowStore.getState().clearFlow(symbol);
+  }, []);
+
+  return { status, subscribeFlow, unsubscribeFlow };
 }

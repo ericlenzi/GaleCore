@@ -16,9 +16,10 @@ interface Props {
 const AUTO_REFRESH_MS = 30_000;
 
 function mapValidationToLayers(v: ValidationLayerApiResponse): LayerStatus {
-  const l1 = v.layer1;
-  const l2 = v.layer2;
-  const l3 = v.layer3;
+  const mr = v.macroRegime;
+  const checks = mr?.checks;
+  const l2 = v.positionBuilder?.strikeEngine;
+  const l3 = v.positionBuilder?.microstructure;
   const g = v.gexData;
 
   const signalMap: Record<string, SignalType> = {
@@ -37,27 +38,29 @@ function mapValidationToLayers(v: ValidationLayerApiResponse): LayerStatus {
   }
 
   return {
-    vixTermStructureOk: l1?.vixTermStructure.passed ?? null,
-    ivRankOk: l1?.ivRank.passed ?? null,
-    ivRankValue: l1?.ivRank.value ?? null,
-    ivMomentumOk: l1?.ivMomentum?.passed ?? null,
-    ivMomentumValue: l1?.ivMomentum?.value ?? null,
-    gexOk: l1?.gexTotal.passed ?? null,
-    gexValue: l1?.gexTotal.value ?? null,
-    spotAboveZgl: l1?.spotVsZGL.passed ?? null,
-    zglValue: l1?.spotVsZGL.zgl ?? g?.gammaZeroLevel ?? null,
+    vixAbsoluteOk: checks?.vixAbsolute?.passed ?? null,
+    vixAbsoluteValue: checks?.vixAbsolute?.value ?? null,
+    vixTermStructureOk: checks?.vixTermStructure?.passed ?? null,
+    ivRankOk: checks?.ivRank?.passed ?? null,
+    ivRankValue: checks?.ivRank?.value ?? null,
+    ivMomentumOk: checks?.ivMomentum?.passed ?? null,
+    ivMomentumValue: checks?.ivMomentum?.value ?? null,
+    gexOk: checks?.gexTotal?.passed ?? null,
+    gexValue: checks?.gexTotal?.value ?? null,
+    spotAboveZgl: checks?.spotVsZgl?.passed ?? null,
+    zglValue: checks?.spotVsZgl?.zgl ?? g?.gammaZeroLevel ?? null,
 
     expectedMove: l2?.expectedMove ?? null,
     callWall: l2?.callWall ?? gexCallWall,
     putWall: l2?.putWall ?? gexPutWall,
 
     atmStrike: l3?.atmStrike ?? null,
-    atmCallOI: l3?.shortCallOI?.value ?? null,
-    atmPutOI: l3?.shortPutOI?.value ?? null,
+    atmCallOI: l3?.oiChecks?.shortCall?.value ?? null,
+    atmPutOI: l3?.oiChecks?.shortPut?.value ?? null,
     atmCallDelta: l3?.atmCallDelta ?? null,
     atmPutDelta: l3?.atmPutDelta ?? null,
 
-    signal: signalMap[v.signal] ?? 'NO OPERAR',
+    signal: signalMap[v.overallSignal] ?? 'NO OPERAR',
   };
 }
 
@@ -84,10 +87,10 @@ export function TickerDetail({ symbol, onClose }: Props) {
   const updated = cached?.updatedAt ?? null;
 
   const iv30 = (() => {
-    const l2 = vlData?.layer2;
+    const se = vlData?.positionBuilder?.strikeEngine;
     const g = vlData?.gexData;
-    if (l2 && l2.expectedMove > 0 && g && g.spot > 0 && g.dte > 0) {
-      return (l2.expectedMove / g.spot) / Math.sqrt(g.dte / 365) * 100;
+    if (se && se.expectedMove > 0 && g && g.spot > 0 && g.dte > 0) {
+      return (se.expectedMove / g.spot) / Math.sqrt(g.dte / 365) * 100;
     }
     return undefined;
   })();
@@ -95,6 +98,7 @@ export function TickerDetail({ symbol, onClose }: Props) {
   const layers: LayerStatus = vlData
     ? mapValidationToLayers(vlData)
     : {
+        vixAbsoluteOk: null, vixAbsoluteValue: null,
         vixTermStructureOk: null, ivRankOk: null, ivRankValue: null,
         ivMomentumOk: null, ivMomentumValue: null,
         gexOk: null, gexValue: null, spotAboveZgl: null, zglValue: null,

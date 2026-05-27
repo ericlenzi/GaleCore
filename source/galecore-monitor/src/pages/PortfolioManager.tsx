@@ -1,68 +1,49 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { useMarketStore } from '../store/useMarketStore';
 import { useRulesStore } from '../store/useRulesStore';
 import { useAccountStore } from '../store/useAccountStore';
+import { useFlowStore } from '../store/useFlowStore';
 import { fetchMarketDataByType } from '../api/marketdata';
-import { fetchIVRank, fetchImpliedVolatility } from '../api/analytics';
+import { fetchIVRank, fetchImpliedVolatility, fetchPositionBuilder } from '../api/analytics';
 import { fmtPrice } from '../utils/formatters';
+import { PositionBuilderApiResponse } from '../types/api';
 import { SignalType } from '../types/market';
 
-// ── Score helpers ────────────────────────────────────────────────────────────
+// ── Types ───────────────────────────────────────────────────────────────────
 
-interface TickerScore {
+interface TickerRow {
   symbol: string;
   price: number;
   ivRank: number | null;
   iv30: number | null;
-  ivRankOk: boolean | null;
-  vixOk: boolean | null;
-  score: number;        // 0–2 (3 when GEX also loaded)
   signal: SignalType;
-  em: number | null;    // Expected move in points (using rules DTE ideal)
-  suggestedPut: number | null;
-  suggestedCall: number | null;
+  structure: string | null;
+  structureLabel: string | null;
+  shortPut: number | null;
+  shortPutDelta: number | null;
+  shortCall: number | null;
+  shortCallDelta: number | null;
+  em: number | null;
+  dte: number | null;
+  credit: number | null;
+  flowSignal: string | null;
+  pbLoaded: boolean;
 }
 
-function computeScore(
-  symbol: string,
-  price: number,
-  ivRank: number | null,
-  iv30: number | null,
-  vix9d: number | null,
-  vix3m: number | null,
-  ivRankMin: number,
-  ivRankMax: number,
-  dteIdeal: number,
-): TickerScore {
-  const ivRankOk = ivRank != null ? ivRank >= ivRankMin && ivRank <= ivRankMax : null;
-  const vixOk    = vix9d != null && vix3m != null ? vix9d < vix3m : null;
+const structureLabels: Record<string, string> = {
+  iron_condor: 'IC',
+  put_credit_spread: 'PCS',
+  call_credit_spread: 'CCS',
+};
 
-  let score = 0;
-  if (ivRankOk === true) score++;
-  if (vixOk === true) score++;
+const signalMap: Record<string, SignalType> = {
+  'OPERAR': 'OPERAR',
+  'ESPERAR': 'ESPERAR',
+  'NO_OPERAR': 'NO OPERAR',
+};
 
-  const totalChecks = [ivRankOk, vixOk].filter(v => v !== null).length;
-  const passed      = [ivRankOk, vixOk].filter(v => v === true).length;
-
-  const signal: SignalType =
-    totalChecks === 0 ? 'NO OPERAR' :
-    passed === totalChecks && totalChecks === 2 ? 'ESPERAR' :
-    'NO OPERAR';
-
-  // Expected Move  (needs GEX DTE — use rules ideal DTE as approximation)
-  let em: number | null = null;
-  let suggestedPut: number | null = null;
-  let suggestedCall: number | null = null;
-  if (iv30 && iv30 > 0 && price > 0 && dteIdeal > 0) {
-    em = price * (iv30 / 100) * Math.sqrt(dteIdeal / 365);
-    suggestedPut  = Math.round((price - em) / 5) * 5; // round to $5
-    suggestedCall = Math.round((price + em) / 5) * 5;
-  }
-
-  return { symbol, price, ivRank, iv30, ivRankOk, vixOk, score, signal, em, suggestedPut, suggestedCall };
-}
-
-// ── Sub-components ───────────────────────────────────────────────────────────
+// ── Sub-components ──────────────────────────────────────────────────────────
 
 function SignalPill({ signal }: { signal: SignalType }) {
   const color =
@@ -85,17 +66,41 @@ function SignalPill({ signal }: { signal: SignalType }) {
   );
 }
 
-function ScoreDots({ score, total = 2 }: { score: number; total?: number }) {
+function FlowBadge({ signal }: { signal: string | null }) {
+  if (!signal || signal === 'unavailable') return <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>—</span>;
+  const color =
+    signal === 'bullish' ? '#22c55e' :
+    signal === 'bearish' ? '#f43f5e' :
+                           '#f59e0b';
   return (
-    <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
-      {Array.from({ length: total }).map((_, i) => (
-        <span key={i} style={{
-          width: 7, height: 7, borderRadius: '50%',
-          backgroundColor: i < score ? '#22c55e' : 'var(--border)',
-          boxShadow: i < score ? '0 0 4px rgba(34,197,94,0.5)' : 'none',
-        }} />
-      ))}
-    </div>
+    <span style={{
+      fontSize: 8, fontWeight: 700, letterSpacing: '0.06em',
+      padding: '1px 5px', borderRadius: 10,
+      color, backgroundColor: color + '18', border: `1px solid ${color}40`,
+      fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase',
+    }}>
+      {signal}
+    </span>
+  );
+}
+
+function StructurePill({ structure }: { structure: string | null }) {
+  if (!structure) return <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>—</span>;
+  const label = structureLabels[structure] ?? structure;
+  const color =
+    structure === 'iron_condor'        ? 'var(--blue-gc)' :
+    structure === 'put_credit_spread'  ? 'var(--green)' :
+    structure === 'call_credit_spread' ? 'var(--red-gc)' :
+                                         'var(--text-secondary)';
+  return (
+    <span style={{
+      fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
+      padding: '2px 6px', borderRadius: 4,
+      color, backgroundColor: color + '18', border: `1px solid ${color}30`,
+      fontFamily: 'JetBrains Mono, monospace',
+    }}>
+      {label}
+    </span>
   );
 }
 
@@ -145,12 +150,13 @@ function OkValue({ ok, value }: { ok: boolean | null; value: string }) {
   );
 }
 
-// ── Main component ───────────────────────────────────────────────────────────
+// ── Main component ──────────────────────────────────────────────────────────
 
 export function PortfolioManager() {
   const { tickers: symbols = [], rules } = useRulesStore();
   const marketStore  = useMarketStore();
   const { balances } = useAccountStore();
+  const flowSnapshots = useFlowStore((s) => s.snapshots);
 
   const ivRankMin  = rules?.options_filters?.iv_rank?.min ?? 25;
   const ivRankMax  = rules?.options_filters?.iv_rank?.max ?? 65;
@@ -164,16 +170,20 @@ export function PortfolioManager() {
     ? Math.min(netLiq * riskPct, riskMaxUsd)
     : null;
 
-  const { tickers, vix9d, vix3m, setIVRank, setIV, setOpen, updatePrice } = marketStore;
-  const loadedRef = useRef<Set<string>>(new Set());
+  const { tickers, setIVRank, setIV, setOpen, updatePrice } = marketStore;
+  const loadedRef = useRef<Record<string, boolean>>({});
 
-  // Load data for all tickers on mount (may already be loaded by TickerGrid)
+  // PositionBuilder data per symbol
+  const [pbData, setPbData] = useState<Record<string, PositionBuilderApiResponse>>({});
+  const [pbLoading, setPbLoading] = useState<Record<string, boolean>>({});
+  const [pbError, setPbError] = useState<Record<string, string | null>>({});
+
+  // Load market data for all tickers on mount
   useEffect(() => {
     symbols.forEach(symbol => {
-      if (loadedRef.current.has(symbol)) return;
-      loadedRef.current.add(symbol);
+      if (loadedRef.current[symbol]) return;
+      loadedRef.current[symbol] = true;
 
-      // Market data (price, open, prevClose)
       fetchMarketDataByType(symbol)
         .then(d => {
           setOpen(symbol, d.open, d.prevClose, d.volume);
@@ -184,41 +194,105 @@ export function PortfolioManager() {
         })
         .catch(() => {});
 
-      // IV Rank
       fetchIVRank(symbol)
         .then(d => setIVRank(symbol, d.ivRank))
         .catch(() => {});
 
-      // IV
       fetchImpliedVolatility(symbol)
         .then(d => setIV(symbol, d.iv30, d.iv9d, d.iv3m))
         .catch(() => {});
     });
   }, [symbols.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Build scored list
-  const scored: TickerScore[] = symbols.map(symbol => {
+  // Fetch PositionBuilder for all symbols
+  const fetchAllPB = () => {
+    symbols.forEach(symbol => {
+      setPbLoading(prev => ({ ...prev, [symbol]: true }));
+      setPbError(prev => ({ ...prev, [symbol]: null }));
+      fetchPositionBuilder(symbol)
+        .then(data => {
+          setPbData(prev => ({ ...prev, [symbol]: data }));
+        })
+        .catch(e => {
+          setPbError(prev => ({ ...prev, [symbol]: e.message }));
+        })
+        .finally(() => {
+          setPbLoading(prev => ({ ...prev, [symbol]: false }));
+        });
+    });
+  };
+
+  useEffect(() => {
+    if (symbols.length > 0) fetchAllPB();
+  }, [symbols.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const anyPbLoading = symbols.some(s => pbLoading[s]);
+
+  // Build rows from PB data + market store fallbacks
+  const rows: TickerRow[] = symbols.map(symbol => {
     const t = tickers[symbol];
-    return computeScore(
+    const pb = pbData[symbol];
+    const flowSnap = flowSnapshots[symbol];
+
+    if (pb) {
+      const se = pb.strikeEngine;
+      const micro = pb.microstructure;
+      const ivRank = t?.ivRank ?? null;
+
+      // Flow: prefer live WebSocket snapshot, fall back to PB aggressiveFlow
+      const liveFlow = flowSnap?.signal ?? null;
+      const pbFlow = pb.structureInputs?.aggressiveFlow?.signal ?? null;
+      const flowSignal = liveFlow ?? (pbFlow !== 'unavailable' ? pbFlow : null);
+
+      return {
+        symbol,
+        price: t?.price ?? pb.spotPrice,
+        ivRank,
+        iv30: t?.iv30 ?? null,
+        signal: signalMap[pb.overallSignal] ?? 'NO OPERAR',
+        structure: pb.selectedStructure?.output ?? null,
+        structureLabel: pb.selectedStructure?.ruleLabel ?? null,
+        shortPut: se?.shortPutStrike ?? null,
+        shortPutDelta: se?.shortPutDelta ?? null,
+        shortCall: se?.shortCallStrike ?? null,
+        shortCallDelta: se?.shortCallDelta ?? null,
+        em: se?.expectedMove ?? null,
+        dte: se?.dte ?? null,
+        credit: micro?.creditMinimum?.midCredit ?? null,
+        flowSignal,
+        pbLoaded: true,
+      };
+    }
+
+    // Fallback while PB is loading
+    return {
       symbol,
-      t?.price ?? 0,
-      t?.ivRank ?? null,
-      t?.iv30 ?? null,
-      vix9d, vix3m,
-      ivRankMin, ivRankMax,
-      dteIdeal,
-    );
+      price: t?.price ?? 0,
+      ivRank: t?.ivRank ?? null,
+      iv30: t?.iv30 ?? null,
+      signal: 'NO OPERAR',
+      structure: null,
+      structureLabel: null,
+      shortPut: null,
+      shortPutDelta: null,
+      shortCall: null,
+      shortCallDelta: null,
+      em: null,
+      dte: null,
+      credit: null,
+      flowSignal: flowSnap?.signal ?? null,
+      pbLoaded: false,
+    };
   });
 
-  // Sort by score descending, then by IVRank descending
-  scored.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
+  // Sort: OPERAR first, then ESPERAR, then NO OPERAR; within same signal, by IVR desc
+  const signalOrder: Record<string, number> = { 'OPERAR': 0, 'ESPERAR': 1, 'NO OPERAR': 2 };
+  rows.sort((a, b) => {
+    const sa = signalOrder[a.signal] ?? 2;
+    const sb = signalOrder[b.signal] ?? 2;
+    if (sa !== sb) return sa - sb;
     return (b.ivRank ?? 0) - (a.ivRank ?? 0);
   });
-
-  const vixStatusColor = vix9d != null && vix3m != null
-    ? (vix9d < vix3m ? '#22c55e' : '#f43f5e')
-    : 'var(--text-muted)';
 
   return (
     <div style={{ padding: '16px 20px', minHeight: '100%', backgroundColor: 'var(--bg-primary)' }}>
@@ -229,23 +303,14 @@ export function PortfolioManager() {
             Portfolio Manager
           </h2>
           <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '2px 0 0', fontFamily: 'Inter, sans-serif' }}>
-            Análisis de setup por ticker · DTE objetivo {dteIdeal}d
+            Análisis de setup por ticker · PositionBuilder real
           </p>
         </div>
 
-        {/* Context pills */}
+        {/* Context pills + refresh */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', padding: '3px 10px', borderRadius: 20, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', color: 'var(--text-secondary)' }}>
             IVR {ivRankMin}–{ivRankMax}
-          </span>
-          <span style={{
-            fontSize: 10, fontFamily: 'JetBrains Mono, monospace',
-            padding: '3px 10px', borderRadius: 20,
-            backgroundColor: 'var(--bg-secondary)',
-            border: `1px solid ${vixStatusColor}40`,
-            color: vixStatusColor,
-          }}>
-            VIX9D {vix9d != null ? vix9d.toFixed(1) : '—'} / VIX3M {vix3m != null ? vix3m.toFixed(1) : '—'}
           </span>
           {netLiq != null && (
             <span style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', padding: '3px 10px', borderRadius: 20, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', color: 'var(--text-secondary)' }}>
@@ -253,8 +318,22 @@ export function PortfolioManager() {
             </span>
           )}
           <span style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', padding: '3px 10px', borderRadius: 20, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', color: 'var(--text-secondary)' }}>
-            Máx {maxConc} posiciones
+            Máx {maxConc} pos
           </span>
+          <button
+            onClick={fetchAllPB}
+            disabled={anyPbLoading}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 4,
+              fontSize: 10, fontFamily: 'Inter, sans-serif', fontWeight: 600,
+              padding: '4px 10px', borderRadius: 6,
+              backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border)',
+              color: 'var(--text-secondary)', cursor: 'pointer',
+            }}
+          >
+            <RefreshCw size={10} className={anyPbLoading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
         </div>
       </div>
 
@@ -265,21 +344,23 @@ export function PortfolioManager() {
             <tr>
               <Th>Ticker</Th>
               <Th right>Precio</Th>
-              <Th right>IV Rank</Th>
-              <Th right>IV30</Th>
-              <Th>VIX TS</Th>
-              <Th>Score</Th>
+              <Th right>IVR</Th>
               <Th>Señal</Th>
-              <Th right>EM ±{dteIdeal}d</Th>
-              <Th right>Put sugerido</Th>
-              <Th right>Call sugerido</Th>
+              <Th>Estructura</Th>
+              <Th right>Short Put</Th>
+              <Th right>Short Call</Th>
+              <Th right>EM</Th>
+              <Th right>Crédito</Th>
+              <Th>Flow</Th>
             </tr>
           </thead>
           <tbody>
-            {scored.map((row, idx) => {
+            {rows.map((row, idx) => {
               const t = tickers[row.symbol];
-              const loading = t?.loading?.ivRank || t?.loading?.iv;
+              const loading = pbLoading[row.symbol] || t?.loading?.ivRank;
+              const error = pbError[row.symbol];
               const rowBg = idx % 2 === 0 ? 'var(--bg-primary)' : 'rgba(17,30,51,0.4)';
+              const ivRankOk = row.ivRank != null ? row.ivRank >= ivRankMin && row.ivRank <= ivRankMax : null;
 
               return (
                 <tr key={row.symbol} style={{ backgroundColor: rowBg }}>
@@ -294,6 +375,11 @@ export function PortfolioManager() {
                     }}>
                       {row.symbol}
                     </span>
+                    {row.dte != null && (
+                      <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 6 }}>
+                        {row.dte}d
+                      </span>
+                    )}
                   </Td>
 
                   {/* Precio */}
@@ -303,37 +389,58 @@ export function PortfolioManager() {
 
                   {/* IV Rank */}
                   <Td right>
-                    {loading ? (
+                    {loading && !row.pbLoaded ? (
                       <span style={{ opacity: 0.4 }}>…</span>
                     ) : (
                       <OkValue
-                        ok={row.ivRankOk}
+                        ok={ivRankOk}
                         value={row.ivRank != null ? `${row.ivRank.toFixed(0)}` : '—'}
                       />
                     )}
                   </Td>
 
-                  {/* IV30 */}
-                  <Td right mono>
-                    {row.iv30 != null ? `${(row.iv30).toFixed(1)}%` : '—'}
-                  </Td>
-
-                  {/* VIX TS */}
-                  <Td>
-                    <OkValue
-                      ok={row.vixOk}
-                      value={row.vixOk === null ? '—' : row.vixOk ? 'OK' : 'INV'}
-                    />
-                  </Td>
-
-                  {/* Score */}
-                  <Td>
-                    <ScoreDots score={row.score} total={2} />
-                  </Td>
-
                   {/* Señal */}
                   <Td>
-                    <SignalPill signal={row.signal} />
+                    {loading && !row.pbLoaded ? (
+                      <span style={{ opacity: 0.4, fontSize: 10 }}>…</span>
+                    ) : error ? (
+                      <span style={{ fontSize: 9, color: 'var(--red-gc)' }}>Error</span>
+                    ) : (
+                      <SignalPill signal={row.signal} />
+                    )}
+                  </Td>
+
+                  {/* Estructura */}
+                  <Td>
+                    <StructurePill structure={row.structure} />
+                  </Td>
+
+                  {/* Short Put */}
+                  <Td right>
+                    {row.shortPut != null ? (
+                      <span style={{ color: '#f43f5e', fontFamily: 'JetBrains Mono, monospace' }}>
+                        {fmtPrice(row.shortPut, 0)}
+                        {row.shortPutDelta != null && (
+                          <span style={{ color: 'var(--text-muted)', fontSize: 10, marginLeft: 3 }}>
+                            Δ{row.shortPutDelta.toFixed(2)}
+                          </span>
+                        )}
+                      </span>
+                    ) : '—'}
+                  </Td>
+
+                  {/* Short Call */}
+                  <Td right>
+                    {row.shortCall != null ? (
+                      <span style={{ color: '#22c55e', fontFamily: 'JetBrains Mono, monospace' }}>
+                        {fmtPrice(row.shortCall, 0)}
+                        {row.shortCallDelta != null && (
+                          <span style={{ color: 'var(--text-muted)', fontSize: 10, marginLeft: 3 }}>
+                            Δ{row.shortCallDelta.toFixed(2)}
+                          </span>
+                        )}
+                      </span>
+                    ) : '—'}
                   </Td>
 
                   {/* Expected Move */}
@@ -341,22 +448,18 @@ export function PortfolioManager() {
                     {row.em != null ? `±${fmtPrice(row.em, 1)}` : '—'}
                   </Td>
 
-                  {/* Put sugerido */}
-                  <Td right>
-                    {row.suggestedPut != null ? (
-                      <span style={{ color: '#f43f5e', fontFamily: 'JetBrains Mono, monospace' }}>
-                        {fmtPrice(row.suggestedPut, 0)}P
+                  {/* Crédito */}
+                  <Td right mono>
+                    {row.credit != null ? (
+                      <span style={{ color: row.credit > 0 ? 'var(--green)' : 'var(--text-muted)' }}>
+                        ${row.credit.toFixed(2)}
                       </span>
                     ) : '—'}
                   </Td>
 
-                  {/* Call sugerido */}
-                  <Td right>
-                    {row.suggestedCall != null ? (
-                      <span style={{ color: '#22c55e', fontFamily: 'JetBrains Mono, monospace' }}>
-                        {fmtPrice(row.suggestedCall, 0)}C
-                      </span>
-                    ) : '—'}
+                  {/* Flow */}
+                  <Td>
+                    <FlowBadge signal={row.flowSignal} />
                   </Td>
                 </tr>
               );
@@ -367,8 +470,8 @@ export function PortfolioManager() {
 
       {/* Footnote */}
       <p style={{ fontSize: 9.5, color: 'var(--text-muted)', marginTop: 10, fontFamily: 'Inter, sans-serif', lineHeight: 1.6 }}>
-        Score = IV Rank ✓ + VIX Term Structure ✓ (máx 2). Señal "ESPERAR" indica macro OK, falta confirmar GEX en el detalle del ticker.
-        Strikes sugeridos = EM a {dteIdeal} DTE redondeado a $5. Expandir el ticker en Inicio para validar GEX, Put Wall y Call Wall.
+        Datos del endpoint PositionBuilder (capas 2-4). Estructura seleccionada por motor multi-factor (Z-Score, GEX, EMA, RV).
+        Crédito basado en mid-price de las patas short/long. Flow requiere SubscribeFlow activo via WebSocket.
       </p>
     </div>
   );

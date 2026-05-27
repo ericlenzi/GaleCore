@@ -31,12 +31,14 @@ export interface TickerState {
 
 export interface LayerStatus {
   // Layer 1 — Régimen & GEX
-  vixTermStructureOk: boolean | null;    // VIX9D < VIX3M
+  vixAbsoluteOk: boolean | null;         // VIX < threshold
+  vixAbsoluteValue: number | null;
+  vixTermStructureOk: boolean | null;    // VIX9D < VIX30D
   ivRankOk: boolean | null;              // 25–65
   ivRankValue: number | null;
   ivMomentumOk: boolean | null;          // IV ROC ≤ 12%
   ivMomentumValue: number | null;
-  gexOk: boolean | null;                 // ≥ $100B
+  gexOk: boolean | null;                 // ≥ threshold
   gexValue: number | null;               // in billions
   spotAboveZgl: boolean | null;          // Spot > ZGL
   zglValue: number | null;

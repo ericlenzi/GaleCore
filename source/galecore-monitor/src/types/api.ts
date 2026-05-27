@@ -171,12 +171,10 @@ export interface ValidationLayerApiResponse {
   profile: string;
   timestamp: string;
   spotPrice: number;
-  signal: string;
+  overallSignal: string;
   failedAtLayer: number | null;
-  layer1: Layer1MacroResult | null;
-  layer2: Layer2StrikesResult | null;
-  layer3: Layer3MicroResult | null;
-  layer4: Layer4SizingResult | null;
+  macroRegime: MacroRegimeResult | null;
+  positionBuilder: PositionBuilderResult | null;
   gexData: ValidationGexData | null;
 }
 
@@ -199,18 +197,34 @@ export interface ValidationGexStrike {
   putDelta: number;
 }
 
-export interface Layer1MacroResult {
+// ─── Macro Regime (Layer 1) ───────────────────────────────────────────────────
+
+export interface MacroRegimeResult {
   signal: string;
   passedCount: number;
   totalChecks: number;
-  vixTermStructure: { passed: boolean; iV30_9d: number | null; iV30_90d: number | null; maxVixAbsolute: number | null };
+  checks: MacroRegimeChecks;
+}
+
+export interface MacroRegimeChecks {
+  vixAbsolute: { passed: boolean; value: number | null; threshold: number };
+  vixTermStructure: { passed: boolean; iv9d: number | null; iv30d: number | null };
   ivRank: { passed: boolean; value: number; min: number; max: number };
   ivMomentum: { passed: boolean; value: number | null; threshold: number };
   gexTotal: { passed: boolean; value: number; metric: string; threshold: number };
-  spotVsZGL: { passed: boolean; spot: number; zgl: number | null; bufferPct: number };
+  spotVsZgl: { passed: boolean; spot: number; zgl: number | null; bufferPct: number };
 }
 
-export interface Layer2StrikesResult {
+// ─── Position Builder (Layers 2, 3, 4) ──────────────────────────────────────
+
+export interface PositionBuilderResult {
+  signal: string;
+  strikeEngine: StrikeEngineResult | null;
+  microstructure: MicrostructureResult | null;
+  riskAndSizing: RiskAndSizingResult | null;
+}
+
+export interface StrikeEngineResult {
   signal: string;
   expectedMove: number;
   dte: number;
@@ -226,21 +240,61 @@ export interface Layer2StrikesResult {
   longPutStrike: number | null;
   longCallStrike: number | null;
   strikesInsideWalls: boolean;
+  structureRuleId: number | null;
+  structureRuleName: string | null;
+  structureRuleLabel: string | null;
+  gexSign: string | null;
+  trendSignal: string | null;
+  ema20: number | null;
+  ema50: number | null;
+  realizedVolSignal: string | null;
+  rv10d: number | null;
+  rv30d: number | null;
 }
 
-export interface Layer3MicroResult {
+export interface MicrostructureResult {
   signal: string;
   atmStrike: number;
-  shortCallOI: { passed: boolean; value: number; minRequired: number };
-  shortPutOI: { passed: boolean; value: number; minRequired: number };
-  longCallOI: { passed: boolean; value: number; minRequired: number };
-  longPutOI: { passed: boolean; value: number; minRequired: number };
+  oiChecks: OIChecks;
   atmCallDelta: number | null;
   atmPutDelta: number | null;
-  bidAskSpread: { passed: boolean; spreadPct: number | null; maxSpreadPct: number } | null;
+  bidAskChecks: BidAskChecks | null;
+  creditMinimum: CreditMinimumCheck | null;
 }
 
-export interface Layer4SizingResult {
+export interface OIChecks {
+  shortPut: OICheck | null;
+  shortCall: OICheck | null;
+  longPut: OICheck | null;
+  longCall: OICheck | null;
+}
+
+export interface OICheck {
+  passed: boolean;
+  value: number;
+  minRequired: number;
+}
+
+export interface BidAskChecks {
+  shortPut: BidAskLegCheck | null;
+  shortCall: BidAskLegCheck | null;
+  longPut: BidAskLegCheck | null;
+  longCall: BidAskLegCheck | null;
+}
+
+export interface BidAskLegCheck {
+  passed: boolean;
+  spreadPct: number | null;
+  maxAllowed: number;
+}
+
+export interface CreditMinimumCheck {
+  passed: boolean;
+  midCredit: number;
+  minRequired: number;
+}
+
+export interface RiskAndSizingResult {
   signal: string;
   netLiq: number;
   riskPerTrade: number;
@@ -327,6 +381,77 @@ export interface PositionResponse {
   vega?: number;
 }
 
+// ─── PositionBuilder API ─────────────────────────────────────────────────────
+// Response from GET /App/GaleCore/PositionBuilder
+// Reutiliza StrikeEngineResult, MicrostructureResult, RiskAndSizingResult de ValidationLayer.
+
+export interface PositionBuilderApiResponse {
+  symbol: string;
+  profile: string;
+  timestamp: string;
+  spotPrice: number;
+  overallSignal: string;
+  structureInputs: StructureInputs;
+  selectedStructure: SelectedStructureResult;
+  strikeEngine: StrikeEngineResult | null;
+  microstructure: MicrostructureResult | null;
+  riskAndSizing: RiskAndSizingResult | null;
+}
+
+export interface StructureInputs {
+  priceZScore: PriceZScoreInput;
+  gexSign: GexSignInput;
+  trend: TrendInput;
+  realizedVolRegime: RealizedVolInput;
+  aggressiveFlow: AggressiveFlowInput | null;
+}
+
+export interface PriceZScoreInput {
+  value: number;
+  formula: string;
+  ret5d: number;
+  ivAtm: number;
+  interpretation: string;
+}
+
+export interface GexSignInput {
+  value: string;
+  netGexBillions: number;
+  interpretation: string;
+}
+
+export interface TrendInput {
+  ema20: number | null;
+  ema50: number | null;
+  signal: string;
+  interpretation: string;
+}
+
+export interface RealizedVolInput {
+  rv10d: number | null;
+  rv30d: number | null;
+  signal: string;
+  interpretation: string;
+}
+
+export interface AggressiveFlowInput {
+  signal: string;
+  dataSource: string;
+  note: string | null;
+  bullishPremiumUsd: number | null;
+  bearishPremiumUsd: number | null;
+  netDeltaFlow: number | null;
+  dominantSide: string | null;
+  windowMinutes: number | null;
+}
+
+export interface SelectedStructureResult {
+  output: string;
+  ruleId: number | null;
+  ruleName: string | null;
+  ruleLabel: string | null;
+}
+
 // ─── SignalR Payloads ─────────────────────────────────────────────────────────
 export interface TradePayload {
   price: number;
@@ -351,4 +476,36 @@ export interface GreeksPayload {
   theta: number;
   vega: number;
   timestamp: string;
+}
+
+// ─── Flow Payload (SignalR ReceiveFlow) ──────────────────────────────────────
+export interface FlowPayload {
+  symbol: string;
+  expiration: string;
+  windowMinutes: number;
+  timestamp: string;
+  bullish: FlowSide;
+  bearish: FlowSide;
+  netDeltaFlow: number;
+  signal: string;
+  recentTrades: FlowTrade[];
+}
+
+export interface FlowSide {
+  premiumUsd: number;
+  tradeCount: number;
+  avgTradeSize: number;
+  dominantStrike: number | null;
+  dominantType: string | null;
+}
+
+export interface FlowTrade {
+  timestamp: string;
+  optionSymbol: string;
+  callPut: string;
+  strike: number;
+  tradePrice: number;
+  size: number;
+  premiumUsd: number;
+  aggression: string;
 }

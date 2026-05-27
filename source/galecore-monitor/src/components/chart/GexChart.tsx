@@ -80,9 +80,11 @@ export function GexChart({ symbol, currentPrice, openPrice, iv30, gexData }: Pro
 
     const series = chart.addSeries(LineSeries, { color: '#3b82f6', lineWidth: 2, priceLineVisible: false, lastValueVisible: true });
     const now    = Math.floor(Date.now() / 1000);
+    const mktOpen = marketOpenUnix();
     const pts: { time: any; value: number }[] = [];
-    if (openPrice && openPrice > 0) pts.push({ time: marketOpenUnix(), value: openPrice });
-    if (currentPrice > 0)           pts.push({ time: now, value: currentPrice });
+    // Only add open price if market already opened (mktOpen < now), otherwise time order breaks
+    if (openPrice && openPrice > 0 && mktOpen < now) pts.push({ time: mktOpen, value: openPrice });
+    if (currentPrice > 0)                             pts.push({ time: now, value: currentPrice });
     if (pts.length) series.setData(pts);
 
     chartRef.current  = chart;

@@ -169,10 +169,9 @@ function fmtOI(v: number): string {
 }
 
 export function ValidationLayers({ symbol, layers, vlData }: Props) {
-  const l1 = vlData?.layer1;
-  const l2 = vlData?.layer2;
-  const l3 = vlData?.layer3;
-  const l4 = vlData?.layer4;
+  const checks = vlData?.macroRegime?.checks;
+  const l2 = vlData?.positionBuilder?.strikeEngine;
+  const l3 = vlData?.positionBuilder?.microstructure;
 
   const emDetail = layers.expectedMove != null
     ? `±${fmtPrice(layers.expectedMove, 1)}`
@@ -201,32 +200,36 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
         {symbol} · Validations Layer
       </div>
 
-      {/* ── Grid Capa 1: 4 checks + señal ── */}
+      {/* ── Grid Capa 1: 6 checks + señal ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5 }}>
+        <MetricCell
+          label="VIX"
+          value={layers.vixAbsoluteValue != null ? layers.vixAbsoluteValue.toFixed(1) : '—'}
+          sub={layers.vixAbsoluteOk === null ? '—' : layers.vixAbsoluteOk ? `<${checks?.vixAbsolute?.threshold ?? 30} ✓` : `≥${checks?.vixAbsolute?.threshold ?? 30} ✗`}
+          ok={layers.vixAbsoluteOk}
+          tooltip={checks?.vixAbsolute ? [
+            { label: 'Value', value: checks.vixAbsolute.value?.toFixed(2) ?? '—' },
+            { label: 'Max', value: `< ${checks.vixAbsolute.threshold}` },
+          ] : undefined}
+        />
+        <MetricCell
+          label="VIX TS"
+          value={layers.vixTermStructureOk === null ? '—' : layers.vixTermStructureOk ? 'OK' : 'INV'}
+          sub={layers.vixTermStructureOk === null ? '—' : layers.vixTermStructureOk ? '9D < 30D ✓' : '9D > 30D ✗'}
+          ok={layers.vixTermStructureOk}
+          tooltip={checks?.vixTermStructure ? [
+            { label: 'IV 9D', value: checks.vixTermStructure.iv9d?.toFixed(2) ?? '—' },
+            { label: 'IV 30D', value: checks.vixTermStructure.iv30d?.toFixed(2) ?? '—' },
+          ] : undefined}
+        />
         <MetricCell
           label="IV Rank"
           value={layers.ivRankValue != null ? `${layers.ivRankValue.toFixed(0)}` : '—'}
           sub={layers.ivRankOk === null ? '—' : layers.ivRankOk ? '25–65 ✓' : '25–65 ✗'}
           ok={layers.ivRankOk}
-          tooltip={l1?.ivRank ? [
-            { label: 'Value', value: l1.ivRank.value.toFixed(2) },
-            { label: 'Range', value: `${l1.ivRank.min} – ${l1.ivRank.max}` },
-          ] : undefined}
-        />
-        <MetricCell
-          label="GEX"
-          value={layers.gexValue != null ? fmtGex(layers.gexValue) : '—'}
-          sub={layers.gexOk === null ? '—' : layers.gexOk ? `≥threshold ✓` : `<threshold ✗`}
-          ok={layers.gexOk}
-        />
-        <MetricCell
-          label="VIX TS"
-          value={layers.vixTermStructureOk === null ? '—' : layers.vixTermStructureOk ? 'OK' : 'INV'}
-          sub={layers.vixTermStructureOk === null ? '—' : layers.vixTermStructureOk ? '9D < 3M ✓' : '9D > 3M ✗'}
-          ok={layers.vixTermStructureOk}
-          tooltip={l1?.vixTermStructure ? [
-            { label: 'IV 9D', value: l1.vixTermStructure.iV30_9d?.toFixed(2) ?? '—' },
-            { label: 'IV 3M', value: l1.vixTermStructure.iV30_90d?.toFixed(2) ?? '—' },
+          tooltip={checks?.ivRank ? [
+            { label: 'Value', value: checks.ivRank.value.toFixed(2) },
+            { label: 'Range', value: `${checks.ivRank.min} – ${checks.ivRank.max}` },
           ] : undefined}
         />
         <MetricCell
@@ -234,9 +237,19 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
           value={layers.ivMomentumValue != null ? `${layers.ivMomentumValue.toFixed(1)}%` : '—'}
           sub={layers.ivMomentumOk === null ? '—' : layers.ivMomentumOk ? '≤12% ✓' : '>12% ✗'}
           ok={layers.ivMomentumOk}
-          tooltip={l1?.ivMomentum ? [
-            { label: 'ROC 5d', value: l1.ivMomentum.value != null ? `${l1.ivMomentum.value.toFixed(2)}%` : '—' },
-            { label: 'Threshold', value: `≤ ${l1.ivMomentum.threshold}%` },
+          tooltip={checks?.ivMomentum ? [
+            { label: 'ROC 5d', value: checks.ivMomentum.value != null ? `${checks.ivMomentum.value.toFixed(2)}%` : '—' },
+            { label: 'Threshold', value: `≤ ${checks.ivMomentum.threshold}%` },
+          ] : undefined}
+        />
+        <MetricCell
+          label="GEX"
+          value={layers.gexValue != null ? fmtGex(layers.gexValue) : '—'}
+          sub={layers.gexOk === null ? '—' : layers.gexOk ? `≥threshold ✓` : `<threshold ✗`}
+          ok={layers.gexOk}
+          tooltip={checks?.gexTotal ? [
+            { label: 'Value', value: `${checks.gexTotal.value.toFixed(1)}B` },
+            { label: 'Min', value: `≥ ${checks.gexTotal.threshold}B` },
           ] : undefined}
         />
         <MetricCell
@@ -244,6 +257,11 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
           value={layers.spotAboveZgl === null ? '—' : layers.spotAboveZgl ? 'YES' : 'NO'}
           sub={layers.spotAboveZgl === null ? '—' : layers.spotAboveZgl ? 'above ✓' : 'below ✗'}
           ok={layers.spotAboveZgl}
+          tooltip={checks?.spotVsZgl ? [
+            { label: 'Spot', value: checks.spotVsZgl.spot.toFixed(2) },
+            { label: 'ZGL', value: checks.spotVsZgl.zgl?.toFixed(2) ?? '—' },
+            { label: 'Buffer', value: `${(checks.spotVsZgl.bufferPct * 100).toFixed(1)}%` },
+          ] : undefined}
         />
         <div style={{
           display: 'flex',
@@ -252,6 +270,7 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
           gap: 4,
           backgroundColor: 'var(--bg-tertiary)',
           borderRadius: 6,
+          gridColumn: 'span 2',
         }}>
           <span style={{
             fontSize: 8.5, fontWeight: 600, letterSpacing: '0.09em',
@@ -320,39 +339,25 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
             Microstructure
           </span>
           <ListRow label="ATM Strike" value={fmtPrice(l3.atmStrike, 0)} />
-          <ListRow label="Call OI" value={fmtOI(l3.shortCallOI.value)} />
-          <ListRow label="Put OI" value={fmtOI(l3.shortPutOI.value)} />
+          <ListRow label="Short Call OI" value={l3.oiChecks?.shortCall ? fmtOI(l3.oiChecks.shortCall.value) : '—'} />
+          <ListRow label="Short Put OI" value={l3.oiChecks?.shortPut ? fmtOI(l3.oiChecks.shortPut.value) : '—'} />
+          {l3.bidAskChecks && (
+            <ListRow label="Bid-Ask" value={
+              [l3.bidAskChecks.shortPut, l3.bidAskChecks.shortCall]
+                .filter(Boolean)
+                .map(c => c!.spreadPct != null ? `${(c!.spreadPct * 100).toFixed(1)}%` : '—')
+                .join(' / ') || '—'
+            } />
+          )}
+          {l3.creditMinimum && (
+            <ListRow label="Credit" value={`$${l3.creditMinimum.midCredit.toFixed(2)} (min $${l3.creditMinimum.minRequired.toFixed(2)})`} />
+          )}
           {l3.atmCallDelta != null && (
             <ListRow label="ATM Delta" value={l3.atmCallDelta.toFixed(2)} />
           )}
         </div>
       )}
 
-      {/* ── Sizing ── */}
-      <div style={{
-        backgroundColor: 'var(--bg-tertiary)',
-        borderRadius: 6,
-        padding: '8px 10px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-      }}>
-        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--green)', fontFamily: 'Inter, sans-serif' }}>
-          Sizing
-        </span>
-        {l4 ? (
-          <>
-            <ListRow label="Máx riesgo" value={`$${l4.maxRiskAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}`} />
-            <ListRow label="Positions" value={`${l4.openPositions} / ${l4.maxPositions}`} />
-            <ListRow label="Heat" value={`${l4.currentHeatPct.toFixed(1)}% / ${l4.maxHeatPct.toFixed(1)}%`} />
-          </>
-        ) : (
-          <>
-            <ListRow label="Máx riesgo" value="—" />
-            <ListRow label="Positions" value="—" />
-          </>
-        )}
-      </div>
     </div>
   );
 }
