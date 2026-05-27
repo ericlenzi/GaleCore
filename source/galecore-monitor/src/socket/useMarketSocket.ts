@@ -103,6 +103,21 @@ export function useMarketSocket(tickers: string[] = []) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickers.join(',')]);
 
+  // ── Option leg subscription (para quotes live en Portfolio Manager) ──
+  const subscribeLeg = useCallback((occSymbol: string) => {
+    const conn = connectionRef.current;
+    if (conn?.state === signalR.HubConnectionState.Connected) {
+      conn.invoke('Subscribe', occSymbol, false).catch(console.error);
+    }
+  }, []);
+
+  const unsubscribeLeg = useCallback((occSymbol: string) => {
+    const conn = connectionRef.current;
+    if (conn?.state === signalR.HubConnectionState.Connected) {
+      conn.invoke('Unsubscribe', occSymbol, false).catch(() => {});
+    }
+  }, []);
+
   // ── Flow subscription methods ─────────────────────────────────────────
   const subscribeFlow = useCallback(
     (symbol: string, expirationDate?: string, flowWindowMinutes?: number) => {
@@ -126,5 +141,5 @@ export function useMarketSocket(tickers: string[] = []) {
     useFlowStore.getState().clearFlow(symbol);
   }, []);
 
-  return { status, subscribeFlow, unsubscribeFlow };
+  return { status, subscribeFlow, unsubscribeFlow, subscribeLeg, unsubscribeLeg };
 }

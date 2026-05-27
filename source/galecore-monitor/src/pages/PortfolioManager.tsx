@@ -1,35 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useMarketStore } from '../store/useMarketStore';
 import { useRulesStore } from '../store/useRulesStore';
 import { useAccountStore } from '../store/useAccountStore';
-import { useFlowStore } from '../store/useFlowStore';
 import { fetchMarketDataByType } from '../api/marketdata';
 import { fetchIVRank, fetchImpliedVolatility, fetchPositionBuilder } from '../api/analytics';
-import { fmtPrice } from '../utils/formatters';
-import { PositionBuilderApiResponse } from '../types/api';
-import { SignalType } from '../types/market';
+import { fmtPrice, fmtGex } from '../utils/formatters';
+import { PositionBuilderApiResponse, LegSymbols } from '../types/api';
 
-// ── Types ───────────────────────────────────────────────────────────────────
+// ── Props ────────────────────────────────────────────────────────────────────
 
-interface TickerRow {
-  symbol: string;
-  price: number;
-  ivRank: number | null;
-  iv30: number | null;
-  signal: SignalType;
-  structure: string | null;
-  structureLabel: string | null;
-  shortPut: number | null;
-  shortPutDelta: number | null;
-  shortCall: number | null;
-  shortCallDelta: number | null;
-  em: number | null;
-  dte: number | null;
-  credit: number | null;
-  flowSignal: string | null;
-  pbLoaded: boolean;
+interface Props {
+  subscribeLeg: (occ: string) => void;
+  unsubscribeLeg: (occ: string) => void;
 }
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 const structureLabels: Record<string, string> = {
   iron_condor: 'IC',
@@ -37,28 +23,40 @@ const structureLabels: Record<string, string> = {
   call_credit_spread: 'CCS',
 };
 
-const signalMap: Record<string, SignalType> = {
-  'OPERAR': 'OPERAR',
-  'ESPERAR': 'ESPERAR',
-  'NO_OPERAR': 'NO OPERAR',
-};
+function legMid(bid?: number, ask?: number): number | null {
+  if (!bid || !ask || bid <= 0 || ask <= 0) return null;
+  return (bid + ask) / 2;
+}
 
-// ── Sub-components ──────────────────────────────────────────────────────────
+function computeNetCredit(
+  structure: string | null,
+  shortPutMid: number | null,
+  longPutMid: number | null,
+  shortCallMid: number | null,
+  longCallMid: number | null,
+): number | null {
+  if (structure === 'put_credit_spread' && shortPutMid != null && longPutMid != null)
+    return shortPutMid - longPutMid;
+  if (structure === 'call_credit_spread' && shortCallMid != null && longCallMid != null)
+    return shortCallMid - longCallMid;
+  if (structure === 'iron_condor'
+    && shortPutMid != null && longPutMid != null
+    && shortCallMid != null && longCallMid != null)
+    return (shortPutMid - longPutMid) + (shortCallMid - longCallMid);
+  return null;
+}
 
-function SignalPill({ signal }: { signal: SignalType }) {
+// ── Sub-components ───────────────────────────────────────────────────────────
+
+function SignalPill({ signal }: { signal: string }) {
   const color =
-    signal === 'OPERAR'   ? '#22c55e' :
-    signal === 'ESPERAR'  ? '#f59e0b' :
-                            '#f43f5e';
-  const bg =
-    signal === 'OPERAR'   ? 'rgba(34,197,94,0.12)' :
-    signal === 'ESPERAR'  ? 'rgba(245,158,11,0.12)' :
-                            'rgba(244,63,94,0.12)';
+    signal === 'OPERAR'  ? '#22c55e' :
+    signal === 'ESPERAR' ? '#f59e0b' : '#f43f5e';
   return (
     <span style={{
-      fontSize: 8.5, fontWeight: 700, letterSpacing: '0.08em',
-      padding: '2px 7px', borderRadius: 20,
-      color, backgroundColor: bg, border: `1px solid ${color}40`,
+      fontSize: 8, fontWeight: 700, letterSpacing: '0.08em',
+      padding: '2px 6px', borderRadius: 20,
+      color, backgroundColor: color + '18', border: `1px solid ${color}40`,
       fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap',
     }}>
       {signal}
@@ -66,32 +64,13 @@ function SignalPill({ signal }: { signal: SignalType }) {
   );
 }
 
-function FlowBadge({ signal }: { signal: string | null }) {
-  if (!signal || signal === 'unavailable') return <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>—</span>;
-  const color =
-    signal === 'bullish' ? '#22c55e' :
-    signal === 'bearish' ? '#f43f5e' :
-                           '#f59e0b';
-  return (
-    <span style={{
-      fontSize: 8, fontWeight: 700, letterSpacing: '0.06em',
-      padding: '1px 5px', borderRadius: 10,
-      color, backgroundColor: color + '18', border: `1px solid ${color}40`,
-      fontFamily: 'JetBrains Mono, monospace', textTransform: 'uppercase',
-    }}>
-      {signal}
-    </span>
-  );
-}
-
 function StructurePill({ structure }: { structure: string | null }) {
-  if (!structure) return <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>—</span>;
+  if (!structure || structure === 'no_trade') return <Dash />;
   const label = structureLabels[structure] ?? structure;
   const color =
-    structure === 'iron_condor'        ? 'var(--blue-gc)' :
-    structure === 'put_credit_spread'  ? 'var(--green)' :
-    structure === 'call_credit_spread' ? 'var(--red-gc)' :
-                                         'var(--text-secondary)';
+    structure === 'iron_condor'       ? 'var(--blue-gc)' :
+    structure === 'put_credit_spread' ? 'var(--green)' :
+                                        'var(--red-gc)';
   return (
     <span style={{
       fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
@@ -104,374 +83,434 @@ function StructurePill({ structure }: { structure: string | null }) {
   );
 }
 
-function Th({ children, right }: { children: React.ReactNode; right?: boolean }) {
+function LiveDot({ live }: { live: boolean }) {
+  if (!live) return null;
   return (
-    <th style={{
-      padding: '8px 12px',
-      fontSize: 8.5,
-      fontWeight: 700,
-      letterSpacing: '0.1em',
-      textTransform: 'uppercase',
-      color: 'var(--text-muted)',
-      textAlign: right ? 'right' : 'left',
-      fontFamily: 'Inter, sans-serif',
-      whiteSpace: 'nowrap',
+    <span style={{
+      display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
+      backgroundColor: '#22c55e', marginLeft: 4, verticalAlign: 'middle',
+      boxShadow: '0 0 4px #22c55e88',
+    }} />
+  );
+}
+
+function Dash() {
+  return <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>—</span>;
+}
+
+function MonoVal({ children, color }: { children: React.ReactNode; color?: string }) {
+  return (
+    <span style={{ fontFamily: 'JetBrains Mono, monospace', fontVariantNumeric: 'tabular-nums', color: color ?? 'var(--text-secondary)', fontSize: 11 }}>
+      {children}
+    </span>
+  );
+}
+
+// Table cell helpers
+function Th({ children, right, center, span, rowSpan, muted }: {
+  children: React.ReactNode; right?: boolean; center?: boolean;
+  span?: number; rowSpan?: number; muted?: boolean;
+}) {
+  return (
+    <th colSpan={span} rowSpan={rowSpan} style={{
+      padding: '5px 8px',
+      fontSize: 8, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase',
+      color: muted ? 'var(--text-muted)' : 'var(--text-secondary)',
+      textAlign: center ? 'center' : right ? 'right' : 'left',
+      fontFamily: 'Inter, sans-serif', whiteSpace: 'nowrap',
       borderBottom: '1px solid var(--border-dark)',
+      borderRight: '1px solid rgba(255,255,255,0.04)',
       backgroundColor: 'var(--bg-secondary)',
+      verticalAlign: 'bottom',
     }}>
       {children}
     </th>
   );
 }
 
-function Td({ children, right, mono = false }: { children: React.ReactNode; right?: boolean; mono?: boolean }) {
+function Td({ children, right, center }: { children: React.ReactNode; right?: boolean; center?: boolean }) {
   return (
     <td style={{
-      padding: '10px 12px',
-      fontSize: 12,
-      color: 'var(--text-secondary)',
-      textAlign: right ? 'right' : 'left',
-      fontFamily: mono ? 'JetBrains Mono, monospace' : 'Inter, sans-serif',
-      fontVariantNumeric: 'tabular-nums',
+      padding: '9px 8px',
+      textAlign: center ? 'center' : right ? 'right' : 'left',
       borderBottom: '1px solid var(--border-dark)',
+      borderRight: '1px solid rgba(255,255,255,0.03)',
       whiteSpace: 'nowrap',
+      verticalAlign: 'middle',
     }}>
       {children}
     </td>
   );
 }
 
-function OkValue({ ok, value }: { ok: boolean | null; value: string }) {
-  const color = ok === null ? 'var(--text-muted)' : ok ? '#22c55e' : '#f43f5e';
-  return (
-    <span style={{ color, fontFamily: 'JetBrains Mono, monospace', fontVariantNumeric: 'tabular-nums' }}>
-      {value}
-    </span>
-  );
-}
+// ── Main component ───────────────────────────────────────────────────────────
 
-// ── Main component ──────────────────────────────────────────────────────────
-
-export function PortfolioManager() {
+export function PortfolioManager({ subscribeLeg, unsubscribeLeg }: Props) {
   const { tickers: symbols = [], rules } = useRulesStore();
-  const marketStore  = useMarketStore();
+  const marketStore = useMarketStore();
+  const { tickers } = marketStore;
   const { balances } = useAccountStore();
-  const flowSnapshots = useFlowStore((s) => s.snapshots);
 
-  const ivRankMin  = rules?.options_filters?.iv_rank?.min ?? 25;
-  const ivRankMax  = rules?.options_filters?.iv_rank?.max ?? 65;
-  const maxConc    = rules?.risk_limits?.max_concurrent_positions ?? 3;
-  const riskPct    = rules?.risk_limits?.risk_per_trade_pct ?? 0.02;
-  const riskMaxUsd = rules?.risk_limits?.risk_per_trade_usd_max ?? 10000;
+  const netLiq = balances?.netLiquidatingValue ?? null;
+  const maxConc = rules?.risk_limits?.max_concurrent_positions ?? 3;
 
-  const netLiq     = balances?.netLiquidatingValue ?? null;
-  const riskAmount = netLiq != null
-    ? Math.min(netLiq * riskPct, riskMaxUsd)
-    : null;
-
-  const { tickers, setIVRank, setIV, setOpen, updatePrice } = marketStore;
   const loadedRef = useRef<Record<string, boolean>>({});
+  const subscribedLegsRef = useRef<string[]>([]);
 
-  // PositionBuilder data per symbol
+  // PB data per symbol
   const [pbData, setPbData] = useState<Record<string, PositionBuilderApiResponse>>({});
   const [pbLoading, setPbLoading] = useState<Record<string, boolean>>({});
-  const [pbError, setPbError] = useState<Record<string, string | null>>({});
 
-  // Load market data for all tickers on mount
+  // Load market data for underlying
   useEffect(() => {
     symbols.forEach(symbol => {
       if (loadedRef.current[symbol]) return;
       loadedRef.current[symbol] = true;
-
       fetchMarketDataByType(symbol)
         .then(d => {
-          setOpen(symbol, d.open, d.prevClose, d.volume);
-          const t = useMarketStore.getState().tickers[symbol];
-          if (!t?.price) {
-            updatePrice(symbol, { price: d.last, size: 0, timestamp: new Date().toISOString() });
-          }
-        })
-        .catch(() => {});
-
-      fetchIVRank(symbol)
-        .then(d => setIVRank(symbol, d.ivRank))
-        .catch(() => {});
-
-      fetchImpliedVolatility(symbol)
-        .then(d => setIV(symbol, d.iv30, d.iv9d, d.iv3m))
-        .catch(() => {});
+          marketStore.setOpen(symbol, d.open, d.prevClose, d.volume);
+          if (!tickers[symbol]?.price)
+            marketStore.updatePrice(symbol, { price: d.last, size: 0, timestamp: new Date().toISOString() });
+        }).catch(() => {});
+      fetchIVRank(symbol).then(d => marketStore.setIVRank(symbol, d.ivRank)).catch(() => {});
+      fetchImpliedVolatility(symbol).then(d => marketStore.setIV(symbol, d.iv30, d.iv9d, d.iv3m)).catch(() => {});
     });
   }, [symbols.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch PositionBuilder for all symbols
-  const fetchAllPB = () => {
+  // Fetch PositionBuilder
+  const fetchAllPB = useCallback(() => {
     symbols.forEach(symbol => {
       setPbLoading(prev => ({ ...prev, [symbol]: true }));
-      setPbError(prev => ({ ...prev, [symbol]: null }));
       fetchPositionBuilder(symbol)
-        .then(data => {
-          setPbData(prev => ({ ...prev, [symbol]: data }));
-        })
-        .catch(e => {
-          setPbError(prev => ({ ...prev, [symbol]: e.message }));
-        })
-        .finally(() => {
-          setPbLoading(prev => ({ ...prev, [symbol]: false }));
-        });
+        .then(data => setPbData(prev => ({ ...prev, [symbol]: data })))
+        .catch(() => {})
+        .finally(() => setPbLoading(prev => ({ ...prev, [symbol]: false })));
     });
-  };
-
-  useEffect(() => {
-    if (symbols.length > 0) fetchAllPB();
   }, [symbols.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const anyPbLoading = symbols.some(s => pbLoading[s]);
+  useEffect(() => { if (symbols.length > 0) fetchAllPB(); }, [symbols.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Build rows from PB data + market store fallbacks
-  const rows: TickerRow[] = symbols.map(symbol => {
-    const t = tickers[symbol];
-    const pb = pbData[symbol];
-    const flowSnap = flowSnapshots[symbol];
+  // Subscribe / unsubscribe option leg OCC symbols when PB data changes
+  useEffect(() => {
+    // Unsubscribe previous legs
+    subscribedLegsRef.current.forEach(occ => unsubscribeLeg(occ));
 
-    if (pb) {
-      const se = pb.strikeEngine;
-      const micro = pb.microstructure;
-      const ivRank = t?.ivRank ?? null;
+    const newLegs: string[] = [];
+    Object.values(pbData).forEach(pb => {
+      const ls = pb.strikeEngine?.legSymbols;
+      if (!ls) return;
+      [ls.shortPut, ls.longPut, ls.shortCall, ls.longCall]
+        .filter((s): s is string => !!s)
+        .forEach(occ => {
+          marketStore.initTicker(occ);
+          subscribeLeg(occ);
+          newLegs.push(occ);
+        });
+    });
 
-      // Flow: prefer live WebSocket snapshot, fall back to PB aggressiveFlow
-      const liveFlow = flowSnap?.signal ?? null;
-      const pbFlow = pb.structureInputs?.aggressiveFlow?.signal ?? null;
-      const flowSignal = liveFlow ?? (pbFlow !== 'unavailable' ? pbFlow : null);
-
-      return {
-        symbol,
-        price: t?.price ?? pb.spotPrice,
-        ivRank,
-        iv30: t?.iv30 ?? null,
-        signal: signalMap[pb.overallSignal] ?? 'NO OPERAR',
-        structure: pb.selectedStructure?.output ?? null,
-        structureLabel: pb.selectedStructure?.ruleLabel ?? null,
-        shortPut: se?.shortPutStrike ?? null,
-        shortPutDelta: se?.shortPutDelta ?? null,
-        shortCall: se?.shortCallStrike ?? null,
-        shortCallDelta: se?.shortCallDelta ?? null,
-        em: se?.expectedMove ?? null,
-        dte: se?.dte ?? null,
-        credit: micro?.creditMinimum?.midCredit ?? null,
-        flowSignal,
-        pbLoaded: true,
-      };
-    }
-
-    // Fallback while PB is loading
-    return {
-      symbol,
-      price: t?.price ?? 0,
-      ivRank: t?.ivRank ?? null,
-      iv30: t?.iv30 ?? null,
-      signal: 'NO OPERAR',
-      structure: null,
-      structureLabel: null,
-      shortPut: null,
-      shortPutDelta: null,
-      shortCall: null,
-      shortCallDelta: null,
-      em: null,
-      dte: null,
-      credit: null,
-      flowSignal: flowSnap?.signal ?? null,
-      pbLoaded: false,
+    subscribedLegsRef.current = newLegs;
+    return () => {
+      newLegs.forEach(occ => unsubscribeLeg(occ));
     };
-  });
+  }, [JSON.stringify(Object.fromEntries(Object.entries(pbData).map(([k, v]) => [k, v.strikeEngine?.legSymbols])))]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sort: OPERAR first, then ESPERAR, then NO OPERAR; within same signal, by IVR desc
-  const signalOrder: Record<string, number> = { 'OPERAR': 0, 'ESPERAR': 1, 'NO OPERAR': 2 };
-  rows.sort((a, b) => {
-    const sa = signalOrder[a.signal] ?? 2;
-    const sb = signalOrder[b.signal] ?? 2;
-    if (sa !== sb) return sa - sb;
-    return (b.ivRank ?? 0) - (a.ivRank ?? 0);
-  });
+  const anyLoading = symbols.some(s => pbLoading[s]);
 
   return (
-    <div style={{ padding: '16px 20px', minHeight: '100%', backgroundColor: 'var(--bg-primary)' }}>
+    <div style={{ padding: '14px 16px', minHeight: '100%', backgroundColor: 'var(--bg-primary)' }}>
+
       {/* Header */}
-      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <div>
-          <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'Inter, sans-serif', margin: 0 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'Inter, sans-serif', margin: 0 }}>
             Portfolio Manager
           </h2>
-          <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '2px 0 0', fontFamily: 'Inter, sans-serif' }}>
-            Análisis de setup por ticker · PositionBuilder real
+          <p style={{ fontSize: 10, color: 'var(--text-muted)', margin: '2px 0 0', fontFamily: 'Inter, sans-serif' }}>
+            Setup por ticker · premiums live via socket · valores de riesgo con crédito instantáneo
           </p>
         </div>
-
-        {/* Context pills + refresh */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', padding: '3px 10px', borderRadius: 20, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', color: 'var(--text-secondary)' }}>
-            IVR {ivRankMin}–{ivRankMax}
-          </span>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           {netLiq != null && (
-            <span style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', padding: '3px 10px', borderRadius: 20, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', color: 'var(--text-secondary)' }}>
-              Risk/trade: ${riskAmount?.toLocaleString('en-US', { maximumFractionDigits: 0 }) ?? '—'}
+            <span style={{ fontSize: 9, fontFamily: 'JetBrains Mono, monospace', padding: '2px 8px', borderRadius: 20, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', color: 'var(--text-muted)' }}>
+              NL ${netLiq.toLocaleString('en-US', { maximumFractionDigits: 0 })}
             </span>
           )}
-          <span style={{ fontSize: 10, fontFamily: 'JetBrains Mono, monospace', padding: '3px 10px', borderRadius: 20, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', color: 'var(--text-secondary)' }}>
+          <span style={{ fontSize: 9, fontFamily: 'JetBrains Mono, monospace', padding: '2px 8px', borderRadius: 20, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', color: 'var(--text-muted)' }}>
             Máx {maxConc} pos
           </span>
           <button
-            onClick={fetchAllPB}
-            disabled={anyPbLoading}
+            onClick={fetchAllPB} disabled={anyLoading}
             style={{
               display: 'flex', alignItems: 'center', gap: 4,
-              fontSize: 10, fontFamily: 'Inter, sans-serif', fontWeight: 600,
-              padding: '4px 10px', borderRadius: 6,
+              fontSize: 9, fontFamily: 'Inter, sans-serif', fontWeight: 600,
+              padding: '4px 9px', borderRadius: 6,
               backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              color: 'var(--text-secondary)', cursor: 'pointer',
+              color: 'var(--text-secondary)', cursor: anyLoading ? 'wait' : 'pointer',
             }}
           >
-            <RefreshCw size={10} className={anyPbLoading ? 'animate-spin' : ''} />
+            <RefreshCw size={9} className={anyLoading ? 'animate-spin' : ''} />
             Refresh
           </button>
         </div>
       </div>
 
       {/* Table */}
-      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-dark)' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div style={{ borderRadius: 8, border: '1px solid var(--border-dark)', overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1400 }}>
           <thead>
+            {/* Row 1 — group headers */}
             <tr>
-              <Th>Ticker</Th>
-              <Th right>Precio</Th>
-              <Th right>IVR</Th>
-              <Th>Señal</Th>
-              <Th>Estructura</Th>
-              <Th right>Short Put</Th>
-              <Th right>Short Call</Th>
-              <Th right>EM</Th>
-              <Th right>Crédito</Th>
-              <Th>Flow</Th>
+              <Th rowSpan={2}>Ticker</Th>
+              <Th rowSpan={2}>Señal</Th>
+              <Th rowSpan={2} right>Precio</Th>
+              <Th rowSpan={2} right>Call Wall</Th>
+              <Th rowSpan={2} right>ZGL</Th>
+              <Th rowSpan={2} right>Put Wall</Th>
+              <Th rowSpan={2} right>Z-Spot</Th>
+              <Th rowSpan={2} right>GEX</Th>
+              <Th rowSpan={2} right>EM</Th>
+              <Th rowSpan={2} center>Estructura</Th>
+              <Th span={4} center muted>Strikes</Th>
+              <Th span={4} center muted>Premium (live)</Th>
+              <Th rowSpan={2} right>Net Credit</Th>
+              <Th rowSpan={2} right>POP</Th>
+              <Th rowSpan={2} right>Máx Profit</Th>
+              <Th rowSpan={2} right>Máx Loss</Th>
+              <Th rowSpan={2} right>BPR</Th>
+            </tr>
+            {/* Row 2 — sub-headers for groups */}
+            <tr>
+              <Th right muted>Long Put</Th>
+              <Th right muted>Short Put</Th>
+              <Th right muted>Short Call</Th>
+              <Th right muted>Long Call</Th>
+              <Th right muted>Long Put</Th>
+              <Th right muted>Short Put</Th>
+              <Th right muted>Short Call</Th>
+              <Th right muted>Long Call</Th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, idx) => {
-              const t = tickers[row.symbol];
-              const loading = pbLoading[row.symbol] || t?.loading?.ivRank;
-              const error = pbError[row.symbol];
-              const rowBg = idx % 2 === 0 ? 'var(--bg-primary)' : 'rgba(17,30,51,0.4)';
-              const ivRankOk = row.ivRank != null ? row.ivRank >= ivRankMin && row.ivRank <= ivRankMax : null;
-
-              return (
-                <tr key={row.symbol} style={{ backgroundColor: rowBg }}>
-                  {/* Ticker */}
-                  <Td>
-                    <span style={{
-                      fontFamily: 'JetBrains Mono, monospace',
-                      fontWeight: 700,
-                      color: 'var(--text-primary)',
-                      fontSize: 13,
-                      letterSpacing: '0.05em',
-                    }}>
-                      {row.symbol}
-                    </span>
-                    {row.dte != null && (
-                      <span style={{ fontSize: 9, color: 'var(--text-muted)', marginLeft: 6 }}>
-                        {row.dte}d
-                      </span>
-                    )}
-                  </Td>
-
-                  {/* Precio */}
-                  <Td right mono>
-                    {row.price > 0 ? fmtPrice(row.price) : '—'}
-                  </Td>
-
-                  {/* IV Rank */}
-                  <Td right>
-                    {loading && !row.pbLoaded ? (
-                      <span style={{ opacity: 0.4 }}>…</span>
-                    ) : (
-                      <OkValue
-                        ok={ivRankOk}
-                        value={row.ivRank != null ? `${row.ivRank.toFixed(0)}` : '—'}
-                      />
-                    )}
-                  </Td>
-
-                  {/* Señal */}
-                  <Td>
-                    {loading && !row.pbLoaded ? (
-                      <span style={{ opacity: 0.4, fontSize: 10 }}>…</span>
-                    ) : error ? (
-                      <span style={{ fontSize: 9, color: 'var(--red-gc)' }}>Error</span>
-                    ) : (
-                      <SignalPill signal={row.signal} />
-                    )}
-                  </Td>
-
-                  {/* Estructura */}
-                  <Td>
-                    <StructurePill structure={row.structure} />
-                  </Td>
-
-                  {/* Short Put */}
-                  <Td right>
-                    {row.shortPut != null ? (
-                      <span style={{ color: '#f43f5e', fontFamily: 'JetBrains Mono, monospace' }}>
-                        {fmtPrice(row.shortPut, 0)}
-                        {row.shortPutDelta != null && (
-                          <span style={{ color: 'var(--text-muted)', fontSize: 10, marginLeft: 3 }}>
-                            Δ{row.shortPutDelta.toFixed(2)}
-                          </span>
-                        )}
-                      </span>
-                    ) : '—'}
-                  </Td>
-
-                  {/* Short Call */}
-                  <Td right>
-                    {row.shortCall != null ? (
-                      <span style={{ color: '#22c55e', fontFamily: 'JetBrains Mono, monospace' }}>
-                        {fmtPrice(row.shortCall, 0)}
-                        {row.shortCallDelta != null && (
-                          <span style={{ color: 'var(--text-muted)', fontSize: 10, marginLeft: 3 }}>
-                            Δ{row.shortCallDelta.toFixed(2)}
-                          </span>
-                        )}
-                      </span>
-                    ) : '—'}
-                  </Td>
-
-                  {/* Expected Move */}
-                  <Td right mono>
-                    {row.em != null ? `±${fmtPrice(row.em, 1)}` : '—'}
-                  </Td>
-
-                  {/* Crédito */}
-                  <Td right mono>
-                    {row.credit != null ? (
-                      <span style={{ color: row.credit > 0 ? 'var(--green)' : 'var(--text-muted)' }}>
-                        ${row.credit.toFixed(2)}
-                      </span>
-                    ) : '—'}
-                  </Td>
-
-                  {/* Flow */}
-                  <Td>
-                    <FlowBadge signal={row.flowSignal} />
-                  </Td>
-                </tr>
-              );
-            })}
+            {symbols.map((symbol, idx) => (
+              <PortfolioRow
+                key={symbol}
+                symbol={symbol}
+                pb={pbData[symbol] ?? null}
+                loading={pbLoading[symbol] ?? false}
+                tickers={tickers}
+                rowBg={idx % 2 === 0 ? 'var(--bg-primary)' : 'rgba(17,30,51,0.4)'}
+              />
+            ))}
           </tbody>
         </table>
       </div>
 
-      {/* Footnote */}
-      <p style={{ fontSize: 9.5, color: 'var(--text-muted)', marginTop: 10, fontFamily: 'Inter, sans-serif', lineHeight: 1.6 }}>
-        Datos del endpoint PositionBuilder (capas 2-4). Estructura seleccionada por motor multi-factor (Z-Score, GEX, EMA, RV).
-        Crédito basado en mid-price de las patas short/long. Flow requiere SubscribeFlow activo via WebSocket.
+      <p style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 8, fontFamily: 'Inter, sans-serif', lineHeight: 1.6 }}>
+        EM = Expected Move · ZGL = Gamma Zero Level · BPR = Buying Power Requirement por contrato · POP = proxy (1−|Δ|)×100
+        · Premiums y crédito en tiempo real del socket (dot verde = live). Máx Profit / Loss / BPR se recalculan con crédito live.
       </p>
     </div>
+  );
+}
+
+// ── Row component ────────────────────────────────────────────────────────────
+
+interface RowProps {
+  symbol: string;
+  pb: PositionBuilderApiResponse | null;
+  loading: boolean;
+  tickers: ReturnType<typeof useMarketStore>['tickers'];
+  rowBg: string;
+}
+
+function PortfolioRow({ symbol, pb, loading, tickers, rowBg }: RowProps) {
+  const t = tickers[symbol];
+  const se = pb?.strikeEngine;
+  const rs = pb?.riskAndSizing;
+  const ls = se?.legSymbols;
+
+  // Live leg quotes from socket
+  const shortPutQ  = ls?.shortPut  ? tickers[ls.shortPut]  : undefined;
+  const longPutQ   = ls?.longPut   ? tickers[ls.longPut]   : undefined;
+  const shortCallQ = ls?.shortCall ? tickers[ls.shortCall] : undefined;
+  const longCallQ  = ls?.longCall  ? tickers[ls.longCall]  : undefined;
+
+  const shortPutMid  = legMid(shortPutQ?.bid,  shortPutQ?.ask);
+  const longPutMid   = legMid(longPutQ?.bid,   longPutQ?.ask);
+  const shortCallMid = legMid(shortCallQ?.bid, shortCallQ?.ask);
+  const longCallMid  = legMid(longCallQ?.bid,  longCallQ?.ask);
+
+  const structure = se?.selectedStructure ?? pb?.selectedStructure?.output ?? null;
+  const spreadWidth = se?.shortPutStrike != null && se?.longPutStrike != null
+    ? Math.abs(se.shortPutStrike - se.longPutStrike)
+    : se?.shortCallStrike != null && se?.longCallStrike != null
+      ? Math.abs(se.shortCallStrike - se.longCallStrike)
+      : null;
+
+  const netCreditLive = computeNetCredit(structure, shortPutMid, longPutMid, shortCallMid, longCallMid);
+  const contracts = rs?.contracts ?? 1;
+  const maxProfitLive  = netCreditLive != null ? netCreditLive * 100 * contracts : null;
+  const maxLossLive    = netCreditLive != null && spreadWidth != null
+    ? (spreadWidth - netCreditLive) * 100 * contracts : null;
+  const bprLive        = netCreditLive != null && spreadWidth != null
+    ? (spreadWidth - netCreditLive) * 100 : null;
+
+  const isLive = (mid: number | null) => mid != null;
+
+  const price = t?.price ?? pb?.spotPrice ?? 0;
+
+  const gexLabel = pb?.netGexBillions != null
+    ? fmtGex(pb.netGexBillions)
+    : '—';
+
+  if (loading && !pb) {
+    return (
+      <tr style={{ backgroundColor: rowBg }}>
+        <Td><MonoVal color="var(--text-primary)">{symbol}</MonoVal></Td>
+        <Td><span style={{ opacity: 0.4, fontSize: 10 }}>…</span></Td>
+        {Array.from({ length: 21 }).map((_, i) => <Td key={i}><Dash /></Td>)}
+      </tr>
+    );
+  }
+
+  return (
+    <tr style={{ backgroundColor: rowBg }}>
+
+      {/* Ticker */}
+      <Td>
+        <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: 'var(--text-primary)', fontSize: 12, letterSpacing: '0.05em' }}>
+          {symbol}
+        </span>
+        {se?.dte != null && (
+          <span style={{ fontSize: 8, color: 'var(--text-muted)', marginLeft: 5 }}>{se.dte}d</span>
+        )}
+      </Td>
+
+      {/* Señal */}
+      <Td center>
+        {pb ? <SignalPill signal={pb.overallSignal} /> : <Dash />}
+      </Td>
+
+      {/* Precio */}
+      <Td right>
+        <MonoVal color="var(--text-primary)">{price > 0 ? fmtPrice(price) : '—'}</MonoVal>
+      </Td>
+
+      {/* Call Wall */}
+      <Td right>
+        <MonoVal color="#22c55e">{se?.callWall != null ? fmtPrice(se.callWall, 0) : '—'}</MonoVal>
+      </Td>
+
+      {/* ZGL */}
+      <Td right>
+        <MonoVal>{pb?.gammaZeroLevel != null ? fmtPrice(pb.gammaZeroLevel, 0) : '—'}</MonoVal>
+      </Td>
+
+      {/* Put Wall */}
+      <Td right>
+        <MonoVal color="#f43f5e">{se?.putWall != null ? fmtPrice(se.putWall, 0) : '—'}</MonoVal>
+      </Td>
+
+      {/* Z-Spot */}
+      <Td right>
+        {se?.zScore != null ? (
+          <MonoVal color={Math.abs(se.zScore) >= 1.5 ? '#f59e0b' : 'var(--text-secondary)'}>
+            {se.zScore > 0 ? '+' : ''}{se.zScore.toFixed(2)}
+          </MonoVal>
+        ) : <Dash />}
+      </Td>
+
+      {/* GEX */}
+      <Td right>
+        <MonoVal>{gexLabel}</MonoVal>
+      </Td>
+
+      {/* Expected Move */}
+      <Td right>
+        <MonoVal>{se?.expectedMove ? `±${fmtPrice(se.expectedMove, 1)}` : '—'}</MonoVal>
+      </Td>
+
+      {/* Estructura */}
+      <Td center>
+        <StructurePill structure={structure} />
+      </Td>
+
+      {/* Strikes */}
+      <Td right><MonoVal color="#f43f5e">{se?.longPutStrike   != null ? fmtPrice(se.longPutStrike,   0) : '—'}</MonoVal></Td>
+      <Td right><MonoVal color="#f43f5e">{se?.shortPutStrike  != null ? fmtPrice(se.shortPutStrike,  0) : '—'}</MonoVal></Td>
+      <Td right><MonoVal color="#22c55e">{se?.shortCallStrike != null ? fmtPrice(se.shortCallStrike, 0) : '—'}</MonoVal></Td>
+      <Td right><MonoVal color="#22c55e">{se?.longCallStrike  != null ? fmtPrice(se.longCallStrike,  0) : '—'}</MonoVal></Td>
+
+      {/* Premiums live */}
+      <Td right>
+        {longPutMid != null ? (
+          <span><MonoVal>{fmtPrice(longPutMid, 2)}</MonoVal><LiveDot live={isLive(longPutMid)} /></span>
+        ) : ls?.longPut ? <span style={{ opacity: 0.4, fontSize: 10 }}>…</span> : <Dash />}
+      </Td>
+      <Td right>
+        {shortPutMid != null ? (
+          <span><MonoVal>{fmtPrice(shortPutMid, 2)}</MonoVal><LiveDot live={isLive(shortPutMid)} /></span>
+        ) : ls?.shortPut ? <span style={{ opacity: 0.4, fontSize: 10 }}>…</span> : <Dash />}
+      </Td>
+      <Td right>
+        {shortCallMid != null ? (
+          <span><MonoVal>{fmtPrice(shortCallMid, 2)}</MonoVal><LiveDot live={isLive(shortCallMid)} /></span>
+        ) : ls?.shortCall ? <span style={{ opacity: 0.4, fontSize: 10 }}>…</span> : <Dash />}
+      </Td>
+      <Td right>
+        {longCallMid != null ? (
+          <span><MonoVal>{fmtPrice(longCallMid, 2)}</MonoVal><LiveDot live={isLive(longCallMid)} /></span>
+        ) : ls?.longCall ? <span style={{ opacity: 0.4, fontSize: 10 }}>…</span> : <Dash />}
+      </Td>
+
+      {/* Net Credit live */}
+      <Td right>
+        {netCreditLive != null ? (
+          <span>
+            <MonoVal color={netCreditLive > 0 ? '#22c55e' : '#f43f5e'}>
+              ${fmtPrice(netCreditLive, 2)}
+            </MonoVal>
+            <LiveDot live />
+          </span>
+        ) : rs?.maxProfit != null ? (
+          <MonoVal color="var(--text-muted)">${fmtPrice(Number(rs.maxProfit) / 100 / contracts, 2)}</MonoVal>
+        ) : <Dash />}
+      </Td>
+
+      {/* POP */}
+      <Td right>
+        {se?.pop != null ? (
+          <MonoVal color="#22c55e">{se.pop.toFixed(0)}%</MonoVal>
+        ) : <Dash />}
+      </Td>
+
+      {/* Máx Profit */}
+      <Td right>
+        {maxProfitLive != null ? (
+          <span><MonoVal color="#22c55e">${fmtPrice(maxProfitLive, 0)}</MonoVal><LiveDot live /></span>
+        ) : rs?.maxProfit != null ? (
+          <MonoVal color="var(--text-muted)">${fmtPrice(Number(rs.maxProfit), 0)}</MonoVal>
+        ) : <Dash />}
+      </Td>
+
+      {/* Máx Loss */}
+      <Td right>
+        {maxLossLive != null ? (
+          <span><MonoVal color="#f43f5e">${fmtPrice(maxLossLive, 0)}</MonoVal><LiveDot live /></span>
+        ) : rs?.maxLoss != null ? (
+          <MonoVal color="var(--text-muted)">${fmtPrice(Number(rs.maxLoss), 0)}</MonoVal>
+        ) : <Dash />}
+      </Td>
+
+      {/* BPR */}
+      <Td right>
+        {bprLive != null ? (
+          <span><MonoVal>${fmtPrice(bprLive, 0)}</MonoVal><LiveDot live /></span>
+        ) : rs?.buyingPowerReq != null ? (
+          <MonoVal color="var(--text-muted)">${fmtPrice(Number(rs.buyingPowerReq), 0)}</MonoVal>
+        ) : <Dash />}
+      </Td>
+
+    </tr>
   );
 }

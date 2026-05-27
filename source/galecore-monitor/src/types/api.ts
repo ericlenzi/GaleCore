@@ -224,6 +224,13 @@ export interface PositionBuilderResult {
   riskAndSizing: RiskAndSizingResult | null;
 }
 
+export interface LegSymbols {
+  shortPut: string | null;
+  longPut: string | null;
+  shortCall: string | null;
+  longCall: string | null;
+}
+
 export interface StrikeEngineResult {
   signal: string;
   expectedMove: number;
@@ -250,6 +257,10 @@ export interface StrikeEngineResult {
   realizedVolSignal: string | null;
   rv10d: number | null;
   rv30d: number | null;
+  /** Proxy POP: (1 - |delta|) × 100. IC = mínimo de ambos lados. */
+  pop: number | null;
+  /** Símbolos OCC por leg — suscribir al socket para quotes live. */
+  legSymbols: LegSymbols | null;
 }
 
 export interface MicrostructureResult {
@@ -305,6 +316,14 @@ export interface RiskAndSizingResult {
   currentHeatPct: number;
   maxHeatPct: number;
   heatOk: boolean;
+  /** Contratos máximos calculados con crédito snapshot. */
+  contracts: number;
+  /** Máx profit snapshot (frontend recalcula con live). */
+  maxProfit: number;
+  /** Máx loss snapshot (frontend recalcula con live). */
+  maxLoss: number;
+  /** Buying power requirement por contrato snapshot. */
+  buyingPowerReq: number;
 }
 
 // ─── Market Data API ──────────────────────────────────────────────────────────
@@ -391,6 +410,10 @@ export interface PositionBuilderApiResponse {
   timestamp: string;
   spotPrice: number;
   overallSignal: string;
+  /** GEX total neto en billions USD. Ver definitions.gex_total. */
+  netGexBillions: number | null;
+  /** Gamma Zero Level. Ver definitions.gamma_zero_level. */
+  gammaZeroLevel: number | null;
   structureInputs: StructureInputs;
   selectedStructure: SelectedStructureResult;
   strikeEngine: StrikeEngineResult | null;
@@ -416,7 +439,8 @@ export interface PriceZScoreInput {
 
 export interface GexSignInput {
   value: string;
-  netGexBillions: number;
+  /** Ratio callGEX / (callGEX + |putGEX|) en [0, 1]. Ver definitions.gex_skew. */
+  skewRatio: number;
   interpretation: string;
 }
 
