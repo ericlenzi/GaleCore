@@ -7,7 +7,6 @@ import { fmtCurrency, fmtTime, isStale } from '../../utils/formatters';
 export function AccountSummary() {
   const {
     balances,
-    positions,
     loadingBalances,
     errorBalances,
     lastUpdate,
