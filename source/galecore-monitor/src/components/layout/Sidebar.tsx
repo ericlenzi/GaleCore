@@ -1,5 +1,6 @@
 import React from 'react';
 import { AccountSummary } from '../account/AccountSummary';
+import { AccountPositionsList } from '../account/AccountPositionsList';
 
 export function Sidebar() {
   return (
@@ -36,6 +37,7 @@ export function Sidebar() {
         overflowY: 'auto',
       }}>
         <AccountSummary />
+        <AccountPositionsList />
       </div>
     </aside>
   );

@@ -1,3 +1,5 @@
+import { PositionResponse, GroupedPosition } from '../types/api';
+
 export function fmtPrice(n: number | null | undefined, decimals = 2): string {
   if (n == null) return '—';
   return n.toLocaleString('en-US', {
@@ -76,4 +78,43 @@ export function signalColor(signal: string): string {
 export function boolToStatus(v: boolean | null): 'ok' | 'warn' | 'na' {
   if (v === null) return 'na';
   return v ? 'ok' : 'warn';
+}
+
+export function fmtPnl(n: number): string {
+  const sign = n >= 0 ? '+' : '';
+  return `${sign}${new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n)}`;
+}
+
+export function groupPositions(positions: PositionResponse[]): GroupedPosition[] {
+  const map = new Map<string, PositionResponse[]>();
+  for (const p of positions) {
+    const key = p.underlyingSymbol || p.symbol;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(p);
+  }
+
+  return Array.from(map.entries()).map(([sym, legs]) => {
+    const unrealizedPnl = legs.reduce((sum, leg) => {
+      const mult = leg.multiplier ?? 1;
+      // Short: profit when price falls; Long: profit when price rises
+      const sign = leg.quantityDirection === 'Short' ? -1 : 1;
+      return sum + sign * (leg.closePrice - leg.averageOpenPrice) * leg.quantity * mult;
+    }, 0);
+
+    const realizedToday = legs.reduce((sum, leg) => {
+      const sign = leg.realizedTodayEffect === 'Debit' ? -1 : 1;
+      return sum + (leg.realizedToday ?? 0) * sign;
+    }, 0);
+
+    const hasOptions = legs.some(l => l.instrumentType !== 'Equity');
+    const hasEquity  = legs.some(l => l.instrumentType === 'Equity');
+    const typeLabel  = hasOptions && hasEquity ? 'Eq+Opt' : hasOptions ? 'Opt' : 'Eq';
+
+    return { underlyingSymbol: sym, legs, legCount: legs.length, unrealizedPnl, realizedToday, typeLabel };
+  });
 }

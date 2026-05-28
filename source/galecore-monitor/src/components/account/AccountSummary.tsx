@@ -83,9 +83,6 @@ export function AccountSummary() {
           <Row label="Net Liq" value={fmtCurrency(balances.netLiquidatingValue)} highlight />
           <Row label="Buying Power" value={fmtCurrency(balances.buyingPower)} />
           <Row label="Cash" value={fmtCurrency(balances.cash)} />
-          <div style={{ borderTop: '1px solid var(--border-dark)', marginTop: 6, paddingTop: 6 }}>
-            <Row label="Positions" value={`${positions.length}`} />
-          </div>
         </div>
       ) : (
         <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
