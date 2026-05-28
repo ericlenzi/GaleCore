@@ -8,7 +8,7 @@ import { fetchIVRank, fetchImpliedVolatility, fetchPositionBuilder, fetchValidat
 import { ConnectionStatus } from '../socket/useMarketSocket';
 import { ValidationLayerApiResponse } from '../types/api';
 import { fmtPrice, fmtGex } from '../utils/formatters';
-import { PositionBuilderApiResponse } from '../types/api';
+import { PositionBuilderApiResponse, StrikeEngineCandidate, StrikeEngineResult, RiskAndSizingResult } from '../types/api';
 import { TickerState } from '../types/market';
 
 // ── Props ────────────────────────────────────────────────────────────────────
@@ -48,6 +48,26 @@ function computeNetCredit(
     && shortCallMid != null && longCallMid != null)
     return (shortPutMid - longPutMid) + (shortCallMid - longCallMid);
   return null;
+}
+
+// ── Candidate helpers ─────────────────────────────────────────────────────────
+
+/** Fallback: convierte StrikeEngineResult en StrikeEngineCandidate cuando el backend no devuelve strikeCandidates */
+function seToCandidate(se: StrikeEngineResult): StrikeEngineCandidate {
+  return {
+    rank: 1,
+    shortPutStrike: se.shortPutStrike,
+    shortCallStrike: se.shortCallStrike,
+    shortPutDelta: se.shortPutDelta,
+    shortCallDelta: se.shortCallDelta,
+    longPutStrike: se.longPutStrike,
+    longCallStrike: se.longCallStrike,
+    strikesInsideWalls: se.strikesInsideWalls,
+    pop: se.pop,
+    creditRatio: se.creditRatio,
+    priorityScore: se.priorityScore,
+    legSymbols: se.legSymbols,
+  };
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────
@@ -132,9 +152,9 @@ function Th({ children, right, center, span, rowSpan, muted }: {
   );
 }
 
-function Td({ children, right, center }: { children: React.ReactNode; right?: boolean; center?: boolean }) {
+function Td({ children, right, center, rowSpan }: { children: React.ReactNode; right?: boolean; center?: boolean; rowSpan?: number }) {
   return (
-    <td style={{
+    <td rowSpan={rowSpan} style={{
       padding: '9px 8px',
       textAlign: center ? 'center' : right ? 'right' : 'left',
       borderBottom: '1px solid var(--border-dark)',
@@ -212,15 +232,19 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg, socketStatus }:
 
     const newLegs: string[] = [];
     Object.values(pbData).forEach(pb => {
-      const ls = pb.strikeEngine?.legSymbols;
-      if (!ls) return;
-      [ls.shortPut, ls.longPut, ls.shortCall, ls.longCall]
-        .filter((s): s is string => !!s)
-        .forEach(occ => {
-          marketStore.initTicker(occ);
-          subscribeLeg(occ);
-          newLegs.push(occ);
-        });
+      // Suscribir legs de todos los candidatos (rank 1-3)
+      const candidates = pb.strikeCandidates ?? (pb.strikeEngine ? [seToCandidate(pb.strikeEngine)] : []);
+      candidates.forEach(c => {
+        const ls = c.legSymbols;
+        if (!ls) return;
+        [ls.shortPut, ls.longPut, ls.shortCall, ls.longCall]
+          .filter((s): s is string => !!s)
+          .forEach(occ => {
+            marketStore.initTicker(occ);
+            subscribeLeg(occ);
+            newLegs.push(occ);
+          });
+      });
     });
 
     subscribedLegsRef.current = newLegs;
@@ -354,41 +378,18 @@ function PortfolioRow({ symbol, pb, vl, loading, tickers, rowBg }: RowProps) {
   const t = tickers[symbol];
   const se = pb?.strikeEngine;
   const rs = pb?.riskAndSizing;
-  const ls = se?.legSymbols;
 
-  // Live leg quotes from socket
-  const shortPutQ  = ls?.shortPut  ? tickers[ls.shortPut]  : undefined;
-  const longPutQ   = ls?.longPut   ? tickers[ls.longPut]   : undefined;
-  const shortCallQ = ls?.shortCall ? tickers[ls.shortCall] : undefined;
-  const longCallQ  = ls?.longCall  ? tickers[ls.longCall]  : undefined;
-
-  const shortPutMid  = legMid(shortPutQ?.bid,  shortPutQ?.ask);
-  const longPutMid   = legMid(longPutQ?.bid,   longPutQ?.ask);
-  const shortCallMid = legMid(shortCallQ?.bid, shortCallQ?.ask);
-  const longCallMid  = legMid(longCallQ?.bid,  longCallQ?.ask);
-
+  const price    = t?.price ?? pb?.spotPrice ?? 0;
+  const gexLabel = pb?.netGexBillions != null ? fmtGex(pb.netGexBillions) : '—';
   const structure = se?.selectedStructure ?? pb?.selectedStructure?.output ?? null;
-  const spreadWidth = se?.shortPutStrike != null && se?.longPutStrike != null
-    ? Math.abs(se.shortPutStrike - se.longPutStrike)
-    : se?.shortCallStrike != null && se?.longCallStrike != null
-      ? Math.abs(se.shortCallStrike - se.longCallStrike)
-      : null;
 
-  const netCreditLive = computeNetCredit(structure, shortPutMid, longPutMid, shortCallMid, longCallMid);
-  const contracts = rs?.contracts ?? 1;
-  const maxProfitLive  = netCreditLive != null ? netCreditLive * 100 * contracts : null;
-  const maxLossLive    = netCreditLive != null && spreadWidth != null
-    ? (spreadWidth - netCreditLive) * 100 * contracts : null;
-  const bprLive        = netCreditLive != null && spreadWidth != null
-    ? (spreadWidth - netCreditLive) * 100 : null;
+  // Obtener candidatos — fallback a rank-1 derivado de strikeEngine
+  const candidates: StrikeEngineCandidate[] =
+    pb?.strikeCandidates?.length
+      ? pb.strikeCandidates
+      : se ? [seToCandidate(se)] : [];
 
-  const isLive = (mid: number | null) => mid != null;
-
-  const price = t?.price ?? pb?.spotPrice ?? 0;
-
-  const gexLabel = pb?.netGexBillions != null
-    ? fmtGex(pb.netGexBillions)
-    : '—';
+  const rowSpan = Math.max(candidates.length, 1);
 
   if (loading && !pb) {
     return (
@@ -400,125 +401,230 @@ function PortfolioRow({ symbol, pb, vl, loading, tickers, rowBg }: RowProps) {
     );
   }
 
+  if (candidates.length === 0) {
+    // NO_OPERAR sin candidatos — fila única simple
+    return (
+      <tr style={{ backgroundColor: rowBg }}>
+        <Td>
+          <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: 'var(--text-primary)', fontSize: 12, letterSpacing: '0.05em' }}>{symbol}</span>
+          {se?.dte != null && <span style={{ fontSize: 8, color: 'var(--text-muted)', marginLeft: 5 }}>{se.dte}d</span>}
+        </Td>
+        <Td center>
+          {vl ? <SignalPill signal={vl.overallSignal} /> : pb ? <SignalPill signal={pb.overallSignal} /> : <Dash />}
+        </Td>
+        <Td right><MonoVal color="var(--text-primary)">{price > 0 ? fmtPrice(price) : '—'}</MonoVal></Td>
+        <Td right><MonoVal color="#22c55e">{se?.callWall != null ? fmtPrice(se.callWall, 0) : '—'}</MonoVal></Td>
+        <Td right><MonoVal>{pb?.gammaZeroLevel != null ? fmtPrice(pb.gammaZeroLevel, 0) : '—'}</MonoVal></Td>
+        <Td right><MonoVal color="#f43f5e">{se?.putWall != null ? fmtPrice(se.putWall, 0) : '—'}</MonoVal></Td>
+        <Td right>{se?.zScore != null ? <MonoVal color={Math.abs(se.zScore) >= 1.5 ? '#f59e0b' : 'var(--text-secondary)'}>{se.zScore > 0 ? '+' : ''}{se.zScore.toFixed(2)}</MonoVal> : <Dash />}</Td>
+        <Td right><MonoVal>{gexLabel}</MonoVal></Td>
+        <Td right><MonoVal>{se?.expectedMove ? `±${fmtPrice(se.expectedMove, 1)}` : '—'}</MonoVal></Td>
+        <Td center><StructurePill structure={structure} /></Td>
+        {Array.from({ length: 14 }).map((_, i) => <Td key={i}><Dash /></Td>)}
+      </tr>
+    );
+  }
+
   return (
-    <tr style={{ backgroundColor: rowBg }}>
+    <>
+      {candidates.map((c, idx) => (
+        <CandidateRow
+          key={c.rank}
+          symbol={symbol}
+          candidate={c}
+          isFirstRow={idx === 0}
+          rowSpan={rowSpan}
+          pb={pb}
+          vl={vl}
+          se={se ?? null}
+          rs={rs ?? null}
+          tickers={tickers}
+          rowBg={rowBg}
+          price={price}
+          gexLabel={gexLabel}
+          structure={structure}
+        />
+      ))}
+    </>
+  );
+}
 
-      {/* Ticker */}
-      <Td>
-        <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: 'var(--text-primary)', fontSize: 12, letterSpacing: '0.05em' }}>
-          {symbol}
-        </span>
-        {se?.dte != null && (
-          <span style={{ fontSize: 8, color: 'var(--text-muted)', marginLeft: 5 }}>{se.dte}d</span>
-        )}
-      </Td>
+// ── Candidate row ─────────────────────────────────────────────────────────────
 
-      {/* Señal — usa VL (todas las capas) si disponible, fallback a PB */}
-      <Td center>
-        {vl ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-            <SignalPill signal={vl.overallSignal} />
-            {vl.failedAtLayer != null && (
-              <span style={{ fontSize: 7, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>
-                falla L{vl.failedAtLayer}
-              </span>
+interface CandidateRowProps {
+  symbol: string;
+  candidate: StrikeEngineCandidate;
+  isFirstRow: boolean;
+  rowSpan: number;
+  pb: PositionBuilderApiResponse | null;
+  vl: ValidationLayerApiResponse | null;
+  se: StrikeEngineResult | null;
+  rs: RiskAndSizingResult | null;
+  tickers: Record<string, TickerState>;
+  rowBg: string;
+  price: number;
+  gexLabel: string;
+  structure: string | null;
+}
+
+function CandidateRow({ symbol, candidate: c, isFirstRow, rowSpan, pb, vl, se, rs, tickers, rowBg, price, gexLabel, structure }: CandidateRowProps) {
+  const ls = c.legSymbols;
+
+  const shortPutQ  = ls?.shortPut  ? tickers[ls.shortPut]  : undefined;
+  const longPutQ   = ls?.longPut   ? tickers[ls.longPut]   : undefined;
+  const shortCallQ = ls?.shortCall ? tickers[ls.shortCall] : undefined;
+  const longCallQ  = ls?.longCall  ? tickers[ls.longCall]  : undefined;
+
+  const shortPutMid  = legMid(shortPutQ?.bid,  shortPutQ?.ask);
+  const longPutMid   = legMid(longPutQ?.bid,   longPutQ?.ask);
+  const shortCallMid = legMid(shortCallQ?.bid, shortCallQ?.ask);
+  const longCallMid  = legMid(longCallQ?.bid,  longCallQ?.ask);
+
+  const spreadWidth = c.shortPutStrike != null && c.longPutStrike != null
+    ? Math.abs(c.shortPutStrike - c.longPutStrike)
+    : c.shortCallStrike != null && c.longCallStrike != null
+      ? Math.abs(c.shortCallStrike - c.longCallStrike)
+      : null;
+
+  const netCreditLive = computeNetCredit(structure, shortPutMid, longPutMid, shortCallMid, longCallMid);
+  const contracts = rs?.contracts ?? 1;
+  const maxProfitLive = netCreditLive != null ? netCreditLive * 100 * contracts : null;
+  const maxLossLive   = netCreditLive != null && spreadWidth != null
+    ? (spreadWidth - netCreditLive) * 100 * contracts : null;
+  const bprLive       = netCreditLive != null && spreadWidth != null
+    ? (spreadWidth - netCreditLive) * 100 : null;
+
+  // Rank badge
+  const rankColor = c.rank === 1 ? '#22c55e' : c.rank === 2 ? '#f59e0b' : 'var(--text-muted)';
+  const rankBadge = (
+    <span style={{
+      fontSize: 8, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace',
+      color: rankColor, opacity: c.rank === 1 ? 1 : 0.7,
+    }}>#{c.rank}</span>
+  );
+
+  const rowStyle: React.CSSProperties = {
+    backgroundColor: rowBg,
+    opacity: c.rank === 1 ? 1 : 0.75,
+  };
+
+  return (
+    <tr style={rowStyle}>
+
+      {/* Celdas macro — solo en la primera fila del ticker (rowSpan) */}
+      {isFirstRow && (
+        <>
+          <Td rowSpan={rowSpan}>
+            <span style={{ fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, color: 'var(--text-primary)', fontSize: 12, letterSpacing: '0.05em' }}>
+              {symbol}
+            </span>
+            {se?.dte != null && (
+              <span style={{ fontSize: 8, color: 'var(--text-muted)', marginLeft: 5 }}>{se.dte}d</span>
             )}
-          </div>
-        ) : pb ? <SignalPill signal={pb.overallSignal} /> : <Dash />}
-      </Td>
+          </Td>
 
-      {/* Precio */}
+          <Td rowSpan={rowSpan} center>
+            {vl ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                <SignalPill signal={vl.overallSignal} />
+                {vl.failedAtLayer != null && (
+                  <span style={{ fontSize: 7, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>
+                    falla L{vl.failedAtLayer}
+                  </span>
+                )}
+              </div>
+            ) : pb ? <SignalPill signal={pb.overallSignal} /> : <Dash />}
+          </Td>
+
+          <Td rowSpan={rowSpan} right>
+            <MonoVal color="var(--text-primary)">{price > 0 ? fmtPrice(price) : '—'}</MonoVal>
+          </Td>
+
+          <Td rowSpan={rowSpan} right>
+            <MonoVal color="#22c55e">{se?.callWall != null ? fmtPrice(se.callWall, 0) : '—'}</MonoVal>
+          </Td>
+
+          <Td rowSpan={rowSpan} right>
+            <MonoVal>{pb?.gammaZeroLevel != null ? fmtPrice(pb.gammaZeroLevel, 0) : '—'}</MonoVal>
+          </Td>
+
+          <Td rowSpan={rowSpan} right>
+            <MonoVal color="#f43f5e">{se?.putWall != null ? fmtPrice(se.putWall, 0) : '—'}</MonoVal>
+          </Td>
+
+          <Td rowSpan={rowSpan} right>
+            {se?.zScore != null ? (
+              <MonoVal color={Math.abs(se.zScore) >= 1.5 ? '#f59e0b' : 'var(--text-secondary)'}>
+                {se.zScore > 0 ? '+' : ''}{se.zScore.toFixed(2)}
+              </MonoVal>
+            ) : <Dash />}
+          </Td>
+
+          <Td rowSpan={rowSpan} right>
+            <MonoVal>{gexLabel}</MonoVal>
+          </Td>
+
+          <Td rowSpan={rowSpan} right>
+            <MonoVal>{se?.expectedMove ? `±${fmtPrice(se.expectedMove, 1)}` : '—'}</MonoVal>
+          </Td>
+
+          <Td rowSpan={rowSpan} center>
+            <StructurePill structure={structure} />
+          </Td>
+        </>
+      )}
+
+      {/* Strikes — por candidato */}
       <Td right>
-        <MonoVal color="var(--text-primary)">{price > 0 ? fmtPrice(price) : '—'}</MonoVal>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+          {rankBadge}
+          <MonoVal color="#f43f5e">{c.longPutStrike  != null ? fmtPrice(c.longPutStrike,  0) : '—'}</MonoVal>
+        </div>
       </Td>
-
-      {/* Call Wall */}
-      <Td right>
-        <MonoVal color="#22c55e">{se?.callWall != null ? fmtPrice(se.callWall, 0) : '—'}</MonoVal>
-      </Td>
-
-      {/* ZGL */}
-      <Td right>
-        <MonoVal>{pb?.gammaZeroLevel != null ? fmtPrice(pb.gammaZeroLevel, 0) : '—'}</MonoVal>
-      </Td>
-
-      {/* Put Wall */}
-      <Td right>
-        <MonoVal color="#f43f5e">{se?.putWall != null ? fmtPrice(se.putWall, 0) : '—'}</MonoVal>
-      </Td>
-
-      {/* Z-Spot */}
-      <Td right>
-        {se?.zScore != null ? (
-          <MonoVal color={Math.abs(se.zScore) >= 1.5 ? '#f59e0b' : 'var(--text-secondary)'}>
-            {se.zScore > 0 ? '+' : ''}{se.zScore.toFixed(2)}
-          </MonoVal>
-        ) : <Dash />}
-      </Td>
-
-      {/* GEX */}
-      <Td right>
-        <MonoVal>{gexLabel}</MonoVal>
-      </Td>
-
-      {/* Expected Move */}
-      <Td right>
-        <MonoVal>{se?.expectedMove ? `±${fmtPrice(se.expectedMove, 1)}` : '—'}</MonoVal>
-      </Td>
-
-      {/* Estructura */}
-      <Td center>
-        <StructurePill structure={structure} />
-      </Td>
-
-      {/* Strikes */}
-      <Td right><MonoVal color="#f43f5e">{se?.longPutStrike   != null ? fmtPrice(se.longPutStrike,   0) : '—'}</MonoVal></Td>
-      <Td right><MonoVal color="#f43f5e">{se?.shortPutStrike  != null ? fmtPrice(se.shortPutStrike,  0) : '—'}</MonoVal></Td>
-      <Td right><MonoVal color="#22c55e">{se?.shortCallStrike != null ? fmtPrice(se.shortCallStrike, 0) : '—'}</MonoVal></Td>
-      <Td right><MonoVal color="#22c55e">{se?.longCallStrike  != null ? fmtPrice(se.longCallStrike,  0) : '—'}</MonoVal></Td>
+      <Td right><MonoVal color="#f43f5e">{c.shortPutStrike  != null ? fmtPrice(c.shortPutStrike,  0) : '—'}</MonoVal></Td>
+      <Td right><MonoVal color="#22c55e">{c.shortCallStrike != null ? fmtPrice(c.shortCallStrike, 0) : '—'}</MonoVal></Td>
+      <Td right><MonoVal color="#22c55e">{c.longCallStrike  != null ? fmtPrice(c.longCallStrike,  0) : '—'}</MonoVal></Td>
 
       {/* Premiums live */}
       <Td right>
-        {longPutMid != null ? (
-          <span><MonoVal>{fmtPrice(longPutMid, 2)}</MonoVal><LiveDot live={isLive(longPutMid)} /></span>
-        ) : ls?.longPut ? <span style={{ opacity: 0.4, fontSize: 10 }}>…</span> : <Dash />}
+        {longPutMid != null
+          ? <span><MonoVal>{fmtPrice(longPutMid, 2)}</MonoVal><LiveDot live /></span>
+          : ls?.longPut ? <span style={{ opacity: 0.4, fontSize: 10 }}>…</span> : <Dash />}
       </Td>
       <Td right>
-        {shortPutMid != null ? (
-          <span><MonoVal>{fmtPrice(shortPutMid, 2)}</MonoVal><LiveDot live={isLive(shortPutMid)} /></span>
-        ) : ls?.shortPut ? <span style={{ opacity: 0.4, fontSize: 10 }}>…</span> : <Dash />}
+        {shortPutMid != null
+          ? <span><MonoVal>{fmtPrice(shortPutMid, 2)}</MonoVal><LiveDot live /></span>
+          : ls?.shortPut ? <span style={{ opacity: 0.4, fontSize: 10 }}>…</span> : <Dash />}
       </Td>
       <Td right>
-        {shortCallMid != null ? (
-          <span><MonoVal>{fmtPrice(shortCallMid, 2)}</MonoVal><LiveDot live={isLive(shortCallMid)} /></span>
-        ) : ls?.shortCall ? <span style={{ opacity: 0.4, fontSize: 10 }}>…</span> : <Dash />}
+        {shortCallMid != null
+          ? <span><MonoVal>{fmtPrice(shortCallMid, 2)}</MonoVal><LiveDot live /></span>
+          : ls?.shortCall ? <span style={{ opacity: 0.4, fontSize: 10 }}>…</span> : <Dash />}
       </Td>
       <Td right>
-        {longCallMid != null ? (
-          <span><MonoVal>{fmtPrice(longCallMid, 2)}</MonoVal><LiveDot live={isLive(longCallMid)} /></span>
-        ) : ls?.longCall ? <span style={{ opacity: 0.4, fontSize: 10 }}>…</span> : <Dash />}
+        {longCallMid != null
+          ? <span><MonoVal>{fmtPrice(longCallMid, 2)}</MonoVal><LiveDot live /></span>
+          : ls?.longCall ? <span style={{ opacity: 0.4, fontSize: 10 }}>…</span> : <Dash />}
       </Td>
 
       {/* Net Credit live */}
       <Td right>
         {netCreditLive != null ? (
           <span>
-            <MonoVal color={netCreditLive > 0 ? '#22c55e' : '#f43f5e'}>
-              ${fmtPrice(netCreditLive, 2)}
-            </MonoVal>
+            <MonoVal color={netCreditLive > 0 ? '#22c55e' : '#f43f5e'}>${fmtPrice(netCreditLive, 2)}</MonoVal>
             <LiveDot live />
           </span>
-        ) : rs?.maxProfit != null ? (
+        ) : c.rank === 1 && rs?.maxProfit != null ? (
           <MonoVal color="var(--text-muted)">${fmtPrice(Number(rs.maxProfit) / 100 / contracts, 2)}</MonoVal>
         ) : <Dash />}
       </Td>
 
-      {/* 1/3 Rule — credit / spread_width × 100. Target ≥ 33.3% */}
+      {/* 1/3 Rule */}
       <Td right>
         {(() => {
           const liveRatio = netCreditLive != null && spreadWidth != null && spreadWidth > 0
             ? (netCreditLive / spreadWidth) * 100 : null;
-          const ratio = liveRatio ?? se?.creditRatio ?? null;
+          const ratio = liveRatio ?? c.creditRatio ?? null;
           if (ratio == null) return <Dash />;
           const color = ratio >= 33.3 ? '#22c55e' : ratio >= 25 ? '#f59e0b' : '#f43f5e';
           return (
@@ -532,16 +638,16 @@ function PortfolioRow({ symbol, pb, vl, loading, tickers, rowBg }: RowProps) {
 
       {/* POP */}
       <Td right>
-        {se?.pop != null ? (
-          <MonoVal color="#22c55e">{se.pop.toFixed(0)}%</MonoVal>
-        ) : <Dash />}
+        {c.pop != null
+          ? <MonoVal color="#22c55e">{c.pop.toFixed(0)}%</MonoVal>
+          : <Dash />}
       </Td>
 
       {/* Máx Profit */}
       <Td right>
         {maxProfitLive != null ? (
           <span><MonoVal color="#22c55e">${fmtPrice(maxProfitLive, 0)}</MonoVal><LiveDot live /></span>
-        ) : rs?.maxProfit != null ? (
+        ) : c.rank === 1 && rs?.maxProfit != null ? (
           <MonoVal color="var(--text-muted)">${fmtPrice(Number(rs.maxProfit), 0)}</MonoVal>
         ) : <Dash />}
       </Td>
@@ -550,7 +656,7 @@ function PortfolioRow({ symbol, pb, vl, loading, tickers, rowBg }: RowProps) {
       <Td right>
         {maxLossLive != null ? (
           <span><MonoVal color="#f43f5e">${fmtPrice(maxLossLive, 0)}</MonoVal><LiveDot live /></span>
-        ) : rs?.maxLoss != null ? (
+        ) : c.rank === 1 && rs?.maxLoss != null ? (
           <MonoVal color="var(--text-muted)">${fmtPrice(Number(rs.maxLoss), 0)}</MonoVal>
         ) : <Dash />}
       </Td>
@@ -559,7 +665,7 @@ function PortfolioRow({ symbol, pb, vl, loading, tickers, rowBg }: RowProps) {
       <Td right>
         {bprLive != null ? (
           <span><MonoVal>${fmtPrice(bprLive, 0)}</MonoVal><LiveDot live /></span>
-        ) : rs?.buyingPowerReq != null ? (
+        ) : c.rank === 1 && rs?.buyingPowerReq != null ? (
           <MonoVal color="var(--text-muted)">${fmtPrice(Number(rs.buyingPowerReq), 0)}</MonoVal>
         ) : <Dash />}
       </Td>

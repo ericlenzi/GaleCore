@@ -408,6 +408,24 @@ export interface PositionResponse {
 // Response from GET /App/GaleCore/PositionBuilder
 // Reutiliza StrikeEngineResult, MicrostructureResult, RiskAndSizingResult de ValidationLayer.
 
+/** Candidato de strikes alternativo. Rank 1 coincide con strikeEngine (óptimo). */
+export interface StrikeEngineCandidate {
+  rank: number;
+  shortPutStrike: number | null;
+  shortCallStrike: number | null;
+  shortPutDelta: number | null;
+  shortCallDelta: number | null;
+  longPutStrike: number | null;
+  longCallStrike: number | null;
+  strikesInsideWalls: boolean;
+  pop: number | null;
+  /** Null para rank 2-3; el frontend lo calcula con live quote del socket. */
+  creditRatio: number | null;
+  /** Rank 1: score completo (pop + credit). Rank 2-3: solo componente pop. */
+  priorityScore: number | null;
+  legSymbols: LegSymbols | null;
+}
+
 export interface PositionBuilderApiResponse {
   symbol: string;
   profile: string;
@@ -421,6 +439,8 @@ export interface PositionBuilderApiResponse {
   structureInputs: StructureInputs;
   selectedStructure: SelectedStructureResult;
   strikeEngine: StrikeEngineResult | null;
+  /** Top 3 candidatos de strikes. Rank 1 = strikeEngine (más cercano al dinero). */
+  strikeCandidates: StrikeEngineCandidate[] | null;
   microstructure: MicrostructureResult | null;
   riskAndSizing: RiskAndSizingResult | null;
 }

@@ -156,6 +156,30 @@ namespace DataFeed.Application.App.ValidationLayer
         public string? LongCall { get; set; }
     }
 
+    /// <summary>
+    /// Un candidato de strikes del strike engine. Rank 1 coincide con StrikeEngine (candidato óptimo).
+    /// Rank 2-3 son alternativas más OTM que pasan los mismos filtros de delta y walls.
+    /// CreditRatio y PriorityScore completos solo en rank-1 (requieren quote snapshot de Layer 3).
+    /// </summary>
+    public class StrikeEngineCandidate
+    {
+        public int Rank { get; set; }
+        public double? ShortPutStrike { get; set; }
+        public double? ShortCallStrike { get; set; }
+        public double? ShortPutDelta { get; set; }
+        public double? ShortCallDelta { get; set; }
+        public double? LongPutStrike { get; set; }
+        public double? LongCallStrike { get; set; }
+        public bool StrikesInsideWalls { get; set; }
+        /// <summary>Proxy POP: (1 - |short_delta|) * 100.</summary>
+        public double? Pop { get; set; }
+        /// <summary>Regla 1/3: credit/width×100. Null para rank 2-3 (se calcula en frontend con live quote).</summary>
+        public double? CreditRatio { get; set; }
+        /// <summary>Score compuesto. Rank 1: (pop/100)*0.6 + (credit/width)*0.4. Rank 2-3: solo componente pop.</summary>
+        public double? PriorityScore { get; set; }
+        public LegSymbols? LegSymbols { get; set; }
+    }
+
     // --- Microstructure (Layer 3) ---
 
     public class MicrostructureResult
