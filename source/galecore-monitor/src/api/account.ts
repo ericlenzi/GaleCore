@@ -42,6 +42,6 @@ export async function fetchBalances(): Promise<BalancesResponse> {
 export async function fetchPositions(): Promise<PositionResponse[]> {
   const { data } = await apiClient.get<unknown>('/Data/Tastytrade/Account/Positions');
   console.debug('[Account/Positions] response:', data);
-  const arr = Array.isArray(data) ? data : (data as any)?.data ?? [];
+  const arr = Array.isArray(data) ? data : (data as any)?.positions ?? [];
   return arr as PositionResponse[];
 }

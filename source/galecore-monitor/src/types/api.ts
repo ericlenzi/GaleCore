@@ -391,17 +391,35 @@ export interface BalancesResponse {
   timestamp: string;
 }
 
+export interface GroupedPosition {
+  underlyingSymbol: string;
+  legs: PositionResponse[];
+  legCount: number;
+  unrealizedPnl: number;
+  realizedToday: number;
+  typeLabel: string;   // 'Eq' | 'Opt' | 'Eq+Opt'
+}
+
 export interface PositionResponse {
+  accountNumber: string;
   symbol: string;
   instrumentType: string;
+  underlyingSymbol: string;
   quantity: number;
-  marketValue: number;
-  costBasis: number;
-  unrealizedPnl: number;
-  delta?: number;
-  gamma?: number;
-  theta?: number;
-  vega?: number;
+  quantityDirection: string;
+  closePrice: number;
+  averageOpenPrice: number;
+  multiplier: number;
+  costEffect: string;
+  isSuppressed: boolean;
+  isFrozen: boolean;
+  restrictedQuantity: number;
+  realizedDayGain: number;
+  realizedDayGainEffect: string;
+  realizedToday: number;
+  realizedTodayEffect: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ─── PositionBuilder API ─────────────────────────────────────────────────────
