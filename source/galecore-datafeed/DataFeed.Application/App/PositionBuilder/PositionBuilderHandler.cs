@@ -271,17 +271,28 @@ namespace DataFeed.Application.App.PositionBuilder
                 pop = Math.Round((1 - Math.Abs(shortCallDelta.Value)) * 100, 1);
 
 
+            // Strike objects de los long legs (para streamer symbol + leg meta)
+            GammaExposureStrike? longPutStrikeObj = longPutStrike.HasValue
+                ? gex.Strikes.OrderBy(s => Math.Abs(s.Strike - longPutStrike.Value)).FirstOrDefault() : null;
+            GammaExposureStrike? longCallStrikeObj = longCallStrike.HasValue
+                ? gex.Strikes.OrderBy(s => Math.Abs(s.Strike - longCallStrike.Value)).FirstOrDefault() : null;
+
             // Leg symbols — DXLink streamer format (required by SignalR hub subscription)
             var legSymbols = new LegSymbols
             {
                 ShortPut  = putCandidate?.PutStreamerSymbol,
-                LongPut   = longPutStrike.HasValue
-                    ? gex.Strikes.OrderBy(s => Math.Abs(s.Strike - longPutStrike.Value)).FirstOrDefault()?.PutStreamerSymbol
-                    : null,
+                LongPut   = longPutStrikeObj?.PutStreamerSymbol,
                 ShortCall = callCandidate?.CallStreamerSymbol,
-                LongCall  = longCallStrike.HasValue
-                    ? gex.Strikes.OrderBy(s => Math.Abs(s.Strike - longCallStrike.Value)).FirstOrDefault()?.CallStreamerSymbol
-                    : null,
+                LongCall  = longCallStrikeObj?.CallStreamerSymbol,
+            };
+
+            // LegMeta — OI + cierre del período anterior por leg
+            var legMeta = new LegMetaSet
+            {
+                ShortPut  = BuildLegMeta(putCandidate, false),
+                LongPut   = BuildLegMeta(longPutStrikeObj, false),
+                ShortCall = BuildLegMeta(callCandidate, true),
+                LongCall  = BuildLegMeta(longCallStrikeObj, true),
             };
 
             var strikeEngine = new StrikeEngineResult
@@ -312,7 +323,8 @@ namespace DataFeed.Application.App.PositionBuilder
                 Rv10d = rv10d.HasValue ? Math.Round(rv10d.Value, 2) : null,
                 Rv30d = rv30d.HasValue ? Math.Round(rv30d.Value, 2) : null,
                 Pop = pop,
-                LegSymbols = legSymbols
+                LegSymbols = legSymbols,
+                LegMeta = legMeta
             };
 
             // === STRIKE CANDIDATES (top 3) ===
@@ -528,6 +540,17 @@ namespace DataFeed.Application.App.PositionBuilder
             return absZ >= extremeZ ? $"{direction}_extreme" : $"{direction}_moderate";
         }
 
+        /// <summary>OI + cierre anterior de un leg a partir de su strike. isCall elige el lado call/put.</summary>
+        private static LegMeta? BuildLegMeta(GammaExposureStrike? strike, bool isCall)
+        {
+            if (strike == null) return null;
+            return new LegMeta
+            {
+                OpenInterest = isCall ? strike.CallOI : strike.PutOI,
+                PrevClose = isCall ? strike.CallPrevClose : strike.PutPrevClose
+            };
+        }
+
         private static OICheck GetOICheck(GammaExposureResponse gex, double? strike, bool isCall, long minRequired)
         {
             if (!strike.HasValue)
@@ -628,17 +651,28 @@ namespace DataFeed.Application.App.PositionBuilder
                 else if (selectedStructure == "call_credit_spread" && shortCallD.HasValue)
                     pop = Math.Round((1 - Math.Abs(shortCallD.Value)) * 100, 1);
 
+                // Strike objects de los long legs (para streamer symbol + leg meta)
+                GammaExposureStrike? longPutStrikeObj = longPut.HasValue
+                    ? allStrikes.OrderBy(s => Math.Abs(s.Strike - longPut.Value)).FirstOrDefault() : null;
+                GammaExposureStrike? longCallStrikeObj = longCall.HasValue
+                    ? allStrikes.OrderBy(s => Math.Abs(s.Strike - longCall.Value)).FirstOrDefault() : null;
+
                 // LegSymbols — DXLink streamer format
                 var legSymbols = new LegSymbols
                 {
                     ShortPut  = pc?.PutStreamerSymbol,
-                    LongPut   = longPut.HasValue
-                        ? allStrikes.OrderBy(s => Math.Abs(s.Strike - longPut.Value)).FirstOrDefault()?.PutStreamerSymbol
-                        : null,
+                    LongPut   = longPutStrikeObj?.PutStreamerSymbol,
                     ShortCall = cc?.CallStreamerSymbol,
-                    LongCall  = longCall.HasValue
-                        ? allStrikes.OrderBy(s => Math.Abs(s.Strike - longCall.Value)).FirstOrDefault()?.CallStreamerSymbol
-                        : null,
+                    LongCall  = longCallStrikeObj?.CallStreamerSymbol,
+                };
+
+                // LegMeta — OI + cierre del período anterior por leg
+                var legMeta = new LegMetaSet
+                {
+                    ShortPut  = BuildLegMeta(pc, false),
+                    LongPut   = BuildLegMeta(longPutStrikeObj, false),
+                    ShortCall = BuildLegMeta(cc, true),
+                    LongCall  = BuildLegMeta(longCallStrikeObj, true),
                 };
 
                 result.Add(new StrikeEngineCandidate
@@ -658,7 +692,8 @@ namespace DataFeed.Application.App.PositionBuilder
                     PriorityScore = i > 0 && pop.HasValue
                         ? Math.Round(pop.Value * 0.01 * 0.6, 4)
                         : null,
-                    LegSymbols = legSymbols
+                    LegSymbols = legSymbols,
+                    LegMeta = legMeta
                 });
             }
 

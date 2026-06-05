@@ -231,6 +231,19 @@ export interface LegSymbols {
   longCall: string | null;
 }
 
+/** OI + cierre del período anterior de un leg. Fuente: definitions.leg_open_interest / leg_prev_close. */
+export interface LegMeta {
+  openInterest: number | null;
+  prevClose: number | null;
+}
+
+export interface LegMetaSet {
+  shortPut: LegMeta | null;
+  longPut: LegMeta | null;
+  shortCall: LegMeta | null;
+  longCall: LegMeta | null;
+}
+
 export interface StrikeEngineResult {
   signal: string;
   expectedMove: number;
@@ -265,6 +278,8 @@ export interface StrikeEngineResult {
   priorityScore: number | null;
   /** Símbolos DXLink streamer por leg — suscribir al socket para quotes live. */
   legSymbols: LegSymbols | null;
+  /** OI + cierre anterior por leg. Fuente: definitions.leg_open_interest / leg_prev_close. */
+  legMeta: LegMetaSet | null;
 }
 
 export interface MicrostructureResult {
@@ -442,6 +457,8 @@ export interface StrikeEngineCandidate {
   /** Rank 1: score completo (pop + credit). Rank 2-3: solo componente pop. */
   priorityScore: number | null;
   legSymbols: LegSymbols | null;
+  /** OI + cierre anterior por leg. Fuente: definitions.leg_open_interest / leg_prev_close. */
+  legMeta: LegMetaSet | null;
 }
 
 export interface PositionBuilderApiResponse {

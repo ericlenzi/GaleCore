@@ -90,6 +90,8 @@ namespace DataFeed.Application.App.GammaExposure
         public double CallIV { get; set; }
         public long CallOI { get; set; }
         public double CallGEX { get; set; }
+        /// <summary>Cierre del período anterior (close del candle diario) del call.</summary>
+        public double? CallPrevClose { get; set; }
 
         // Put
         public string? PutStreamerSymbol { get; set; }
@@ -98,6 +100,8 @@ namespace DataFeed.Application.App.GammaExposure
         public double PutIV { get; set; }
         public long PutOI { get; set; }
         public double PutGEX { get; set; }
+        /// <summary>Cierre del período anterior (close del candle diario) del put.</summary>
+        public double? PutPrevClose { get; set; }
 
         // Neto
         public double NetGEX
