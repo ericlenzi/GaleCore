@@ -5,6 +5,7 @@ export type AlertType =
   | 'STOP_LOSS'
   | 'TIME_EXIT'
   | 'EVALUAR_ROLL'
+  | 'DELTA_BREACH'
   | 'MACRO_PROXIMO'
   | null;
 
@@ -25,9 +26,57 @@ export interface ManualPosition {
 
 export interface EnrichedPosition extends ManualPosition {
   dte: number;
-  currentPnl: number | null;
-  pnlPct: number | null;
+  currentPnl: number | null;      // P&L in dollars
+  pnlPct: number | null;           // P&L as % of initial credit
+  currentNetCredit: number | null; // live net credit from leg quotes
+  legSymbols: Record<string, string>; // DXLink streamer symbols by role
   alert: AlertType;
+}
+
+/**
+ * A structured credit spread reconstructed from Tastytrade account legs.
+ * Source of truth for the Monitor tab — no manual entry required.
+ */
+export interface LiveSpread {
+  id: string;                       // "{underlying}|{expiration}"
+  underlyingSymbol: string;         // "SPY"
+  expiration: string;               // "2026-05-16"
+  dte: number;
+  type: PositionType;
+  contracts: number;
+  multiplier: number;               // 100
+  openDate: string;                 // ISO timestamp from Tastytrade
+
+  // Strikes (parsed from OCC symbols)
+  shortPutStrike?:  number;
+  longPutStrike?:   number;
+  shortCallStrike?: number;
+  longCallStrike?:  number;
+
+  // Entry prices per leg (averageOpenPrice from Tastytrade)
+  shortPutEntry?:  number;
+  longPutEntry?:   number;
+  shortCallEntry?: number;
+  longCallEntry?:  number;
+
+  initialCredit:   number;          // net credit per contract at entry
+  initialPremium:  number;          // initialCredit × 100 × contracts
+
+  // Close prices snapshot from API (updated on account refresh)
+  shortPutClose?:  number;
+  longPutClose?:   number;
+  shortCallClose?: number;
+  longCallClose?:  number;
+
+  // Computed metrics (live socket quote preferred, closePrice fallback)
+  currentNetCredit: number | null;
+  currentPnl:       number | null;  // P&L in USD
+  pnlPct:           number | null;  // P&L as % of initialPremium
+  hasLiveQuote:     boolean;        // true if at least one leg has a live socket quote
+
+  legSymbols:  Record<string, string>;  // DXLink symbols by role
+  legs:        import('./api').PositionResponse[];
+  alert:       AlertType;
 }
 
 /** Computed suggested setup derived from GEX + IV + rules */

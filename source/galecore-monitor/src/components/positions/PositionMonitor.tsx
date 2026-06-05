@@ -1,168 +1,134 @@
-import React, { useState, useEffect } from 'react';
-import { SuggestedPositions } from './SuggestedPositions';
-import { PositionRow } from './PositionRow';
-import { NewPositionForm } from './NewPositionForm';
-import { ManualPosition, EnrichedPosition, AlertType, SuggestedSetup } from '../../types/position';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { PortfolioRiskBar } from '../monitor/PortfolioRiskBar';
+import { PositionCard } from '../monitor/PositionCard';
+import { GammaExposureResponse } from '../../types/api';
+import { LiveSpread } from '../../types/position';
+import { useAccountStore } from '../../store/useAccountStore';
 import { useRulesStore } from '../../store/useRulesStore';
-import { calcDte } from '../../utils/formatters';
+import { useMarketStore } from '../../store/useMarketStore';
+import { buildLiveSpreads } from '../../utils/spreadBuilder';
+import { fetchGammaExposure, fetchIVRank } from '../../api/analytics';
+import { fetchPositions, fetchBalances } from '../../api/account';
+import { ConnectionStatus } from '../../socket/useMarketSocket';
 
-const STORAGE_KEY = 'galecore:positions';
+const REFRESH_INTERVAL_MS = 60_000; // Auto-refresh account positions every 60s
 
-function loadPositions(): ManualPosition[] {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]'); } catch { return []; }
-}
-function savePositions(ps: ManualPosition[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(ps));
-}
-
-function calcAlert(p: ManualPosition, pnlPct: number | null, dte: number): AlertType {
-  if (pnlPct != null && pnlPct >= 50)              return 'CERRAR';
-  if (pnlPct != null && pnlPct <= -200)            return 'STOP_LOSS';
-  if (dte <= 21)                                    return 'TIME_EXIT';
-  if (pnlPct != null && pnlPct <= -100 && dte >= 14) return 'EVALUAR_ROLL';
-  return null;
+interface Props {
+  subscribeLeg:   (sym: string) => void;
+  unsubscribeLeg: (sym: string) => void;
+  socketStatus:   ConnectionStatus;
 }
 
-function enrich(p: ManualPosition): EnrichedPosition {
-  const dte     = calcDte(p.expiration);
-  const pnlPct  = null;
-  return { ...p, dte, currentPnl: null, pnlPct, alert: calcAlert(p, pnlPct, dte) };
-}
+export function PositionMonitor({ subscribeLeg, unsubscribeLeg, socketStatus }: Props) {
+  const { rules }          = useRulesStore();
+  const { positions, setPositions, setBalances } = useAccountStore();
+  const marketTickers      = useMarketStore(s => s.tickers);
+  const setIVRank          = useMarketStore(s => s.setIVRank);
 
-export function PositionMonitor() {
-  const { tickers: symbols, rules } = useRulesStore();
-  const maxPositions = rules?.risk_limits?.max_concurrent_positions ?? 3;
+  const [gexData,    setGexData]    = useState<Record<string, GammaExposureResponse>>({});
+  const [refreshing, setRefreshing] = useState(false);
+  const subscribedLegsRef           = useRef<Set<string>>(new Set());
 
-  const [positions, setPositions] = useState<ManualPosition[]>(loadPositions);
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
-  const [prefill, setPrefill] = useState<(SuggestedSetup & { symbol: string }) | null>(null);
-  const [showForm, setShowForm] = useState(false);
+  // ── Rule thresholds ──────────────────────────────────────────────────────
+  const ruleThresholds = {
+    takeProfitPct: rules?.trade_management?.take_profit?.pct_of_initial_credit ?? 0.5,
+    stopLossPct:   rules?.trade_management?.hard_defense?.trigger_any?.unrealized_loss_pct_of_initial_credit_gte ?? 2.0,
+    rollTrigPct:   rules?.trade_management?.defensive_roll?.trigger_unrealized_loss_pct_of_initial_credit_gte ?? 1.0,
+    rollMinDte:    rules?.trade_management?.defensive_roll?.min_dte_remaining ?? 28,
+    timeExitDte:   rules?.trade_management?.time_exit?.dte_threshold ?? 21,
+  };
 
-  // Default to first ticker once rules load
+  // ── Build live spreads from account positions ────────────────────────────
+  const spreads: LiveSpread[] = buildLiveSpreads(positions, marketTickers as any, ruleThresholds);
+
+  // ── Subscribe / unsubscribe leg symbols ─────────────────────────────────
   useEffect(() => {
-    if (!selectedSymbol && symbols.length > 0) setSelectedSymbol(symbols[0]);
-  }, [symbols, selectedSymbol]);
+    if (socketStatus !== 'connected') return;
 
-  useEffect(() => { savePositions(positions); }, [positions]);
+    const neededLegs = new Set<string>();
+    spreads.forEach(s => Object.values(s.legSymbols).forEach(sym => neededLegs.add(sym)));
 
-  const handleAdd = (p: ManualPosition) => {
-    setPositions((prev) => [...prev, p]);
-    setShowForm(false);
-    setPrefill(null);
-  };
+    // Subscribe new legs
+    Array.from(neededLegs).forEach(sym => {
+      if (!subscribedLegsRef.current.has(sym)) {
+        subscribeLeg(sym);
+        subscribedLegsRef.current.add(sym);
+      }
+    });
 
-  const handleRegister = (setup: SuggestedSetup) => {
-    setPrefill({ ...setup, symbol: selectedSymbol });
-    setShowForm(true);
-    // Scroll form into view
-    setTimeout(() => {
-      document.getElementById('position-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 100);
-  };
+    // Unsubscribe legs no longer needed
+    Array.from(subscribedLegsRef.current).forEach(sym => {
+      if (!neededLegs.has(sym)) {
+        unsubscribeLeg(sym);
+        subscribedLegsRef.current.delete(sym);
+      }
+    });
+  });
 
-  const handleCancelForm = () => {
-    setShowForm(false);
-    setPrefill(null);
-  };
+  // Cleanup all subscriptions on unmount
+  useEffect(() => {
+    return () => {
+      Array.from(subscribedLegsRef.current).forEach(sym => unsubscribeLeg(sym));
+      subscribedLegsRef.current.clear();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const enriched = positions.map(enrich);
+  // ── Fetch GEX walls + IV Rank for unique tickers ────────────────────────
+  useEffect(() => {
+    const tickers = Array.from(new Set(spreads.map(s => s.underlyingSymbol)));
+    tickers.forEach(sym => {
+      if (!gexData[sym]) {
+        fetchGammaExposure(sym)
+          .then(data => setGexData(prev => ({ ...prev, [sym]: data })))
+          .catch(() => {});
+      }
+      if (marketTickers[sym]?.ivRank == null) {
+        fetchIVRank(sym)
+          .then(data => setIVRank(sym, data.ivRank))
+          .catch(() => {});
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spreads.map(s => s.underlyingSymbol).join(',')]);
 
+  // ── Manual + auto refresh ────────────────────────────────────────────────
+  const doRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const [pos, bal] = await Promise.all([fetchPositions(), fetchBalances()]);
+      setPositions(pos);
+      setBalances(bal);
+    } catch { /* ignore */ }
+    finally { setRefreshing(false); }
+  }, [setPositions, setBalances]);
+
+  // Auto-refresh every 60s
+  useEffect(() => {
+    const id = setInterval(doRefresh, REFRESH_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [doRefresh]);
+
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div>
-      {/* ── Ticker selector ─────────────────────────────────────────────────── */}
-      {symbols.length > 0 && (
-        <div className="flex items-center gap-1.5 px-3 pt-3">
-          {symbols.map((sym) => (
-            <button
-              key={sym}
-              onClick={() => setSelectedSymbol(sym)}
-              className="px-3 py-1 rounded text-xs font-mono font-semibold"
-              style={{
-                backgroundColor: selectedSymbol === sym ? 'var(--blue-gc)' : 'var(--bg-tertiary)',
-                color:           selectedSymbol === sym ? '#fff'           : 'var(--text-muted)',
-                border:          '1px solid var(--border-dark)',
-                cursor:          'pointer',
-              }}
-            >
-              {sym}
-            </button>
-          ))}
-        </div>
-      )}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <PortfolioRiskBar spreads={spreads} onRefresh={doRefresh} refreshing={refreshing} />
 
-      {/* ── Suggested positions ─────────────────────────────────────────────── */}
-      {selectedSymbol && rules && (
-        <SuggestedPositions
-          symbol={selectedSymbol}
-          rules={rules}
-          onRegister={handleRegister}
-        />
-      )}
-
-      <div style={{ borderTop: '1px solid var(--border-dark)', margin: '0 12px' }} />
-
-      {/* ── Mis posiciones abiertas ─────────────────────────────────────────── */}
-      <div className="p-3">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
-            Mis Posiciones Abiertas
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
-              {positions.length}/{maxPositions}
-            </span>
-            <button
-              onClick={() => { setPrefill(null); setShowForm((v) => !v); }}
-              className="px-3 py-1 rounded text-xs font-semibold"
-              style={{
-                backgroundColor: showForm && !prefill ? 'var(--bg-tertiary)' : 'var(--bg-tertiary)',
-                color:           'var(--text-secondary)',
-                border:          '1px solid var(--border-dark)',
-                cursor:          'pointer',
-              }}
-            >
-              + Nueva
-            </button>
-          </div>
-        </div>
-
-        {/* Registration form */}
-        {showForm && (
-          <div id="position-form" className="mb-3">
-            <NewPositionForm
-              onAdd={handleAdd}
-              onCancel={handleCancelForm}
-              prefill={prefill ?? undefined}
-            />
+      <div
+        className="flex-1 overflow-auto p-3"
+        style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+      >
+        {spreads.length === 0 && (
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 12, paddingTop: 40 }}>
+            {positions.length === 0
+              ? 'Sin posiciones en la cuenta · Usá ↻ Actualizar para recargar'
+              : 'Posiciones en cuenta no reconocidas como spreads (PUT_CS / CALL_CS / IC)'}
           </div>
         )}
 
-        {/* Positions table */}
-        {positions.length === 0 ? (
-          <div className="text-xs py-6 text-center" style={{ color: 'var(--text-muted)' }}>
-            Sin posiciones registradas
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded" style={{ border: '1px solid var(--border-dark)' }}>
-            <table className="w-full" style={{ borderCollapse: 'collapse' }}>
-              <thead>
-                <tr
-                  className="text-xs uppercase tracking-wider"
-                  style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-dark)' }}
-                >
-                  {['Ticker', 'Tipo', 'Strikes', 'Exp / DTE', 'Crédito', 'P&L', 'P&L %', 'Ctos.', 'Alerta'].map((h) => (
-                    <th key={h} className="px-3 py-2 text-left font-medium">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {enriched.map((p) => (
-                  <PositionRow key={p.id} position={p} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {spreads.map(s => (
+          <PositionCard key={s.id} spread={s} gexData={gexData} />
+        ))}
       </div>
     </div>
   );

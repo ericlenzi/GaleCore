@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { TickerState } from '../types/market';
-import { TradePayload, QuotePayload } from '../types/api';
+import { TradePayload, QuotePayload, GreeksPayload } from '../types/api';
 
 interface MarketStore {
   tickers: Record<string, TickerState>;
@@ -11,6 +11,7 @@ interface MarketStore {
   initTicker:   (symbol: string) => void;
   updatePrice:  (symbol: string, data: TradePayload) => void;
   updateQuote:  (symbol: string, data: QuotePayload) => void;
+  updateGreeks: (symbol: string, data: GreeksPayload) => void;
   setOpen:      (symbol: string, open: number, prevClose?: number, volume?: number) => void;
   setStreaming: (symbol: string, streaming: boolean) => void;
   setIVRank:   (symbol: string, ivRank: number) => void;
@@ -73,6 +74,28 @@ export const useMarketStore = create<MarketStore>((set) => ({
         },
       },
     })),
+
+  updateGreeks: (symbol, data) =>
+    set((s) => {
+      const prev = s.tickers[symbol] ?? {
+        symbol, price: 0, open: 0, bid: 0, ask: 0,
+        lastUpdate: null, isStreaming: false,
+        loading: { ...defaultLoading }, error: { ...defaultError },
+      };
+      return {
+        tickers: {
+          ...s.tickers,
+          [symbol]: {
+            ...prev,
+            delta: data.delta,
+            gamma: data.gamma,
+            theta: data.theta,
+            vega:  data.vega,
+            ...(data.volatility != null && { iv: data.volatility }),
+          },
+        },
+      };
+    }),
 
   setOpen: (symbol, open, prevClose, volume) =>
     set((s) => ({

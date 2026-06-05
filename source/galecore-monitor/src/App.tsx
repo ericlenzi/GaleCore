@@ -60,7 +60,9 @@ function Dashboard({ onLogout }: DashboardProps) {
         <main className="flex-1 overflow-auto" style={{ position: 'relative' }}>
           <div style={{ display: tab === 'inicio' ? 'block' : 'none', height: '100%', overflow: 'auto' }}><Home /></div>
           <div style={{ display: tab === 'portfolio' ? 'block' : 'none', height: '100%', overflow: 'auto' }}><PortfolioManager subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} /></div>
-          {tab === 'monitor'    && <Monitor />}
+          <div style={{ display: tab === 'monitor' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
+            <Monitor subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} />
+          </div>
           {tab === 'estrategia' && <Strategy />}
         </main>
       </div>
