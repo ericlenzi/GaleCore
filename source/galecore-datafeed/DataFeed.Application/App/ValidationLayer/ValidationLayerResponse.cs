@@ -146,6 +146,8 @@ namespace DataFeed.Application.App.ValidationLayer
         public double? PriorityScore { get; set; }
         /// <summary>Símbolos DXLink streamer de cada leg — el frontend suscribe al socket para quotes live.</summary>
         public LegSymbols? LegSymbols { get; set; }
+        /// <summary>OI + cierre anterior por leg. Fuente: definitions.leg_open_interest / leg_prev_close.</summary>
+        public LegMetaSet? LegMeta { get; set; }
     }
 
     public class LegSymbols
@@ -154,6 +156,50 @@ namespace DataFeed.Application.App.ValidationLayer
         public string? LongPut { get; set; }
         public string? ShortCall { get; set; }
         public string? LongCall { get; set; }
+    }
+
+    /// <summary>Datos estáticos por leg (cierre anterior): OI y precio de cierre del candle diario previo.</summary>
+    public class LegMeta
+    {
+        /// <summary>Open Interest del leg al cierre de la sesión anterior. Fuente: definitions.leg_open_interest.</summary>
+        public long? OpenInterest { get; set; }
+        /// <summary>Precio de cierre del leg en el período (candle) anterior. Fuente: definitions.leg_prev_close.</summary>
+        public double? PrevClose { get; set; }
+    }
+
+    /// <summary>OI + cierre anterior por cada leg de la estructura.</summary>
+    public class LegMetaSet
+    {
+        public LegMeta? ShortPut { get; set; }
+        public LegMeta? LongPut { get; set; }
+        public LegMeta? ShortCall { get; set; }
+        public LegMeta? LongCall { get; set; }
+    }
+
+    /// <summary>
+    /// Un candidato de strikes del strike engine. Rank 1 coincide con StrikeEngine (candidato óptimo).
+    /// Rank 2-3 son alternativas más OTM que pasan los mismos filtros de delta y walls.
+    /// CreditRatio y PriorityScore completos solo en rank-1 (requieren quote snapshot de Layer 3).
+    /// </summary>
+    public class StrikeEngineCandidate
+    {
+        public int Rank { get; set; }
+        public double? ShortPutStrike { get; set; }
+        public double? ShortCallStrike { get; set; }
+        public double? ShortPutDelta { get; set; }
+        public double? ShortCallDelta { get; set; }
+        public double? LongPutStrike { get; set; }
+        public double? LongCallStrike { get; set; }
+        public bool StrikesInsideWalls { get; set; }
+        /// <summary>Proxy POP: (1 - |short_delta|) * 100.</summary>
+        public double? Pop { get; set; }
+        /// <summary>Regla 1/3: credit/width×100. Null para rank 2-3 (se calcula en frontend con live quote).</summary>
+        public double? CreditRatio { get; set; }
+        /// <summary>Score compuesto. Rank 1: (pop/100)*0.6 + (credit/width)*0.4. Rank 2-3: solo componente pop.</summary>
+        public double? PriorityScore { get; set; }
+        public LegSymbols? LegSymbols { get; set; }
+        /// <summary>OI + cierre anterior por leg. Fuente: definitions.leg_open_interest / leg_prev_close.</summary>
+        public LegMetaSet? LegMeta { get; set; }
     }
 
     // --- Microstructure (Layer 3) ---

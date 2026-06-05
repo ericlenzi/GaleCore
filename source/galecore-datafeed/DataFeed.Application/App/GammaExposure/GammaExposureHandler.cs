@@ -136,6 +136,9 @@ namespace DataFeed.Application.App.GammaExposure
                     // OI del candle del cierre anterior
                     multiGreeks.OpenInterest.TryGetValue(streamerSym, out long oi);
 
+                    // Cierre del período anterior (close del mismo candle diario)
+                    double? prevClose = multiGreeks.PrevClose.TryGetValue(streamerSym, out double pc) ? pc : (double?)null;
+
                     // Inicializar strike si no existe
                     if (!strikeResults.ContainsKey(strikePrice))
                         strikeResults[strikePrice] = new GammaExposureStrike { Strike = strikePrice };
@@ -155,6 +158,7 @@ namespace DataFeed.Application.App.GammaExposure
                         strikeResult.CallIV = Math.Round(iv, 4);
                         strikeResult.CallOI = oi;
                         strikeResult.CallGEX = Math.Round(gex / 1_000_000, 4);
+                        strikeResult.CallPrevClose = prevClose.HasValue ? Math.Round(prevClose.Value, 2) : null;
                     }
                     else
                     {
@@ -164,6 +168,7 @@ namespace DataFeed.Application.App.GammaExposure
                         strikeResult.PutIV = Math.Round(iv, 4);
                         strikeResult.PutOI = oi;
                         strikeResult.PutGEX = Math.Round(-gex / 1_000_000, 4);
+                        strikeResult.PutPrevClose = prevClose.HasValue ? Math.Round(prevClose.Value, 2) : null;
                     }
                 }
 

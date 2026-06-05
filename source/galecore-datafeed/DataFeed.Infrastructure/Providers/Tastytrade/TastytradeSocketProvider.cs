@@ -500,7 +500,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                         }
                         else
                         {
-                            // Candle para OI (eventType puede ser "Candle" o ausente)
+                            // Candle para OI + cierre del período anterior (eventType puede ser "Candle" o ausente)
                             var candleData = item.ToObject<CandleData>();
                             if (candleData != null && !string.IsNullOrEmpty(candleData.OpenInterest))
                             {
@@ -511,6 +511,16 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                                 {
                                     var candleKey = eventSymbol.Replace("{=d}", "");
                                     result.OpenInterest[candleKey] = (long)parsedOI;
+
+                                    // Close del mismo candle = cierre del período anterior del leg
+                                    if (!string.IsNullOrEmpty(candleData.Close)
+                                        && double.TryParse(candleData.Close,
+                                            NumberStyles.Any, CultureInfo.InvariantCulture, out double parsedClose)
+                                        && parsedClose > 0)
+                                    {
+                                        result.PrevClose[candleKey] = parsedClose;
+                                    }
+
                                     pendingCandles.Remove(candleKey);
                                 }
                             }

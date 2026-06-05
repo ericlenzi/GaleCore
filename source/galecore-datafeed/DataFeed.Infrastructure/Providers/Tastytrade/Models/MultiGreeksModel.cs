@@ -11,5 +11,8 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade.Models
 
         /// <summary>OpenInterest por símbolo streamer, obtenido del candle diario</summary>
         public Dictionary<string, long> OpenInterest { get; set; } = new();
+
+        /// <summary>Cierre del período anterior (close del candle diario) por símbolo streamer</summary>
+        public Dictionary<string, double> PrevClose { get; set; } = new();
     }
 }

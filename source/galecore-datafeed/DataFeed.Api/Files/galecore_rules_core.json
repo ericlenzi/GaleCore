@@ -170,6 +170,22 @@
       "endpoint": "/Data/Tastytrade/MarketData/TradeQuoteGreeks (streaming vía SignalR ReceiveTrade + ReceiveQuote bundled)",
       "oi_prev_day_source": "/Data/Tastytrade/MarketData/Candle → openInterest del último cierre"
     },
+    "leg_open_interest": {
+      "type": "field",
+      "unit": "contracts",
+      "interpretation": "Open Interest del leg al cierre de la sesión anterior. Proxy de liquidez del contrato. Mismo dato que alimenta los checks oi_short_leg / oi_long_leg de la microestructura.",
+      "realtime": false,
+      "source": "/Data/Tastytrade/MarketData/Candle → openInterest del último cierre",
+      "endpoint": "strikeEngine.legMeta.<leg>.openInterest"
+    },
+    "leg_prev_close": {
+      "type": "field",
+      "unit": "usd_per_contract",
+      "interpretation": "Precio de cierre del leg en el período (candle diario) anterior. Referencia estática del premium previo al socket live.",
+      "realtime": false,
+      "source": "/Data/Tastytrade/MarketData/Candle → close del último cierre",
+      "endpoint": "strikeEngine.legMeta.<leg>.prevClose"
+    },
     "credit_ratio": {
       "type": "formula",
       "formula": "net_credit / spread_width",
@@ -873,19 +889,15 @@
       "description": "Columnas del Portfolio Manager. El frontend debe renderizar exactamente estas columnas en este orden, leyendo los campos del endpoint /App/GaleCore/PositionBuilder.",
       "columns": [
         { "id": "ticker",           "label": "Ticker",             "source": "symbol" },
-        { "id": "signal",           "label": "Señal",              "source": "overallSignal" },
-        { "id": "price",            "label": "Precio Actual",      "source": "spotPrice" },
+        { "id": "signal",           "label": "Signal",             "source": "overallSignal" },
+        { "id": "price",            "label": "Price",              "source": "spotPrice" },
         { "id": "call_wall",        "label": "Call Wall",          "source": "strikeEngine.callWall",           "ref": "definitions.call_wall" },
-        { "id": "zgl",              "label": "ZGL",                "source": "gammaZeroLevel",                  "ref": "definitions.gamma_zero_level" },
         { "id": "put_wall",         "label": "Put Wall",           "source": "strikeEngine.putWall",            "ref": "definitions.put_wall" },
-        { "id": "z_spot",           "label": "Z-Spot",             "source": "structureInputs.priceZScore.value", "ref": "definitions.directional_zscore" },
-        { "id": "gex",              "label": "GEX",                "source": "netGexBillions",                  "ref": "definitions.gex_total", "unit": "billions_usd" },
-        { "id": "expected_move",    "label": "Expected Move",      "source": "strikeEngine.expectedMove",       "ref": "definitions.expected_move" },
-        { "id": "structure",        "label": "Posición Sugerida",  "source": "selectedStructure.output" },
-        { "id": "long_put",         "label": "Long Put",           "source": "strikeEngine.longPutStrike",      "group": "strikes" },
-        { "id": "short_put",        "label": "Short Put",          "source": "strikeEngine.shortPutStrike",     "group": "strikes" },
-        { "id": "short_call",       "label": "Short Call",         "source": "strikeEngine.shortCallStrike",    "group": "strikes" },
-        { "id": "long_call",        "label": "Long Call",          "source": "strikeEngine.longCallStrike",     "group": "strikes" },
+        { "id": "structure",        "label": "Structure",          "source": "selectedStructure.output" },
+        { "id": "long_put",         "label": "Long Put",           "source": "strikeEngine.longPutStrike",      "group": "strikes", "cell_meta": [ { "label": "OI", "source": "strikeEngine.legMeta.longPut.openInterest",  "ref": "definitions.leg_open_interest" }, { "label": "cierre", "source": "strikeEngine.legMeta.longPut.prevClose",  "ref": "definitions.leg_prev_close" } ] },
+        { "id": "short_put",        "label": "Short Put",          "source": "strikeEngine.shortPutStrike",     "group": "strikes", "cell_meta": [ { "label": "OI", "source": "strikeEngine.legMeta.shortPut.openInterest", "ref": "definitions.leg_open_interest" }, { "label": "cierre", "source": "strikeEngine.legMeta.shortPut.prevClose", "ref": "definitions.leg_prev_close" } ] },
+        { "id": "short_call",       "label": "Short Call",         "source": "strikeEngine.shortCallStrike",    "group": "strikes", "cell_meta": [ { "label": "OI", "source": "strikeEngine.legMeta.shortCall.openInterest","ref": "definitions.leg_open_interest" }, { "label": "cierre", "source": "strikeEngine.legMeta.shortCall.prevClose","ref": "definitions.leg_prev_close" } ] },
+        { "id": "long_call",        "label": "Long Call",          "source": "strikeEngine.longCallStrike",     "group": "strikes", "cell_meta": [ { "label": "OI", "source": "strikeEngine.legMeta.longCall.openInterest", "ref": "definitions.leg_open_interest" }, { "label": "cierre", "source": "strikeEngine.legMeta.longCall.prevClose", "ref": "definitions.leg_prev_close" } ] },
         { "id": "prem_long_put",    "label": "Long Put",           "source": "socket.ReceiveQuote[strikeEngine.legSymbols.longPut]",   "ref": "definitions.leg_mid_price", "group": "premium", "realtime": true },
         { "id": "prem_short_put",   "label": "Short Put",          "source": "socket.ReceiveQuote[strikeEngine.legSymbols.shortPut]",  "ref": "definitions.leg_mid_price", "group": "premium", "realtime": true },
         { "id": "prem_short_call",  "label": "Short Call",         "source": "socket.ReceiveQuote[strikeEngine.legSymbols.shortCall]", "ref": "definitions.leg_mid_price", "group": "premium", "realtime": true },
@@ -893,8 +905,8 @@
         { "id": "net_credit",       "label": "Net Credit",         "source": "socket — computed from live leg quotes", "ref": "definitions.leg_mid_price", "realtime": true, "formula": "short_put_mid + short_call_mid - long_put_mid - long_call_mid" },
         { "id": "credit_ratio",     "label": "1/3 Rule",           "source": "strikeEngine.creditRatio (snapshot) | live: net_credit_live / spread_width * 100", "ref": "definitions.credit_ratio", "unit": "percent", "thresholds": { "good": 33.3, "marginal": 25.0 }, "realtime": true },
         { "id": "pop",              "label": "POP",                "source": "strikeEngine.pop",                "ref": "definitions.pop_proxy" },
-        { "id": "max_profit",       "label": "Máx Profit",         "source": "riskAndSizing.maxProfit",         "ref": "definitions.max_profit" },
-        { "id": "max_loss",         "label": "Máx Drawdown",       "source": "riskAndSizing.maxLoss",           "ref": "definitions.max_loss" },
+        { "id": "max_profit",       "label": "Max Profit",         "source": "riskAndSizing.maxProfit",         "ref": "definitions.max_profit" },
+        { "id": "max_loss",         "label": "Max Loss",           "source": "riskAndSizing.maxLoss",           "ref": "definitions.max_loss" },
         { "id": "bpr",              "label": "BPR",                "source": "riskAndSizing.buyingPowerReq",    "ref": "definitions.buying_power_requirement" }
       ],
       "column_groups": [

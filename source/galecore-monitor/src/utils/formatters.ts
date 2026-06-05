@@ -21,6 +21,25 @@ export function fmtPct(n: number, decimals = 2): string {
   return `${sign}${n.toFixed(decimals)}%`;
 }
 
+/** Fecha de expiración corta: "2026-07-17" → "17 Jul '26". */
+export function fmtExpiry(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d.getTime())) return dateStr;
+  const day = d.getDate();
+  const month = d.toLocaleString('en-US', { month: 'short' });
+  const yy = String(d.getFullYear()).slice(2);
+  return `${day} ${month} '${yy}`;
+}
+
+/** OI compacto: 12340 → "12.3k", 1500000 → "1.5M". */
+export function fmtOI(n: number | null | undefined): string {
+  if (n == null) return '—';
+  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return `${n}`;
+}
+
 export function fmtGex(billions: number): string {
   if (Math.abs(billions) >= 1000) return `$${(billions / 1000).toFixed(1)}T`;
   return `$${billions.toFixed(0)}B`;

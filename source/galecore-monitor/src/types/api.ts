@@ -266,6 +266,19 @@ export interface LegSymbols {
   longCall: string | null;
 }
 
+/** OI + cierre del período anterior de un leg. Fuente: definitions.leg_open_interest / leg_prev_close. */
+export interface LegMeta {
+  openInterest: number | null;
+  prevClose: number | null;
+}
+
+export interface LegMetaSet {
+  shortPut: LegMeta | null;
+  longPut: LegMeta | null;
+  shortCall: LegMeta | null;
+  longCall: LegMeta | null;
+}
+
 export interface StrikeEngineResult {
   signal: string;
   expectedMove: number;
@@ -300,6 +313,8 @@ export interface StrikeEngineResult {
   priorityScore: number | null;
   /** Símbolos DXLink streamer por leg — suscribir al socket para quotes live. */
   legSymbols: LegSymbols | null;
+  /** OI + cierre anterior por leg. Fuente: definitions.leg_open_interest / leg_prev_close. */
+  legMeta: LegMetaSet | null;
 }
 
 export interface MicrostructureResult {
@@ -461,6 +476,26 @@ export interface PositionResponse {
 // Response from GET /App/GaleCore/PositionBuilder
 // Reutiliza StrikeEngineResult, MicrostructureResult, RiskAndSizingResult de ValidationLayer.
 
+/** Candidato de strikes alternativo. Rank 1 coincide con strikeEngine (óptimo). */
+export interface StrikeEngineCandidate {
+  rank: number;
+  shortPutStrike: number | null;
+  shortCallStrike: number | null;
+  shortPutDelta: number | null;
+  shortCallDelta: number | null;
+  longPutStrike: number | null;
+  longCallStrike: number | null;
+  strikesInsideWalls: boolean;
+  pop: number | null;
+  /** Null para rank 2-3; el frontend lo calcula con live quote del socket. */
+  creditRatio: number | null;
+  /** Rank 1: score completo (pop + credit). Rank 2-3: solo componente pop. */
+  priorityScore: number | null;
+  legSymbols: LegSymbols | null;
+  /** OI + cierre anterior por leg. Fuente: definitions.leg_open_interest / leg_prev_close. */
+  legMeta: LegMetaSet | null;
+}
+
 export interface PositionBuilderApiResponse {
   symbol: string;
   profile: string;
@@ -474,6 +509,8 @@ export interface PositionBuilderApiResponse {
   structureInputs: StructureInputs;
   selectedStructure: SelectedStructureResult;
   strikeEngine: StrikeEngineResult | null;
+  /** Top 3 candidatos de strikes. Rank 1 = strikeEngine (más cercano al dinero). */
+  strikeCandidates: StrikeEngineCandidate[] | null;
   microstructure: MicrostructureResult | null;
   riskAndSizing: RiskAndSizingResult | null;
 }

@@ -198,6 +198,10 @@ namespace DataFeed.Application.App.PositionBuilder
             GammaExposureStrike? putCandidate = null;
             GammaExposureStrike? callCandidate = null;
 
+            // Top-3 candidates (rank 1 = putCandidates[0]/callCandidates[0] = mismo que putCandidate/callCandidate)
+            List<GammaExposureStrike> putCandidates = new();
+            List<GammaExposureStrike> callCandidates = new();
+
             if (expectedMove > 0 && gex.Strikes.Count > 0)
             {
                 double targetPut = spot - expectedMove;
@@ -205,14 +209,16 @@ namespace DataFeed.Application.App.PositionBuilder
 
                 if (selectedStructure == "iron_condor" || selectedStructure == "put_credit_spread")
                 {
-                    putCandidate = gex.Strikes
+                    putCandidates = gex.Strikes
                         .Where(s => s.Strike <= targetPut
                                  && Math.Abs(s.PutDelta) <= maxPutDelta
                                  && Math.Abs(s.PutDelta) > 0
                                  && (!gex.PutWall.HasValue || s.Strike < gex.PutWall.Value))
                         .OrderByDescending(s => s.Strike)
-                        .FirstOrDefault();
+                        .Take(3)
+                        .ToList();
 
+                    putCandidate = putCandidates.FirstOrDefault();
                     if (putCandidate != null)
                     {
                         shortPutStrike = putCandidate.Strike;
@@ -223,14 +229,16 @@ namespace DataFeed.Application.App.PositionBuilder
 
                 if (selectedStructure == "iron_condor" || selectedStructure == "call_credit_spread")
                 {
-                    callCandidate = gex.Strikes
+                    callCandidates = gex.Strikes
                         .Where(s => s.Strike >= targetCall
                                  && Math.Abs(s.CallDelta) <= maxCallDelta
                                  && Math.Abs(s.CallDelta) > 0
                                  && (!gex.CallWall.HasValue || s.Strike > gex.CallWall.Value))
                         .OrderBy(s => s.Strike)
-                        .FirstOrDefault();
+                        .Take(3)
+                        .ToList();
 
+                    callCandidate = callCandidates.FirstOrDefault();
                     if (callCandidate != null)
                     {
                         shortCallStrike = callCandidate.Strike;
@@ -263,17 +271,28 @@ namespace DataFeed.Application.App.PositionBuilder
                 pop = Math.Round((1 - Math.Abs(shortCallDelta.Value)) * 100, 1);
 
 
+            // Strike objects de los long legs (para streamer symbol + leg meta)
+            GammaExposureStrike? longPutStrikeObj = longPutStrike.HasValue
+                ? gex.Strikes.OrderBy(s => Math.Abs(s.Strike - longPutStrike.Value)).FirstOrDefault() : null;
+            GammaExposureStrike? longCallStrikeObj = longCallStrike.HasValue
+                ? gex.Strikes.OrderBy(s => Math.Abs(s.Strike - longCallStrike.Value)).FirstOrDefault() : null;
+
             // Leg symbols — DXLink streamer format (required by SignalR hub subscription)
             var legSymbols = new LegSymbols
             {
                 ShortPut  = putCandidate?.PutStreamerSymbol,
-                LongPut   = longPutStrike.HasValue
-                    ? gex.Strikes.OrderBy(s => Math.Abs(s.Strike - longPutStrike.Value)).FirstOrDefault()?.PutStreamerSymbol
-                    : null,
+                LongPut   = longPutStrikeObj?.PutStreamerSymbol,
                 ShortCall = callCandidate?.CallStreamerSymbol,
-                LongCall  = longCallStrike.HasValue
-                    ? gex.Strikes.OrderBy(s => Math.Abs(s.Strike - longCallStrike.Value)).FirstOrDefault()?.CallStreamerSymbol
-                    : null,
+                LongCall  = longCallStrikeObj?.CallStreamerSymbol,
+            };
+
+            // LegMeta — OI + cierre del período anterior por leg
+            var legMeta = new LegMetaSet
+            {
+                ShortPut  = BuildLegMeta(putCandidate, false),
+                LongPut   = BuildLegMeta(longPutStrikeObj, false),
+                ShortCall = BuildLegMeta(callCandidate, true),
+                LongCall  = BuildLegMeta(longCallStrikeObj, true),
             };
 
             var strikeEngine = new StrikeEngineResult
@@ -304,8 +323,15 @@ namespace DataFeed.Application.App.PositionBuilder
                 Rv10d = rv10d.HasValue ? Math.Round(rv10d.Value, 2) : null,
                 Rv30d = rv30d.HasValue ? Math.Round(rv30d.Value, 2) : null,
                 Pop = pop,
-                LegSymbols = legSymbols
+                LegSymbols = legSymbols,
+                LegMeta = legMeta
             };
+
+            // === STRIKE CANDIDATES (top 3) ===
+            var strikeCandidates = BuildStrikeCandidates(
+                selectedStructure, gex.Strikes, spreadWidth,
+                gex.PutWall, gex.CallWall,
+                putCandidates, callCandidates);
 
             if (strikeEngine.Signal == "NO_OPERAR")
             {
@@ -317,7 +343,8 @@ namespace DataFeed.Application.App.PositionBuilder
                     OverallSignal = "NO_OPERAR",
                     StructureInputs = structureInputs,
                     SelectedStructure = selectedStructureResult,
-                    StrikeEngine = strikeEngine
+                    StrikeEngine = strikeEngine,
+                    StrikeCandidates = strikeCandidates
                 };
             }
 
@@ -372,7 +399,8 @@ namespace DataFeed.Application.App.PositionBuilder
                     StructureInputs = structureInputs,
                     SelectedStructure = selectedStructureResult,
                     StrikeEngine = strikeEngine,
-                    Microstructure = microstructure
+                    Microstructure = microstructure,
+                    StrikeCandidates = strikeCandidates
                 };
             }
 
@@ -417,6 +445,13 @@ namespace DataFeed.Application.App.PositionBuilder
                 strikeEngine.CreditRatio = Math.Round(creditRatio * 100, 1);
                 if (strikeEngine.Pop.HasValue)
                     strikeEngine.PriorityScore = Math.Round(strikeEngine.Pop.Value * 0.01 * 0.6 + creditRatio * 0.4, 4);
+
+                // Propagar CreditRatio y PriorityScore completo al candidato rank-1
+                if (strikeCandidates.Count > 0)
+                {
+                    strikeCandidates[0].CreditRatio = strikeEngine.CreditRatio;
+                    strikeCandidates[0].PriorityScore = strikeEngine.PriorityScore;
+                }
             }
             decimal maxRiskPerContract = snapshotCredit > 0
                 ? (decimal)((spreadWidth - snapshotCredit) * 100)
@@ -464,6 +499,7 @@ namespace DataFeed.Application.App.PositionBuilder
                 StructureInputs = structureInputs,
                 SelectedStructure = selectedStructureResult,
                 StrikeEngine = strikeEngine,
+                StrikeCandidates = strikeCandidates,
                 Microstructure = microstructure,
                 RiskAndSizing = riskAndSizing
             };
@@ -502,6 +538,17 @@ namespace DataFeed.Application.App.PositionBuilder
             if (absZ < neutralZ) return "neutral";
             string direction = z > 0 ? "bullish" : "bearish";
             return absZ >= extremeZ ? $"{direction}_extreme" : $"{direction}_moderate";
+        }
+
+        /// <summary>OI + cierre anterior de un leg a partir de su strike. isCall elige el lado call/put.</summary>
+        private static LegMeta? BuildLegMeta(GammaExposureStrike? strike, bool isCall)
+        {
+            if (strike == null) return null;
+            return new LegMeta
+            {
+                OpenInterest = isCall ? strike.CallOI : strike.PutOI,
+                PrevClose = isCall ? strike.CallPrevClose : strike.PutPrevClose
+            };
         }
 
         private static OICheck GetOICheck(GammaExposureResponse gex, double? strike, bool isCall, long minRequired)
@@ -548,6 +595,109 @@ namespace DataFeed.Application.App.PositionBuilder
                 quotes[kvp.Key] = kvp.Value.Result?.Data?.FirstOrDefault();
 
             return quotes;
+        }
+
+        /// <summary>
+        /// Construye hasta 3 candidatos de strikes (rank 1 = más cercano al dinero = óptimo).
+        /// Layer 3/4 corren solo sobre rank-1 (putCandidates[0]/callCandidates[0]).
+        /// Rank 2-3 reciben priorityScore con solo componente POP; creditRatio se calcula en el frontend con live quote.
+        /// </summary>
+        private static List<StrikeEngineCandidate> BuildStrikeCandidates(
+            string selectedStructure,
+            List<GammaExposureStrike> allStrikes,
+            int spreadWidth,
+            double? putWall, double? callWall,
+            List<GammaExposureStrike> putCandidates,
+            List<GammaExposureStrike> callCandidates)
+        {
+            int count = selectedStructure switch
+            {
+                "iron_condor"       => Math.Min(putCandidates.Count, callCandidates.Count),
+                "put_credit_spread" => putCandidates.Count,
+                "call_credit_spread"=> callCandidates.Count,
+                _                   => 0
+            };
+
+            var result = new List<StrikeEngineCandidate>(count);
+
+            for (int i = 0; i < count; i++)
+            {
+                GammaExposureStrike? pc = selectedStructure != "call_credit_spread" && i < putCandidates.Count
+                    ? putCandidates[i] : null;
+                GammaExposureStrike? cc = selectedStructure != "put_credit_spread" && i < callCandidates.Count
+                    ? callCandidates[i] : null;
+
+                double? shortPut  = pc?.Strike;
+                double? shortPutD = pc?.PutDelta;
+                double? longPut   = shortPut.HasValue
+                    ? VLH.SnapToNearestStrike(allStrikes, shortPut.Value - spreadWidth)
+                    : null;
+
+                double? shortCall  = cc?.Strike;
+                double? shortCallD = cc?.CallDelta;
+                double? longCall   = shortCall.HasValue
+                    ? VLH.SnapToNearestStrike(allStrikes, shortCall.Value + spreadWidth)
+                    : null;
+
+                bool putOutsideWall  = !shortPut.HasValue  || !putWall.HasValue  || shortPut.Value  < putWall.Value;
+                bool callOutsideWall = !shortCall.HasValue || !callWall.HasValue || shortCall.Value > callWall.Value;
+
+                // POP proxy
+                double? pop = null;
+                if (selectedStructure == "iron_condor" && shortPutD.HasValue && shortCallD.HasValue)
+                    pop = Math.Round(Math.Min((1 - Math.Abs(shortPutD.Value)) * 100, (1 - Math.Abs(shortCallD.Value)) * 100), 1);
+                else if (selectedStructure == "put_credit_spread" && shortPutD.HasValue)
+                    pop = Math.Round((1 - Math.Abs(shortPutD.Value)) * 100, 1);
+                else if (selectedStructure == "call_credit_spread" && shortCallD.HasValue)
+                    pop = Math.Round((1 - Math.Abs(shortCallD.Value)) * 100, 1);
+
+                // Strike objects de los long legs (para streamer symbol + leg meta)
+                GammaExposureStrike? longPutStrikeObj = longPut.HasValue
+                    ? allStrikes.OrderBy(s => Math.Abs(s.Strike - longPut.Value)).FirstOrDefault() : null;
+                GammaExposureStrike? longCallStrikeObj = longCall.HasValue
+                    ? allStrikes.OrderBy(s => Math.Abs(s.Strike - longCall.Value)).FirstOrDefault() : null;
+
+                // LegSymbols — DXLink streamer format
+                var legSymbols = new LegSymbols
+                {
+                    ShortPut  = pc?.PutStreamerSymbol,
+                    LongPut   = longPutStrikeObj?.PutStreamerSymbol,
+                    ShortCall = cc?.CallStreamerSymbol,
+                    LongCall  = longCallStrikeObj?.CallStreamerSymbol,
+                };
+
+                // LegMeta — OI + cierre del período anterior por leg
+                var legMeta = new LegMetaSet
+                {
+                    ShortPut  = BuildLegMeta(pc, false),
+                    LongPut   = BuildLegMeta(longPutStrikeObj, false),
+                    ShortCall = BuildLegMeta(cc, true),
+                    LongCall  = BuildLegMeta(longCallStrikeObj, true),
+                };
+
+                result.Add(new StrikeEngineCandidate
+                {
+                    Rank = i + 1,
+                    ShortPutStrike  = shortPut,
+                    ShortCallStrike = shortCall,
+                    ShortPutDelta   = shortPutD,
+                    ShortCallDelta  = shortCallD,
+                    LongPutStrike   = longPut,
+                    LongCallStrike  = longCall,
+                    StrikesInsideWalls = putOutsideWall && callOutsideWall,
+                    Pop = pop,
+                    // CreditRatio y PriorityScore completos se asignan desde Layer 4 para rank-1.
+                    // Rank 2-3: solo componente POP del priority score (sin credit snapshot).
+                    CreditRatio   = null,
+                    PriorityScore = i > 0 && pop.HasValue
+                        ? Math.Round(pop.Value * 0.01 * 0.6, 4)
+                        : null,
+                    LegSymbols = legSymbols,
+                    LegMeta = legMeta
+                });
+            }
+
+            return result;
         }
     }
 }

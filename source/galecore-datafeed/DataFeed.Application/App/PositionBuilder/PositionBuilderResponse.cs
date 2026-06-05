@@ -26,6 +26,12 @@ namespace DataFeed.Application.App.PositionBuilder
         /// <summary>Reutiliza el tipo de ValidationLayer (Layer 2).</summary>
         public StrikeEngineResult? StrikeEngine { get; set; }
 
+        /// <summary>
+        /// Top 3 candidatos de strikes ordenados por cercanía al dinero (rank 1 = más cercano = óptimo).
+        /// Rank 1 coincide con StrikeEngine. Rank 2-3 son alternativas más OTM.
+        /// </summary>
+        public List<StrikeEngineCandidate>? StrikeCandidates { get; set; }
+
         /// <summary>Reutiliza el tipo de ValidationLayer (Layer 3).</summary>
         public MicrostructureResult? Microstructure { get; set; }
 
