@@ -13,6 +13,7 @@ function AlertBadge({ type }: { type: AlertType }) {
     STOP_LOSS:     { label: '🔴 STOP LOSS',       color: 'var(--red-gc)' },
     TIME_EXIT:     { label: '🟡 TIME EXIT',       color: 'var(--yellow-gc)' },
     EVALUAR_ROLL:  { label: '🟠 EVALUAR ROLL',    color: '#f97316' },
+    DELTA_BREACH:  { label: '🔴 DELTA BREACH',    color: 'var(--red-gc)' },
     MACRO_PROXIMO: { label: '🟡 MACRO PRÓXIMO',   color: 'var(--yellow-gc)' },
   };
   const { label, color } = cfg[type];

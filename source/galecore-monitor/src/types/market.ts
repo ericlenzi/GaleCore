@@ -15,6 +15,12 @@ export interface TickerState {
   iv30?: number;
   iv9d?: number;
   iv3m?: number;
+  // Per-option Greeks (live from DXLink via ReceiveGreeks) — present for option legs
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  vega?: number;
+  iv?: number;     // implied volatility of this contract (DXLink "volatility")
   loading: {
     price: boolean;
     ivRank: boolean;

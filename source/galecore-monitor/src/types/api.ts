@@ -75,18 +75,53 @@ export interface CoreRules {
     max_concurrent_positions: number;
     max_positions_per_symbol: number;
   };
+  // Actual v1.3.1 JSON structure for trade_management
   trade_management: {
-    take_profit_pct_credit: number;
-    stop_loss_pct_credit: number;
-    time_exit_dte: number;
-    adjustment_protocol: {
+    daily_kill_switch?: {
+      daily_portfolio_mtm_loss_pct_net_liq_max: number;
+    };
+    take_profit?: {
+      pct_of_initial_credit: number;
+    };
+    hard_defense?: {
+      trigger_any: {
+        short_leg_delta_abs_gt: number;
+        unrealized_loss_pct_of_initial_credit_gte: number;
+      };
+    };
+    defensive_roll?: {
+      trigger_unrealized_loss_pct_of_initial_credit_gte: number;
+      min_dte_remaining: number;
+      min_net_credit_for_roll: number;
+      max_rolls_per_position: number;
+    };
+    time_exit?: {
+      dte_threshold: number;
+    };
+    // Legacy flat fields (kept for backward compat with older type)
+    take_profit_pct_credit?: number;
+    stop_loss_pct_credit?: number;
+    time_exit_dte?: number;
+    adjustment_protocol?: {
       min_dte_to_roll: number;
       min_credit_for_roll: number;
       trigger_loss_pct_credit: number;
     };
-    hard_defense: {
+    hard_defense_legacy?: {
       short_leg_delta_max_abs: number;
     };
+  };
+  // Partial position_builder type for risk config access
+  position_builder?: {
+    layers?: Array<{
+      id: number;
+      name: string;
+      config?: {
+        risk_per_trade_pct?: number;
+        max_positions?: number;
+        max_heat_pct_net_liq?: number;
+      };
+    }>;
   };
 }
 
@@ -517,11 +552,15 @@ export interface QuotePayload {
 }
 
 export interface GreeksPayload {
+  eventSymbol?: string;
+  price?: number;       // theoretical option price
+  volatility?: number;  // implied volatility of the contract
   delta: number;
   gamma: number;
   theta: number;
   vega: number;
-  timestamp: string;
+  rho?: number;
+  timestamp?: string;
 }
 
 // ─── Flow Payload (SignalR ReceiveFlow) ──────────────────────────────────────

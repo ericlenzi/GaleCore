@@ -2,14 +2,14 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { useMarketStore } from '../store/useMarketStore';
 import { useFlowStore } from '../store/useFlowStore';
-import { TradePayload, QuotePayload, FlowPayload } from '../types/api';
+import { TradePayload, QuotePayload, FlowPayload, GreeksPayload } from '../types/api';
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 export function useMarketSocket(tickers: string[] = []) {
   const connectionRef = useRef<signalR.HubConnection | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
-  const { updatePrice, updateQuote, setStreaming } = useMarketStore();
+  const { updatePrice, updateQuote, updateGreeks, setStreaming } = useMarketStore();
 
   useEffect(() => {
     if (!tickers.length) return;
@@ -40,6 +40,11 @@ export function useMarketSocket(tickers: string[] = []) {
 
     connection.on('ReceiveQuote', (symbol: string, data: QuotePayload) => {
       updateQuote(symbol, data);
+    });
+
+    // ── Greeks handler (option legs subscribed with includeGreeks) ────────
+    connection.on('ReceiveGreeks', (symbol: string, data: GreeksPayload) => {
+      updateGreeks(symbol, data);
     });
 
     // ── Flow handler ──────────────────────────────────────────────────────
@@ -107,14 +112,15 @@ export function useMarketSocket(tickers: string[] = []) {
   const subscribeLeg = useCallback((occSymbol: string) => {
     const conn = connectionRef.current;
     if (conn?.state === signalR.HubConnectionState.Connected) {
-      conn.invoke('Subscribe', occSymbol, false).catch(console.error);
+      // includeGreeks=true → also receive ReceiveGreeks for this option leg
+      conn.invoke('Subscribe', occSymbol, true).catch(console.error);
     }
   }, []);
 
   const unsubscribeLeg = useCallback((occSymbol: string) => {
     const conn = connectionRef.current;
     if (conn?.state === signalR.HubConnectionState.Connected) {
-      conn.invoke('Unsubscribe', occSymbol, false).catch(() => {});
+      conn.invoke('Unsubscribe', occSymbol, true).catch(() => {});
     }
   }, []);
 

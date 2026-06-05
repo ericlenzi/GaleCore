@@ -88,7 +88,7 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   * `GET /App/GaleCore/ValidationLayer` — corre las 4 capas en cascada con shortcircuit. Response: `macroRegime` + `positionBuilder`. Handler: `ValidationLayerHandler.cs`.
   * `GET /App/GaleCore/PositionBuilder` — corre capas 2-4 solo (presupone que el caller ya validó macro). Expone `structureInputs` completos (priceZScore, gexSkew, trend, realizedVol, aggressiveFlow). Handler: `PositionBuilderHandler.cs`.
   * WebSocket `/hubs/marketdata`:
-    - `Subscribe(symbol)` → `ReceiveTrade`, `ReceiveQuote` (precio del subyacente)
+    - `Subscribe(symbol, includeGreeks)` → `ReceiveTrade`, `ReceiveQuote` (precio); con `includeGreeks=true` también `ReceiveGreeks` (delta/gamma/theta/vega/IV por opción). Los legs del Monitor se suscriben con `includeGreeks=true`.
     - `SubscribeFlow(symbol)` → `ReceiveFlow` cada 30s (flow de opciones via `FlowBroadcastService`)
 
 - Lógica compartida
@@ -224,9 +224,9 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   │   ├── marketdata.ts       # /Data/Tastytrade/MarketData/*
   │   └── account.ts          # /Data/Account/*
   ├── socket/
-  │   └── useMarketSocket.ts  # Hook SignalR: connect, subscribe/unsubscribe, subscribeFlow/unsubscribeFlow, ReceiveFlow handler
+  │   └── useMarketSocket.ts  # Hook SignalR: connect, subscribe/unsubscribe (subscribeLeg usa includeGreeks=true), subscribeFlow/unsubscribeFlow, handlers ReceiveTrade/Quote/Greeks/Flow
   ├── store/
-  │   ├── useMarketStore.ts   # Estado de precios y Greeks en tiempo real (Zustand)
+  │   ├── useMarketStore.ts   # Estado en tiempo real (Zustand): precio/bid/ask + Greeks por símbolo (updateGreeks: delta/gamma/theta/vega/iv) + ivRank
   │   ├── useAccountStore.ts  # Balances y posiciones
   │   ├── useRulesStore.ts    # Rules/tickers cargados desde /App/GaleCore/Rules/Core
   │   └── useFlowStore.ts     # Snapshots de flow de opciones (ReceiveFlow → FlowPayload)
@@ -247,6 +247,10 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   │   │   ├── PositionRow.tsx     # Fila individual con P&L, Greeks, alertas
   │   │   ├── NewPositionForm.tsx # Formulario de ingreso de posición manual
   │   │   └── SuggestedCard.tsx   # Card de operación sugerida con badge de flow en tiempo real
+  │   ├── monitor/                # Tab Monitor (UI en inglés, bloomberg-style)
+  │   │   ├── PortfolioRiskBar.tsx # Barra superior: Net Liq / Buying Power / Daily P&L / Portfolio Heat / Positions
+  │   │   ├── PositionCard.tsx     # Card por spread: header (strikes/exp/DTE), StrikeLadder, métricas (Credit/P&L/Max), strip de stats (Net Delta/Theta/Vega/Gamma agregados de Greeks live + POP/Prob.+50%/IV Rank), management triggers c/ acción concreta ligada (el más imminente = "NEXT" con la ejecución: cerrar a costo X, rollear a strikes Y/Z por delta de la cadena GEX), legs con entry/valor/variación
+  │   │   └── StrikeLadder.tsx     # Barra de zonas MAX LOSS / RISK / PROFIT AT EXP con spot, strikes y muros GEX
   │   ├── validation/
   │   │   └── ValidationLayers.tsx # macroRegime (6 checks) + positionBuilder layers con semáforo
   │   └── strategy/
