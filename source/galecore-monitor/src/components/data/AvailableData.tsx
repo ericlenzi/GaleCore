@@ -65,6 +65,49 @@ const DEF_TITLE: Record<string, string> = {
   buying_power_requirement: 'Buying Power Requirement (BPR)',
 };
 
+/** Qué es y qué mide cada concepto — definición concreta para aprender. */
+const DEF_WHAT: Record<string, string> = {
+  iv_rank: 'Posición de la IV actual dentro de su rango de los últimos 252 días (0–100). Mide cuán cara o barata está la volatilidad hoy respecto a su propio último año.',
+  iv30_atm_roc_pct: 'Variación porcentual de la IV a 30 días en los últimos 5 días. Mide la aceleración de la volatilidad: si la prima se expande (riesgo) o se estabiliza.',
+  expected_move: 'Movimiento esperado del subyacente hasta la expiración, derivado de la IV. Mide el rango de ~1 desvío que el mercado descuenta; sirve para ubicar strikes fuera de ese rango.',
+  directional_zscore: 'Retorno de 5 días normalizado por la volatilidad diaria. Mide cuán extendido/estirado está el precio direccionalmente (sobrecompra/sobreventa) en unidades de desvío.',
+  iv_zscore: 'IV actual en desvíos respecto a su media de 252 días. Mide si el régimen de volatilidad es estadísticamente alto o bajo.',
+  gex_skew: 'Proporción del gamma de calls sobre el total (calls + |puts|), en [0,1]. Mide hacia qué lado está el muro de gamma dominante (soporte estructural arriba vs abajo).',
+  trend_ema: 'Relación entre la EMA de 20 y la de 50 sesiones. Mide la tendencia de fondo: alcista, bajista o lateral.',
+  realized_vol_regime: 'Compara la volatilidad realizada de 10 días vs 30 días (anualizadas). Mide si la volatilidad efectiva del precio se está acelerando o desacelerando.',
+  aggressive_flow: 'Clasifica trades grandes de opciones por agresión (ask = comprador agresivo, bid = vendedor). Mide la presión direccional del dinero grande en tiempo real.',
+  leg_open_interest: 'Contratos abiertos del leg al cierre previo. Mide la liquidez y profundidad del contrato.',
+  leg_prev_close: 'Precio de cierre del leg en la sesión anterior. Mide la referencia estática de prima antes del dato en vivo.',
+  credit_ratio: 'Crédito cobrado dividido por el ancho del spread. Mide la calidad del spread (regla 1/3): cuánto se cobra por unidad de riesgo.',
+  credit_ratio_min_by_iv_rank: 'Credit ratio mínimo exigido según el IV Rank. Mide la prima mínima aceptable: a mayor IV, se exige más crédito.',
+  gex_total: 'Gamma Exposure neto agregado de todos los strikes, en miles de millones USD. Mide cuán "anclado" está el mercado por la cobertura de los market makers.',
+  gex_threshold_by_symbol: 'GEX mínimo por símbolo para habilitar operar. Mide el piso de gamma positivo necesario para que el ancla sea confiable.',
+  gamma_zero_level: 'Strike donde el GEX acumulado cruza de negativo a positivo. Mide la frontera entre régimen de mean-reversion (arriba) y de momentum (abajo).',
+  zgl_with_buffer: 'El ZGL más un colchón de 0.5%. Mide el nivel mínimo de spot por encima del cual el ancla es estable (evita operar en la barrera).',
+  call_wall: 'Strike con mayor gamma de calls. Mide el techo estructural donde los market makers tienden a frenar las subas.',
+  put_wall: 'Strike con gamma de puts más negativo. Mide el piso estructural donde los market makers tienden a frenar las bajas.',
+  min_offset_from_spot_by_symbol: 'Distancia mínima en puntos entre el spot y el strike short. Mide el colchón mínimo para no vender demasiado cerca del dinero.',
+  pop_proxy: 'Probabilidad de profit aproximada = (1 − |delta short|)×100. Mide la chance de que el spread expire OTM (ganador).',
+  portfolio_heat: 'Suma del riesgo máximo de todas las posiciones abiertas, en USD. Mide la exposición total a pérdida del portafolio.',
+  heat_pct_net_liq: 'Heat del portafolio como fracción del Net Liq. Mide qué porción del capital está en riesgo.',
+  max_heat: 'Tope de heat permitido (4.5% del Net Liq). Mide el límite de riesgo agregado del portafolio.',
+  heat_available: 'Heat máximo menos el heat actual. Mide cuánto riesgo nuevo se puede agregar todavía.',
+  new_position_heat: 'Riesgo máximo en USD que agregaría una posición nueva. Mide el costo de riesgo de abrir ese trade.',
+  heat_after_new_position: 'Heat actual más el de la nueva posición. Mide si el portafolio seguiría dentro del límite tras abrir.',
+  risk_per_trade: 'Riesgo permitido por trade (1.5% del Net Liq). Mide el capital máximo a arriesgar en una sola operación.',
+  max_risk_per_contract: 'Pérdida máxima de un contrato = (ancho − crédito)×100. Mide el riesgo unitario del spread.',
+  max_contracts: 'Contratos máximos = riesgo por trade ÷ riesgo por contrato. Mide el sizing: cuántos contratos caben dentro del límite de riesgo.',
+  positions_available: 'Posiciones máximas menos las abiertas. Mide cuántos slots de posición quedan libres.',
+  bid_ask_spread_pct: 'Spread bid/ask relativo al mid. Mide la calidad y liquidez del quote (deslizamiento esperado).',
+  slippage_entry: 'Diferencia entre el mid estimado y el fill real más fees, al entrar. Mide el costo de ejecución de una entrada.',
+  slippage_roll: 'Fricción máxima permitida por leg al rollear (0.05/leg, 0.20 total). Mide el costo tolerable de un ajuste defensivo.',
+  spy_exdiv_days_until: 'Días hasta el ex-dividendo de SPY (chequeo manual). Mide el riesgo de asignación temprana en calls ITM.',
+  leg_mid_price: 'Mid del quote en vivo de cada leg = (bid+ask)/2. Mide la prima en tiempo real por pata.',
+  max_profit: 'Ganancia máxima = crédito neto live × 100 × contratos. Mide lo máximo a ganar si todo expira OTM.',
+  max_loss: 'Pérdida máxima = (ancho − crédito live) × 100 × contratos. Mide lo máximo a perder si el spread expira ITM.',
+  buying_power_requirement: 'Capital bloqueado por contrato = (ancho − crédito live)×100. Mide el margen requerido para sostener el spread.',
+};
+
 const TYPE_LABEL: Record<string, string> = {
   formula: 'fórmula',
   marketdata: 'market data',
@@ -195,45 +238,59 @@ function DefCard({ defKey, def }: { defKey: string; def: RuleDefinition }) {
   const value = defValueLine(def);
   const status = implFor(defKey);
   const source = def.endpoint ?? def.source;
+  const what = DEF_WHAT[defKey];
 
   return (
     <div
-      className="rounded-lg p-4 flex flex-col"
+      className="rounded-lg p-4 mb-3"
       style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-dark)' }}
     >
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <div className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>{title}</div>
+      {/* header */}
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="font-semibold text-xl" style={{ color: 'var(--text-primary)' }}>{title}</span>
+          {def.type && <Chip tone="muted">{TYPE_LABEL[def.type] ?? humanize(def.type)}</Chip>}
+        </div>
         <Semaphore status={status} />
       </div>
 
-      <div className="mb-2">
-        {def.type && <Chip tone="muted">{TYPE_LABEL[def.type] ?? humanize(def.type)}</Chip>}
+      {/* cuerpo: definición (izq) + fórmula/fuente (der) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
+        <div>
+          {what && (
+            <p className="text-lg leading-relaxed" style={{ color: 'var(--text-primary)' }}>{what}</p>
+          )}
+          <Interpretation interp={def.interpretation} />
+          {def.note && <div className="mt-2"><Muted>{def.note}</Muted></div>}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {value && (
+            <div>
+              <div className="text-base uppercase tracking-wider mb-1" style={{ color: 'var(--text-secondary)' }}>
+                {def.type === 'formula' ? 'Fórmula' : 'Valor'}
+              </div>
+              <div
+                className="font-mono text-lg px-3 py-2 rounded break-words"
+                style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--blue-gc)' }}
+              >
+                {value}
+              </div>
+            </div>
+          )}
+          {source && (
+            <div>
+              <span className="text-base" style={{ color: 'var(--text-secondary)' }}>fuente: </span>
+              <code
+                className="text-base px-1.5 py-0.5 rounded break-all"
+                style={{ fontFamily: 'JetBrains Mono, monospace', backgroundColor: 'var(--bg-primary)', color: 'var(--text-secondary)' }}
+              >
+                {source}
+              </code>
+            </div>
+          )}
+        </div>
       </div>
-
-      {value && (
-        <div
-          className="font-mono text-base px-2.5 py-2 rounded mb-1 break-words"
-          style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--blue-gc)' }}
-        >
-          {value}
-        </div>
-      )}
-
-      <Interpretation interp={def.interpretation} />
-
-      {def.note && <div className="mt-2"><Muted>{def.note}</Muted></div>}
-
-      {source && (
-        <div className="mt-auto pt-3">
-          <span className="text-base" style={{ color: 'var(--text-secondary)' }}>fuente: </span>
-          <code
-            className="text-base px-1.5 py-0.5 rounded break-all"
-            style={{ fontFamily: 'JetBrains Mono, monospace', backgroundColor: 'var(--bg-primary)', color: 'var(--text-secondary)' }}
-          >
-            {source}
-          </code>
-        </div>
-      )}
     </div>
   );
 }
@@ -347,7 +404,7 @@ export function AvailableData() {
       {/* conceptos: qué es y cómo se calcula */}
       <Card>
         <SectionTitle>Conceptos — qué es y cómo se calcula ({defKeys.length})</SectionTitle>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div>
           {defKeys.map((k) => <DefCard key={k} defKey={k} def={defs[k]} />)}
         </div>
       </Card>
