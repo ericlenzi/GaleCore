@@ -167,12 +167,19 @@ export interface CoreRules {
     min_avg_daily_volume_underlying?: number;
     min_avg_daily_volume?: number;
   };
+  data_availability?: {
+    available_today?: string[];
+    manual_check_required?: string[];
+    partial_availability_note?: Record<string, string>;
+  };
   data_quality?: {
     max_quote_age_seconds: number;
     max_structural_levels_age_minutes: number;
     block_on_crossed_market: boolean;
     block_on_missing_critical_data: boolean;
   };
+  operators?: { _description?: string; values: string[] };
+  on_fail_actions?: { _description?: string; values: string[] };
   definitions?: Record<string, RuleDefinition>;
   macro_regime: MacroRegimeRules;
   position_builder?: PositionBuilderRules;
@@ -227,7 +234,22 @@ export interface CoreRules {
   };
   monitoring?: { review_frequency_minutes: number };
   display_config?: {
+    checks_render_order?: string;
+    alerts_priority?: string[];
     signal_labels?: Record<string, SignalLabel>;
+    portfolio_manager_table?: {
+      description?: string;
+      columns?: Array<{
+        id: string;
+        label: string;
+        source?: string;
+        ref?: string;
+        group?: string;
+        unit?: string;
+        realtime?: boolean;
+      }>;
+      column_groups?: Array<{ id: string; label: string; columns: string[] }>;
+    };
     [k: string]: unknown;
   };
 
