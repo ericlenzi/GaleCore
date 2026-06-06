@@ -233,7 +233,7 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   ├── components/
   │   ├── layout/
   │   │   ├── StatusBar.tsx       # Barra superior: estado sistema, estado mercado, hora
-  │   │   └── TabNav.tsx          # Tabs: Inicio / Portfolio / Estrategia
+  │   │   └── TabNav.tsx          # Tabs: Main / Portfolio Manager / Monitor / Strategy / Available Data
   │   ├── ticker/
   │   │   ├── TickerCard.tsx      # Card por ticker: precio, variación, capas de validación
   │   │   ├── TickerGrid.tsx      # Grid de TickerCards
@@ -254,18 +254,22 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   │   ├── validation/
   │   │   └── ValidationLayers.tsx # macroRegime (6 checks) + positionBuilder layers con semáforo
   │   └── strategy/
-  │       └── StrategyReference.tsx # Tab Estrategia: refleja galecore_rules_core.json tal cual (sin hardcodear umbrales). Renderiza dinámicamente principios/scope, las 4 capas con sus checks reales + on_fail, las 8 reglas de selección de estructura (multi-factor), ranking (priorityScore), glosario de conceptos/fórmulas desde definitions (gex_skew, credit_ratio/regla 1/3, z-score, EM, POP, flow) + tabla de referencia completa de todas las definitions, data_availability (disponible hoy vs manual), trade_management, execution (incl. partial_fill_policy / forced_exit_policy), data_quality, display_config (alerts_priority, columnas del PM), operators / on_fail_actions y signal_labels. Tipografía text-base/contraste alto. Tipos en types/api.ts (CoreRules + RuleCheck/RuleDefinition/PositionBuilderRules/...) alineados al esquema v1.3.x
+  │       └── StrategyReference.tsx # Tab Estrategia: refleja galecore_rules_core.json tal cual (sin hardcodear umbrales). Renderiza dinámicamente principios/scope, las 4 capas con sus checks reales + on_fail, las 8 reglas de selección de estructura (multi-factor), ranking (priorityScore), glosario de conceptos/fórmulas desde definitions (gex_skew, credit_ratio/regla 1/3, z-score, EM, POP, flow) + tabla de referencia completa de todas las definitions, trade_management, execution (incl. partial_fill_policy / forced_exit_policy), data_quality, display_config (alerts_priority, columnas del PM), operators / on_fail_actions y signal_labels. Full-width, fuente grande/alto contraste, condiciones inline prolijas, y semáforo de implementación BE/FE por concepto (utils/implStatus.ts). Tipos en types/api.ts (CoreRules + RuleCheck/RuleDefinition/PositionBuilderRules/...) alineados al esquema v1.3.x
+  │   └── data/
+  │       └── AvailableData.tsx   # Tab Available Data: referencia de aprendizaje de TODO lo que la API entrega hoy. data_availability (auto vs manual), tabla de endpoints (con semáforo FE), y todas las definitions del JSON como tarjetas (qué es / cómo se calcula / fuente) con semáforo BE/FE (utils/implStatus.ts)
   ├── pages/
   │   ├── Home.tsx            # Tab Inicio
   │   ├── PortfolioManager.tsx # Tab Portfolio: PositionBuilder API + flow en tiempo real
   │   ├── Positions.tsx       # Tab Posiciones abiertas
-  │   └── Strategy.tsx        # Tab Estrategia
+  │   ├── Strategy.tsx        # Tab Estrategia
+  │   └── AvailableData.tsx   # Tab Available Data
   ├── types/
   │   ├── api.ts              # Tipos de respuesta: PositionBuilderApiResponse, FlowPayload, FlowSide, FlowTrade
   │   ├── market.ts           # Tipos de mercado (ticker state, capas, señal)
   │   └── position.ts         # Tipos de posiciones y P&L
   ├── utils/
-  │   └── formatters.ts       # Formateo de números, fechas, colores semáforo
+  │   ├── formatters.ts       # Formateo de números, fechas, colores semáforo
+  │   └── implStatus.ts       # Semáforo de implementación BE/FE por concepto del JSON (usado por Strategy y Available Data)
   └── App.tsx
 
 - Manejo del tiempo real

@@ -8,6 +8,7 @@ import { Home } from './pages/Home';
 import { PortfolioManager } from './pages/PortfolioManager';
 import { Monitor } from './pages/Monitor';
 import { Strategy } from './pages/Strategy';
+import { AvailableData } from './pages/AvailableData';
 import { useMarketSocket, ConnectionStatus } from './socket/useMarketSocket';
 import { useRulesStore } from './store/useRulesStore';
 import { useAccountStore } from './store/useAccountStore';
@@ -64,6 +65,7 @@ function Dashboard({ onLogout }: DashboardProps) {
             <Monitor subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} />
           </div>
           {tab === 'estrategia' && <Strategy />}
+          {tab === 'data' && <AvailableData />}
         </main>
       </div>
     </div>

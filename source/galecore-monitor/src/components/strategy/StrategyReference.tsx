@@ -7,6 +7,7 @@ import {
   RuleDefinition,
   StructureSelectionRule,
 } from '../../types/api';
+import { implFor, ImplStatus } from '../../utils/implStatus';
 
 /* ════════════════════════════════════════════════════════════════════════════
    Strategy Reference — refleja galecore_rules_core.json tal cual.
@@ -205,7 +206,7 @@ function SectionTitle({ n, children }: { n?: string; children: React.ReactNode }
         </span>
       )}
       <h2
-        className="text-base font-semibold uppercase tracking-widest"
+        className="text-lg font-semibold uppercase tracking-widest"
         style={{ color: 'var(--blue-gc)' }}
       >
         {children}
@@ -240,7 +241,7 @@ function Chip({ tone = 'muted', children }: { tone?: Tone; children: React.React
 function Mono({ children }: { children: React.ReactNode }) {
   return (
     <code
-      className="text-base px-1.5 py-0.5 rounded"
+      className="text-lg px-1.5 py-0.5 rounded"
       style={{
         fontFamily: 'JetBrains Mono, monospace',
         backgroundColor: 'var(--bg-tertiary)',
@@ -253,13 +254,25 @@ function Mono({ children }: { children: React.ReactNode }) {
 }
 
 function Muted({ children }: { children: React.ReactNode }) {
-  return <span className="text-base" style={{ color: 'var(--text-secondary)' }}>{children}</span>;
+  return <span className="text-lg" style={{ color: 'var(--text-secondary)' }}>{children}</span>;
+}
+
+/** Semáforo de implementación BE/FE (verde = cableado, rojo = todavía no). */
+function Semaphore({ status }: { status: ImplStatus | null }) {
+  if (!status) return <Muted>—</Muted>;
+  const dot = (on: boolean, label: string) => (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      <span className="inline-block rounded-full" style={{ width: 9, height: 9, backgroundColor: on ? 'var(--green)' : 'var(--red-gc)' }} />
+      <span className="text-base" style={{ color: on ? 'var(--green)' : 'var(--red-gc)' }}>{label}</span>
+    </span>
+  );
+  return <span className="inline-flex items-center gap-2.5">{dot(status.backend, 'BE')}{dot(status.frontend, 'FE')}</span>;
 }
 
 function TH({ children, w }: { children: React.ReactNode; w?: string }) {
   return (
     <th
-      className="px-3 py-2 text-left text-sm uppercase tracking-wider font-medium"
+      className="px-3 py-2 text-left text-base uppercase tracking-wider font-medium"
       style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-dark)', width: w }}
     >
       {children}
@@ -270,7 +283,7 @@ function TH({ children, w }: { children: React.ReactNode; w?: string }) {
 function TD({ children, top }: { children: React.ReactNode; top?: boolean }) {
   return (
     <td
-      className="px-3 py-2 text-base"
+      className="px-3 py-2 text-lg"
       style={{
         color: 'var(--text-primary)',
         borderBottom: '1px solid var(--border-dark)',
@@ -294,13 +307,13 @@ function ChecksTable({
   withSide?: boolean;
 }) {
   return (
-    <table className="w-full" style={{ borderCollapse: 'collapse' }}>
+    <table className="mx-auto" style={{ borderCollapse: 'collapse' }}>
       <thead>
         <tr>
-          {withSide && <TH w="64px">Lado</TH>}
+          {withSide && <TH w="70px">Lado</TH>}
           <TH>Condición</TH>
-          <TH w="160px">Umbral</TH>
-          <TH w="180px">Si falla</TH>
+          <TH>Umbral</TH>
+          <TH>Si falla</TH>
         </tr>
       </thead>
       <tbody>
@@ -316,18 +329,20 @@ function ChecksTable({
                 </TD>
               )}
               <TD top>
-                <div style={{ color: 'var(--text-primary)' }}>{c.label}</div>
-                {c.note && <div className="mt-1"><Muted>{c.note}</Muted></div>}
-                {isCustom && c.rule && (
-                  <div className="mt-1"><Mono>{c.rule}</Mono></div>
-                )}
-                {(c.applies_per_leg || c.applies_per_spread || c.applies_to_symbol) && (
-                  <div className="mt-1 flex gap-1 flex-wrap">
-                    {c.applies_per_leg && <Chip tone="muted">por leg: {c.applies_per_leg}</Chip>}
-                    {c.applies_per_spread && <Chip tone="muted">por spread</Chip>}
-                    {c.applies_to_symbol && <Chip tone="muted">{c.applies_to_symbol.join(', ')}</Chip>}
-                  </div>
-                )}
+                <div style={{ maxWidth: 620 }}>
+                  <div style={{ color: 'var(--text-primary)' }}>{c.label}</div>
+                  {c.note && <div className="mt-1"><Muted>{c.note}</Muted></div>}
+                  {isCustom && c.rule && (
+                    <div className="mt-1"><Mono>{c.rule}</Mono></div>
+                  )}
+                  {(c.applies_per_leg || c.applies_per_spread || c.applies_to_symbol) && (
+                    <div className="mt-1 flex gap-1 flex-wrap">
+                      {c.applies_per_leg && <Chip tone="muted">por leg: {c.applies_per_leg}</Chip>}
+                      {c.applies_per_spread && <Chip tone="muted">por spread</Chip>}
+                      {c.applies_to_symbol && <Chip tone="muted">{c.applies_to_symbol.join(', ')}</Chip>}
+                    </div>
+                  )}
+                </div>
               </TD>
               <TD top>
                 {isCustom ? <Muted>—</Muted> : <Mono>{fmtThreshold(c, rules)}</Mono>}
@@ -357,24 +372,35 @@ function StructureRuleRow({ rule }: { rule: StructureSelectionRule }) {
         <span className="font-bold" style={{ color: 'var(--text-secondary)' }}>{rule.id}</span>
       </TD>
       <TD top>
-        <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{rule.label}</div>
+        <div className="font-medium whitespace-nowrap" style={{ color: 'var(--text-primary)' }}>{rule.label}</div>
       </TD>
       <TD top>
         {typeof conds === 'string' ? (
           <Chip tone="muted">{conds}</Chip>
         ) : (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1.5">
             {Object.entries(conds).map(([k, v]) => (
-              <span key={k} className="text-base" style={{ color: 'var(--text-secondary)' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>{CONDITION_KEY_LABEL[k] ?? k}:</span>{' '}
-                <Mono>{v}</Mono>
+              <span key={k} className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+                <span className="text-lg" style={{ color: 'var(--text-secondary)' }}>
+                  {CONDITION_KEY_LABEL[k] ?? humanize(k)}
+                </span>
+                <code
+                  className="text-base px-1.5 py-0.5 rounded whitespace-nowrap"
+                  style={{ fontFamily: 'JetBrains Mono, monospace', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
+                >
+                  {v}
+                </code>
               </span>
             ))}
           </div>
         )}
       </TD>
       <TD top><Chip tone={meta.tone}>{meta.label}</Chip></TD>
-      <TD top><Muted>{rule.rationale}</Muted></TD>
+      <TD top>
+        <div style={{ color: 'var(--text-secondary)', maxWidth: 280 }} className="text-base leading-snug">
+          {rule.rationale}
+        </div>
+      </TD>
     </tr>
   );
 }
@@ -389,7 +415,7 @@ function interpretationNode(interp: string | Record<string, string> | undefined)
   return (
     <div className="mt-2 flex flex-col gap-1">
       {Object.entries(interp).map(([k, v]) => (
-        <div key={k} className="text-base" style={{ color: 'var(--text-secondary)' }}>
+        <div key={k} className="text-lg" style={{ color: 'var(--text-secondary)' }}>
           <Mono>{k.replace(/_/g, ' ').replace('gt ', '> ').replace('lt ', '< ').replace('between ', '')}</Mono>{' '}
           {v}
         </div>
@@ -407,13 +433,16 @@ function DefCard({ defKey, def }: { defKey: string; def: RuleDefinition }) {
       className="rounded-lg p-3"
       style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-dark)' }}
     >
-      <div className="font-semibold text-base mb-1.5" style={{ color: 'var(--text-primary)' }}>
-        {title}
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <div className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>
+          {title}
+        </div>
+        <Semaphore status={implFor(defKey)} />
       </div>
 
       {def.formula && (
         <div
-          className="font-mono text-base px-2 py-1.5 rounded mb-1"
+          className="font-mono text-lg px-2 py-1.5 rounded mb-1"
           style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--blue-gc)' }}
         >
           {def.formula}
@@ -450,8 +479,8 @@ function DefCard({ defKey, def }: { defKey: string; def: RuleDefinition }) {
 function KV({ k, v }: { k: string; v: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between py-1.5" style={{ borderBottom: '1px solid var(--border-dark)' }}>
-      <span className="text-base" style={{ color: 'var(--text-secondary)' }}>{k}</span>
-      <span className="text-base font-medium" style={{ color: 'var(--text-primary)' }}>{v}</span>
+      <span className="text-lg" style={{ color: 'var(--text-secondary)' }}>{k}</span>
+      <span className="text-lg font-medium" style={{ color: 'var(--text-primary)' }}>{v}</span>
     </div>
   );
 }
@@ -492,7 +521,7 @@ export function StrategyReference() {
   const signals = rules.display_config?.signal_labels;
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-6 mx-auto" style={{ maxWidth: 1500 }}>
 
       {/* ── encabezado ── */}
       <div className="mb-5">
@@ -504,14 +533,14 @@ export function StrategyReference() {
           {meta.profile && <Chip tone="muted">perfil: {meta.profile}</Chip>}
           <Chip tone="muted">actualizado {meta.last_updated}</Chip>
         </div>
-        <p className="text-base leading-relaxed" style={{ color: 'var(--text-secondary)', maxWidth: 760 }}>
+        <p className="text-lg leading-relaxed" style={{ color: 'var(--text-secondary)', maxWidth: 1100 }}>
           Venta sistemática de prima con riesgo definido. Captura el decay de theta sobre índices líquidos
           usando la estructura de gamma del mercado como soporte. Una señal solo abre posición si supera
           las <strong>4 capas de validación en cascada</strong> — si una falla, las siguientes ni se evalúan.
           Todo lo que ves aquí proviene de <Mono>galecore_rules_core.json</Mono>.
         </p>
         {meta.notes && (
-          <p className="text-base mt-2" style={{ color: 'var(--text-secondary)' }}>{meta.notes}</p>
+          <p className="text-lg mt-2" style={{ color: 'var(--text-secondary)' }}>{meta.notes}</p>
         )}
       </div>
 
@@ -531,13 +560,13 @@ export function StrategyReference() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <div className="text-base mb-1.5" style={{ color: 'var(--text-secondary)' }}>Estructuras permitidas</div>
+            <div className="text-lg mb-1.5" style={{ color: 'var(--text-secondary)' }}>Estructuras permitidas</div>
             <div className="flex gap-1.5 flex-wrap mb-3">
               {(rules.strategy_scope?.allowed_strategies ?? []).map((s) => (
                 <Chip key={s} tone="green">{STRUCTURE_META[s]?.label ?? s}</Chip>
               ))}
             </div>
-            <div className="text-base mb-1.5" style={{ color: 'var(--text-secondary)' }}>Prohibidas</div>
+            <div className="text-lg mb-1.5" style={{ color: 'var(--text-secondary)' }}>Prohibidas</div>
             <div className="flex gap-1.5 flex-wrap">
               {(rules.strategy_scope?.forbidden_strategies ?? []).map((s) => (
                 <Chip key={s} tone="red">{s.replace(/_/g, ' ')}</Chip>
@@ -570,8 +599,8 @@ export function StrategyReference() {
                 className="flex-1 rounded p-3"
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-dark)', minWidth: 150 }}
               >
-                <div className="text-base font-bold mb-1" style={{ color: 'var(--blue-gc)' }}>Capa {l.n}</div>
-                <div className="text-base font-medium" style={{ color: 'var(--text-primary)' }}>{l.name}</div>
+                <div className="text-lg font-bold mb-1" style={{ color: 'var(--blue-gc)' }}>Capa {l.n}</div>
+                <div className="text-lg font-medium" style={{ color: 'var(--text-primary)' }}>{l.name}</div>
                 <div className="mt-1"><Muted>{l.desc}</Muted></div>
               </div>
               {i < arr.length - 1 && (
@@ -587,44 +616,6 @@ export function StrategyReference() {
         </div>
       </Card>
 
-      {/* ── disponibilidad de datos ── */}
-      {rules.data_availability && (
-        <Card>
-          <SectionTitle>Disponibilidad de datos</SectionTitle>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                Disponible hoy (automático)
-              </div>
-              <div className="flex gap-1.5 flex-wrap">
-                {(rules.data_availability.available_today ?? []).map((d) => (
-                  <Chip key={d} tone="green">{humanize(d)}</Chip>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
-                Requiere chequeo manual
-              </div>
-              <div className="flex gap-1.5 flex-wrap">
-                {(rules.data_availability.manual_check_required ?? []).map((d) => (
-                  <Chip key={d} tone="yellow">{humanize(d)}</Chip>
-                ))}
-              </div>
-            </div>
-          </div>
-          {rules.data_availability.partial_availability_note && (
-            <div className="mt-3 flex flex-col gap-1">
-              {Object.entries(rules.data_availability.partial_availability_note).map(([k, v]) => (
-                <div key={k}>
-                  <Chip tone="muted">{humanize(k)}</Chip> <Muted>{v}</Muted>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
-
       {/* ── Capa 1 — macro_regime ── */}
       <Card>
         <SectionTitle n="Capa 1">Régimen Macro &amp; GEX</SectionTitle>
@@ -639,12 +630,12 @@ export function StrategyReference() {
       {strikeEngine && (
         <Card>
           <SectionTitle n="Capa 2">Motor de Strikes</SectionTitle>
-          <p className="text-base mb-3" style={{ color: 'var(--text-secondary)' }}>{strikeEngine.description}</p>
+          <p className="text-lg mb-3" style={{ color: 'var(--text-secondary)' }}>{strikeEngine.description}</p>
 
           {/* DTE */}
           {strikeEngine.config?.dte_selection && (
             <div className="mb-4">
-              <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Selección de expiración (DTE)</div>
+              <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Selección de expiración (DTE)</div>
               <div className="flex gap-1.5 flex-wrap">
                 <Chip tone="blue">target {strikeEngine.config.dte_selection.target}d</Chip>
                 <Chip tone="muted">rango {strikeEngine.config.dte_selection.min}–{strikeEngine.config.dte_selection.max}d</Chip>
@@ -660,10 +651,10 @@ export function StrategyReference() {
           {/* selección de estructura — el corazón */}
           {ss && (
             <div className="mb-4">
-              <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+              <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
                 Selección de estructura · {ss.method?.replace(/_/g, ' ')}
               </div>
-              <p className="text-base mb-2" style={{ color: 'var(--text-secondary)' }}>{ss.description}</p>
+              <p className="text-lg mb-2" style={{ color: 'var(--text-secondary)' }}>{ss.description}</p>
               <div className="flex gap-1.5 flex-wrap mb-3">
                 {ss.thresholds && <Chip tone="blue">neutral |Z| &lt; {ss.thresholds.neutral_z}</Chip>}
                 {ss.thresholds && <Chip tone="blue">extremo |Z| &gt; {ss.thresholds.extreme_z}</Chip>}
@@ -686,10 +677,10 @@ export function StrategyReference() {
                 <table className="w-full" style={{ borderCollapse: 'collapse' }}>
                   <thead>
                     <tr>
-                      <TH w="32px">#</TH>
-                      <TH w="200px">Escenario</TH>
-                      <TH w="220px">Condiciones</TH>
-                      <TH w="150px">Estructura</TH>
+                      <TH w="40px">#</TH>
+                      <TH w="230px">Escenario</TH>
+                      <TH w="280px">Condiciones</TH>
+                      <TH w="170px">Estructura</TH>
                       <TH>Razonamiento</TH>
                     </tr>
                   </thead>
@@ -704,7 +695,7 @@ export function StrategyReference() {
           {/* spread width */}
           {strikeEngine.config?.spread_width?.symbol_overrides && (
             <div className="mb-4">
-              <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+              <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
                 Ancho de spread (puntos)
               </div>
               <div className="flex gap-2 flex-wrap">
@@ -714,7 +705,7 @@ export function StrategyReference() {
                     className="rounded p-2"
                     style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-dark)' }}
                   >
-                    <span className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>{sym}</span>{' '}
+                    <span className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{sym}</span>{' '}
                     <Muted>default {o.default} · {o.min}–{o.max} · step {o.step}</Muted>
                   </div>
                 ))}
@@ -728,7 +719,7 @@ export function StrategyReference() {
           {/* checks de strikes */}
           {strikeEngine.checks && (
             <div>
-              <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Validaciones de strikes</div>
+              <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Validaciones de strikes</div>
               <ChecksTable checks={strikeEngine.checks} rules={rules} withSide />
             </div>
           )}
@@ -739,7 +730,7 @@ export function StrategyReference() {
       {microstructure && (
         <Card>
           <SectionTitle n="Capa 3">Microestructura</SectionTitle>
-          <p className="text-base mb-3" style={{ color: 'var(--text-secondary)' }}>{microstructure.description}</p>
+          <p className="text-lg mb-3" style={{ color: 'var(--text-secondary)' }}>{microstructure.description}</p>
           {microstructure.checks && <ChecksTable checks={microstructure.checks} rules={rules} />}
         </Card>
       )}
@@ -748,7 +739,7 @@ export function StrategyReference() {
       {riskSizing && (
         <Card>
           <SectionTitle n="Capa 4">Sizing &amp; Riesgo</SectionTitle>
-          <p className="text-base mb-3" style={{ color: 'var(--text-secondary)' }}>{riskSizing.description}</p>
+          <p className="text-lg mb-3" style={{ color: 'var(--text-secondary)' }}>{riskSizing.description}</p>
           {riskSizing.config && (
             <div className="flex gap-1.5 flex-wrap mb-4">
               {riskSizing.config.risk_per_trade_pct != null && (
@@ -769,7 +760,7 @@ export function StrategyReference() {
             {(['max_contracts', 'max_heat', 'portfolio_heat', 'risk_per_trade'] as const).map((k) =>
               defs[k]?.formula ? (
                 <div key={k}>
-                  <div className="text-base mb-0.5" style={{ color: 'var(--text-secondary)' }}>{k.replace(/_/g, ' ')}</div>
+                  <div className="text-lg mb-0.5" style={{ color: 'var(--text-secondary)' }}>{k.replace(/_/g, ' ')}</div>
                   <Mono>{defs[k].formula}</Mono>
                 </div>
               ) : null
@@ -782,10 +773,10 @@ export function StrategyReference() {
       {pb?.ranking && (
         <Card>
           <SectionTitle>Ranking de oportunidades</SectionTitle>
-          <p className="text-base mb-2" style={{ color: 'var(--text-secondary)' }}>{pb.ranking.description}</p>
+          <p className="text-lg mb-2" style={{ color: 'var(--text-secondary)' }}>{pb.ranking.description}</p>
           {pb.ranking.score_formula && (
             <div
-              className="font-mono text-base px-3 py-2 rounded mb-3 text-center"
+              className="font-mono text-lg px-3 py-2 rounded mb-3 text-center"
               style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--blue-gc)' }}
             >
               priorityScore = {pb.ranking.score_formula}
@@ -799,7 +790,7 @@ export function StrategyReference() {
                 style={{ backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-dark)', minWidth: 200 }}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-base font-medium" style={{ color: 'var(--text-primary)' }}>{c.label}</span>
+                  <span className="text-lg font-medium" style={{ color: 'var(--text-primary)' }}>{c.label}</span>
                   <Chip tone="blue">peso {pct(c.weight, 0)}</Chip>
                 </div>
                 {c.target && <div className="mb-1"><Chip tone="green">target {c.target}</Chip></div>}
@@ -822,7 +813,7 @@ export function StrategyReference() {
         {/* credit_ratio_min_by_iv_rank — tabla de tramos */}
         {defs.credit_ratio_min_by_iv_rank?.ranges && (
           <div className="mt-4">
-            <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+            <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
               Credit ratio mínimo según IV Rank
             </div>
             <table className="w-full md:w-1/2" style={{ borderCollapse: 'collapse' }}>
@@ -846,7 +837,7 @@ export function StrategyReference() {
           if (rest.length === 0) return null;
           return (
             <div className="mt-4">
-              <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+              <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
                 Referencia completa de fórmulas y lookups ({rest.length})
               </div>
               <div className="overflow-x-auto">
@@ -856,6 +847,7 @@ export function StrategyReference() {
                       <TH w="220px">Definición</TH>
                       <TH w="110px">Tipo</TH>
                       <TH>Fórmula / Valor</TH>
+                      <TH w="130px">Estado</TH>
                     </tr>
                   </thead>
                   <tbody>
@@ -864,6 +856,7 @@ export function StrategyReference() {
                         <TD top>{humanize(k)}</TD>
                         <TD top><Chip tone="muted">{humanize(defs[k].type ?? '—')}</Chip></TD>
                         <TD top><Mono>{defSummary(defs[k])}</Mono></TD>
+                        <TD top><Semaphore status={implFor(k)} /></TD>
                       </tr>
                     ))}
                   </tbody>
@@ -880,7 +873,7 @@ export function StrategyReference() {
 
         {tm.evaluation_priority && (
           <div className="mb-4">
-            <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Prioridad de evaluación</div>
+            <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Prioridad de evaluación</div>
             <div className="flex gap-1.5 flex-wrap items-center">
               {tm.evaluation_priority.map((p, i) => (
                 <React.Fragment key={p}>
@@ -928,7 +921,7 @@ export function StrategyReference() {
         <SectionTitle>Ejecución &amp; Calidad de datos</SectionTitle>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Ejecución</div>
+            <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Ejecución</div>
             {exec?.submit_multileg_as_complex_order && <KV k="Orden multi-leg" v="orden compleja única" />}
             {exec?.avoid_first_minutes_open != null && <KV k="Evitar apertura" v={`primeros ${exec.avoid_first_minutes_open} min`} />}
             {exec?.avoid_last_minutes_close != null && <KV k="Evitar cierre" v={`últimos ${exec.avoid_last_minutes_close} min`} />}
@@ -937,7 +930,7 @@ export function StrategyReference() {
             )}
           </div>
           <div>
-            <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Calidad de datos</div>
+            <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Calidad de datos</div>
             {dq?.max_quote_age_seconds != null && <KV k="Antigüedad máx. quote" v={`${dq.max_quote_age_seconds}s`} />}
             {dq?.max_structural_levels_age_minutes != null && <KV k="Niveles estructurales" v={`${dq.max_structural_levels_age_minutes} min`} />}
             {dq?.block_on_crossed_market != null && <KV k="Mercado cruzado" v={dq.block_on_crossed_market ? 'bloquear' : 'permitir'} />}
@@ -951,7 +944,7 @@ export function StrategyReference() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4" style={{ borderTop: '1px solid var(--border-dark)' }}>
             {exec?.partial_fill_policy && (
               <div>
-                <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Política de fill parcial</div>
+                <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Política de fill parcial</div>
                 {Object.entries(exec.partial_fill_policy).map(([k, v]) => (
                   <KV key={k} k={humanize(k)} v={fmtVal(v)} />
                 ))}
@@ -959,7 +952,7 @@ export function StrategyReference() {
             )}
             {exec?.forced_exit_policy && (
               <div>
-                <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Política de salida forzada</div>
+                <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Política de salida forzada</div>
                 {Object.entries(exec.forced_exit_policy).map(([k, v]) => (
                   <KV key={k} k={humanize(k)} v={fmtVal(v)} />
                 ))}
@@ -976,7 +969,7 @@ export function StrategyReference() {
 
           {rules.display_config?.alerts_priority && (
             <div className="mb-4">
-              <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Prioridad de alertas</div>
+              <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Prioridad de alertas</div>
               <div className="flex gap-1.5 flex-wrap items-center">
                 {rules.display_config.alerts_priority.map((a, i) => (
                   <Chip key={a} tone="muted">{i + 1}. {humanize(a)}</Chip>
@@ -987,7 +980,7 @@ export function StrategyReference() {
 
           {rules.display_config?.portfolio_manager_table?.columns && (
             <div className="mb-4">
-              <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+              <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
                 Columnas del Portfolio Manager ({rules.display_config.portfolio_manager_table.columns.length})
               </div>
               <div className="flex gap-1.5 flex-wrap">
@@ -1004,7 +997,7 @@ export function StrategyReference() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {rules.operators && (
               <div>
-                <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Operadores soportados</div>
+                <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Operadores soportados</div>
                 <div className="flex gap-1.5 flex-wrap">
                   {rules.operators.values.map((o) => (
                     <Chip key={o} tone="blue">{o}{OP_SYMBOL[o] ? ` (${OP_SYMBOL[o]})` : ''}</Chip>
@@ -1014,7 +1007,7 @@ export function StrategyReference() {
             )}
             {rules.on_fail_actions && (
               <div>
-                <div className="text-base uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Acciones ante fallo</div>
+                <div className="text-lg uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Acciones ante fallo</div>
                 <div className="flex gap-1.5 flex-wrap">
                   {rules.on_fail_actions.values.map((a) => (
                     <Chip key={a} tone={onFailTone(a)}>{ON_FAIL_LABEL[a] ?? humanize(a)}</Chip>
@@ -1058,8 +1051,8 @@ function ExitCard({ tone, title, detail }: { tone: Tone; title: string; detail: 
   const c = TONE_VARS[tone];
   return (
     <div className="rounded-lg p-3" style={{ border: `1px solid ${c.border}`, backgroundColor: c.bg }}>
-      <div className="font-semibold text-base mb-1" style={{ color: c.fg }}>{title}</div>
-      <div className="text-base leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{detail}</div>
+      <div className="font-semibold text-lg mb-1" style={{ color: c.fg }}>{title}</div>
+      <div className="text-lg leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{detail}</div>
     </div>
   );
 }
