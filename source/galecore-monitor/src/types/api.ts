@@ -1,127 +1,264 @@
 // ─── Rules API ────────────────────────────────────────────────────────────────
-// Matches the actual structure returned by /App/GaleCore/Rules/Core
+// Tipos que reflejan la estructura real de galecore_rules_core.json (v1.3.x).
+// El frontend renderiza lo que el JSON declara — no hardcodea lógica de negocio.
+
+/** Umbral de un check: valor único, rango, o referencia a definitions/marketdata. */
+export interface RuleThreshold {
+  value?: number;
+  min?: number;
+  max?: number;
+  ref?: string;
+}
+
+/** Check individual de una capa de validación (macro_regime / position_builder.layers). */
+export interface RuleCheck {
+  id: string;
+  label: string;
+  operator?: string;
+  metric?: { ref?: string };
+  threshold?: RuleThreshold;
+  side?: string;
+  applies_per_leg?: string;
+  applies_per_spread?: boolean;
+  applies_to_symbol?: string[];
+  applies_to_side?: string;
+  on_fail?: string;
+  rule?: string;
+  note?: string;
+}
+
+/** Capa 1 — Régimen macro. */
+export interface MacroRegimeRules {
+  name?: string;
+  description?: string;
+  pass_rule?: string;
+  on_fail?: string;
+  checks: RuleCheck[];
+}
+
+/** Una de las reglas de selección de estructura (multi-factor) en strike_engine. */
+export interface StructureSelectionRule {
+  id: number;
+  name: string;
+  label: string;
+  conditions: Record<string, string> | string;
+  output: string;
+  rationale: string;
+}
+
+export interface SpreadWidthOverride {
+  default: number;
+  min: number;
+  max: number;
+  step: number;
+}
+
+/** config de las capas del position_builder (strike_engine y risk_and_sizing). */
+export interface LayerConfig {
+  // strike_engine
+  dte_selection?: {
+    target: number;
+    min: number;
+    max: number;
+    expiration_preference?: string;
+    allow_weeklies?: boolean;
+    weekly_condition?: string;
+  };
+  structure_selection?: {
+    method?: string;
+    description?: string;
+    thresholds?: { neutral_z: number; extreme_z: number };
+    inputs?: Record<string, { ref?: string }>;
+    evaluation_order?: string;
+    rules: StructureSelectionRule[];
+  };
+  spread_width?: {
+    symbol_overrides?: Record<string, SpreadWidthOverride>;
+    unit?: string;
+    selection_rule?: string;
+  };
+  asymmetry_check?: {
+    enabled: boolean;
+    distance_ratio_threshold: number;
+    absolute_distance_min_ref?: string;
+    on_trigger?: string;
+  };
+  // risk_and_sizing
+  risk_per_trade_pct?: number;
+  max_positions?: number;
+  max_heat_pct_net_liq?: number;
+}
+
+export interface PositionBuilderLayer {
+  id: number;
+  name: string;
+  description?: string;
+  pass_rule?: string;
+  on_layer_fail?: string;
+  config?: LayerConfig;
+  checks?: RuleCheck[];
+}
+
+export interface RankingCriterion {
+  id: string;
+  label: string;
+  metric?: string;
+  ref?: string;
+  formula?: string;
+  direction?: string;
+  weight: number;
+  target?: number;
+  note?: string;
+}
+
+export interface PositionBuilderRules {
+  description?: string;
+  cascade_rule?: string;
+  ranking?: {
+    description?: string;
+    method?: string;
+    score_formula?: string;
+    output_field?: string;
+    tiebreak?: string;
+    criteria: RankingCriterion[];
+  };
+  layers?: PositionBuilderLayer[];
+}
+
+/** Entrada del diccionario definitions: fórmulas, lookups e interpretaciones. */
+export interface RuleDefinition {
+  type?: string;
+  formula?: string;
+  source?: string;
+  endpoint?: string;
+  unit?: string;
+  target?: string;
+  note?: string;
+  interpretation?: string | Record<string, string>;
+  thresholds?: Record<string, unknown>;
+  ranges?: Array<{ min: number; max: number; value: number }>;
+  values?: Record<string, number>;
+  [k: string]: unknown;
+}
+
+export interface SignalLabel {
+  color: string;
+  condition: string;
+}
+
 export interface CoreRules {
   _meta: {
     version: string;
     strategy: string;
+    profile?: string;
     last_updated: string;
+    notes?: string;
+  };
+  principles?: Record<string, boolean>;
+  strategy_scope?: {
+    allowed_strategies: string[];
+    forbidden_strategies: string[];
+    default_structure: string;
+    structure_selection_method?: string;
   };
   universe: {
     tickers: string[];
-    min_avg_daily_volume: number;
+    mode?: string;
+    min_avg_daily_volume_underlying?: number;
+    min_avg_daily_volume?: number;
   };
-  macro_regime: {
-    vix_structure: {
-      max_vix_absolute: number;
-    };
-    event_buffer: {
-      days_to_fomc_min: number;
-      days_to_cpi_min: number;
-      event_alert_days: number;
-    };
-    sentiment_canary: {
-      max_abs_change_pct: number;
-    };
+  data_quality?: {
+    max_quote_age_seconds: number;
+    max_structural_levels_age_minutes: number;
+    block_on_crossed_market: boolean;
+    block_on_missing_critical_data: boolean;
   };
-  gamma_regime: {
-    gex_total: {
-      min_billion_usd: number;
-    };
-    spot_vs_zero_gamma: {
-      buffer_pct: number;
-      confirm_bars: number;
-    };
-    persistence: {
-      consecutive_days_min: number;
+  definitions?: Record<string, RuleDefinition>;
+  macro_regime: MacroRegimeRules;
+  position_builder?: PositionBuilderRules;
+  execution?: {
+    submit_multileg_as_complex_order?: boolean;
+    avoid_first_minutes_open?: number;
+    avoid_last_minutes_close?: number;
+    partial_fill_policy?: Record<string, unknown>;
+    forced_exit_policy?: Record<string, unknown>;
+    slippage?: {
+      new_entries?: { max_total_cost_pct_of_expected_credit?: number };
+      defensive_rolls?: { formula_ref?: string };
     };
   };
-  options_filters: {
-    iv_rank: {
-      min: number;
-      max: number;
-      lookback_days: number;
-    };
-    liquidity: {
-      open_interest_min_short_leg: number;
-      open_interest_min_long_leg: number;
-      bid_ask_spread_max_pct_mid: number;
-    };
-  };
-  trade_construction: {
-    dte_target: {
-      min: number;
-      max: number;
-      ideal: number;
-    };
-    short_leg_delta: {
-      max_abs: number;
-    };
-    spread_width: {
-      default_points: number;
-      symbol_overrides: Record<string, number>;
-    };
-    premium_capture: {
-      tiers: Array<{
-        iv_rank_min?: number;
-        iv_rank_max?: number;
-        min_credit_width_ratio: number;
-      }>;
-    };
-  };
-  risk_limits: {
-    risk_per_trade_pct: number;
-    risk_per_trade_usd_max: number;
-    portfolio_heat_max_pct: number;
-    max_concurrent_positions: number;
-    max_positions_per_symbol: number;
-  };
-  // Actual v1.3.1 JSON structure for trade_management
   trade_management: {
+    evaluation_priority?: string[];
     daily_kill_switch?: {
       daily_portfolio_mtm_loss_pct_net_liq_max: number;
+      action?: string;
     };
     take_profit?: {
       pct_of_initial_credit: number;
+      action?: string;
+    };
+    macro_event_binary_avoidance?: {
+      trigger?: string;
+      action?: string;
+    };
+    structural_support_loss?: {
+      trigger?: string;
+      confirm_consecutive_recalculations?: number;
+      action?: string;
     };
     hard_defense?: {
       trigger_any: {
         short_leg_delta_abs_gt: number;
         unrealized_loss_pct_of_initial_credit_gte: number;
       };
+      action?: string;
     };
     defensive_roll?: {
       trigger_unrealized_loss_pct_of_initial_credit_gte: number;
       min_dte_remaining: number;
       min_net_credit_for_roll: number;
       max_rolls_per_position: number;
+      slippage_rule_ref?: string;
     };
     time_exit?: {
       dte_threshold: number;
-    };
-    // Legacy flat fields (kept for backward compat with older type)
-    take_profit_pct_credit?: number;
-    stop_loss_pct_credit?: number;
-    time_exit_dte?: number;
-    adjustment_protocol?: {
-      min_dte_to_roll: number;
-      min_credit_for_roll: number;
-      trigger_loss_pct_credit: number;
-    };
-    hard_defense_legacy?: {
-      short_leg_delta_max_abs: number;
+      action?: string;
     };
   };
-  // Partial position_builder type for risk config access
-  position_builder?: {
-    layers?: Array<{
-      id: number;
-      name: string;
-      config?: {
-        risk_per_trade_pct?: number;
-        max_positions?: number;
-        max_heat_pct_net_liq?: number;
-      };
-    }>;
+  monitoring?: { review_frequency_minutes: number };
+  display_config?: {
+    signal_labels?: Record<string, SignalLabel>;
+    [k: string]: unknown;
+  };
+
+  // ── Campos legacy (esquema viejo). Algunos componentes aún los leen vía ?. con
+  //    defaults; se mantienen opcionales para compatibilidad de compilación.
+  gamma_regime?: {
+    gex_total?: { min_billion_usd?: number };
+    [k: string]: unknown;
+  };
+  options_filters?: {
+    iv_rank?: { min?: number; max?: number; lookback_days?: number };
+    liquidity?: {
+      open_interest_min_short_leg?: number;
+      open_interest_min_long_leg?: number;
+      bid_ask_spread_max_pct_mid?: number;
+    };
+  };
+  trade_construction?: {
+    dte_target?: { min?: number; max?: number; ideal?: number };
+    short_leg_delta?: { max_abs?: number };
+    spread_width?: { default_points?: number; symbol_overrides?: Record<string, number> };
+    premium_capture?: {
+      tiers?: Array<{ iv_rank_min?: number; iv_rank_max?: number; min_credit_width_ratio: number }>;
+    };
+  };
+  risk_limits?: {
+    risk_per_trade_pct?: number;
+    risk_per_trade_usd_max?: number;
+    portfolio_heat_max_pct?: number;
+    max_concurrent_positions?: number;
+    max_positions_per_symbol?: number;
   };
 }
 

@@ -254,7 +254,7 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   │   ├── validation/
   │   │   └── ValidationLayers.tsx # macroRegime (6 checks) + positionBuilder layers con semáforo
   │   └── strategy/
-  │       └── StrategyReference.tsx # Tab Estrategia: reglas, umbrales, protocolo de ajuste
+  │       └── StrategyReference.tsx # Tab Estrategia: refleja galecore_rules_core.json tal cual (sin hardcodear umbrales). Renderiza dinámicamente principios/scope, las 4 capas con sus checks reales + on_fail, las 8 reglas de selección de estructura (multi-factor), ranking (priorityScore), glosario de conceptos/fórmulas desde definitions (gex_skew, credit_ratio/regla 1/3, z-score, EM, POP, flow), trade_management, execution, data_quality y signal_labels. Tipos en types/api.ts (CoreRules + RuleCheck/RuleDefinition/PositionBuilderRules/...) alineados al esquema v1.3.x
   ├── pages/
   │   ├── Home.tsx            # Tab Inicio
   │   ├── PortfolioManager.tsx # Tab Portfolio: PositionBuilder API + flow en tiempo real
