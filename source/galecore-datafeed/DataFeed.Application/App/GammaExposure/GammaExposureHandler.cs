@@ -1,6 +1,7 @@
 using DataFeed.Application.Functions;
 using DataFeed.Application.Shared;
 using DataFeed.Infrastructure.Providers.Tastytrade;
+using DataFeed.Infrastructure.Providers.Tastytrade.Models;
 using MediatR;
 using Microsoft.Extensions.Configuration;
 using System.Globalization;
@@ -16,6 +17,11 @@ namespace DataFeed.Application.App.GammaExposure
 
         // Tasa libre de riesgo por defecto (si FRED no disponible)
         private const double DEFAULT_RISK_FREE_RATE = 0.045;
+
+        // Cache de la cadena de opciones por símbolo/día. La chain (expiraciones, strikes,
+        // streamer symbols) es estática intradía → la primera llamada del día paga el REST
+        // (~1.3s) y las siguientes la reutilizan. Estático porque el handler se instancia por request.
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (OptionChainsModel Chain, DateTime Day)> _chainCache = new();
 
         public GammaExposureHandler(IConfiguration config, ITastytradeOAuth auth, IHttpClientFactory client)
         {
@@ -40,14 +46,33 @@ namespace DataFeed.Application.App.GammaExposure
                 // ═══════════════════════════════════════════════════════════
                 var apiProvider = new TastytradeApiProvider(_config, _auth, _client);
 
-                var marketData = await apiProvider.GetMarketDataByTypeAsync(request.Symbol, cancellationToken);
+                // El spot siempre se pide en vivo. La option chain se cachea por día:
+                // si hay hit solo se pide el spot; si no, spot + chain en paralelo.
+                var today = DateTime.UtcNow.Date;
+                ByTypeModel? marketData;
+                OptionChainsModel? optionChains;
+
+                if (_chainCache.TryGetValue(request.Symbol, out var cachedChain) && cachedChain.Day == today)
+                {
+                    optionChains = cachedChain.Chain;
+                    marketData = await apiProvider.GetMarketDataByTypeAsync(request.Symbol, cancellationToken);
+                }
+                else
+                {
+                    var spotTask = apiProvider.GetMarketDataByTypeAsync(request.Symbol, cancellationToken);
+                    var chainTask = apiProvider.GetOptionChainsAsync(request.Symbol, cancellationToken);
+                    await Task.WhenAll(spotTask, chainTask);
+                    marketData = spotTask.Result;
+                    optionChains = chainTask.Result;
+                    if (optionChains?.data?.items != null)
+                        _chainCache[request.Symbol] = (optionChains, today);
+                }
+
                 double spot = marketData?.Data?.Items?.FirstOrDefault()?.Mark ?? 0;
                 if (spot <= 0)
                     spot = marketData?.Data?.Items?.FirstOrDefault()?.Last ?? 0;
                 if (spot <= 0)
                     throw new Exception($"No se pudo obtener el precio spot de {request.Symbol}");
-
-                var optionChains = await apiProvider.GetOptionChainsAsync(request.Symbol, cancellationToken);
 
                 var allExpirations = optionChains?.data?.items?.SelectMany(i => i.expirations).ToList();
                 if (allExpirations == null || !allExpirations.Any())
@@ -99,9 +124,13 @@ namespace DataFeed.Application.App.GammaExposure
                 // Candle (dentro de GetMultiGreeksAsync) provee OI del cierre anterior.
                 // ═══════════════════════════════════════════════════════════
                 var socketProvider = new TastytradeSocketProvider(_config, _auth, _client);
+                // Banda de |delta| para suscribir Candle (OI): saltea deep OTM/ITM (gamma ≈ 0)
+                // para reducir latencia sin perder los strikes relevantes para los muros.
                 var multiGreeks = await socketProvider.GetMultiGreeksAsync(
                     streamerSymbols.ToArray(),
-                    cancellationToken
+                    cancellationToken,
+                    candleDeltaMin: 0.02,
+                    candleDeltaMax: 0.98
                 );
 
                 response.Spot = spot;

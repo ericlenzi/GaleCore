@@ -27,6 +27,12 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
         private List<CandleModel> candles = new();
 
+        // Cache de OI + cierre anterior por símbolo streamer. El OI es el settled del día previo
+        // (no cambia intradía), así que se cachea por día: la primera llamada del día paga el
+        // fetch de Candle; las siguientes reutilizan el valor. Estático porque el provider se
+        // instancia por request. Key: símbolo streamer. Value: (OI, prevClose, día UTC del fetch).
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Oi, double? PrevClose, DateTime Day)> _oiCache = new();
+
         public TastytradeSocketProvider(IConfiguration config, ITastytradeOAuth auth, IHttpClientFactory client)
         {
             _config = config;
@@ -456,15 +462,19 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         /// Suscribe a Greeks + Candle (para OI) de múltiples opciones en UNA sola conexión.
         /// Greeks devuelve IV/delta/gamma en tiempo real. Candle devuelve OI del cierre anterior.
         /// </summary>
-        public async Task<MultiGreeksModel> GetMultiGreeksAsync(string[] optionStreamerSymbols, CancellationToken cancellationToken)
+        /// <param name="candleDeltaMin">Mínimo |delta| para suscribir Candle (OI). Permite saltar
+        /// strikes deep OTM/ITM que aportan gamma ≈ 0. Default 0 = sin filtro inferior.</param>
+        /// <param name="candleDeltaMax">Máximo |delta| para suscribir Candle. Default 1 = sin filtro superior.</param>
+        public async Task<MultiGreeksModel> GetMultiGreeksAsync(string[] optionStreamerSymbols, CancellationToken cancellationToken,
+            double candleDeltaMin = 0.0, double candleDeltaMax = 1.0)
         {
             var result = new MultiGreeksModel();
             if (optionStreamerSymbols == null || optionStreamerSymbols.Length == 0)
                 return result;
 
-            // Símbolos esperados para Greeks y Candle
+            // pendingGreeks: todos. pendingCandles se llena luego del filtro por delta (Fase 2).
             var pendingGreeks = new HashSet<string>(optionStreamerSymbols);
-            var pendingCandles = new HashSet<string>(optionStreamerSymbols);
+            var pendingCandles = new HashSet<string>();
             var tcs = new TaskCompletionSource<bool>();
 
             var authws = await _auth.GetWsOAuthApiAsync();
@@ -526,13 +536,18 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                                     result.OpenInterest[candleKey] = (long)parsedOI;
 
                                     // Close del mismo candle = cierre del período anterior del leg
+                                    double? prevClose = null;
                                     if (!string.IsNullOrEmpty(candleData.Close)
                                         && double.TryParse(candleData.Close,
                                             NumberStyles.Any, CultureInfo.InvariantCulture, out double parsedClose)
                                         && parsedClose > 0)
                                     {
+                                        prevClose = parsedClose;
                                         result.PrevClose[candleKey] = parsedClose;
                                     }
+
+                                    // Cachear para reusar en las próximas llamadas del mismo día
+                                    _oiCache[candleKey] = ((long)parsedOI, prevClose, DateTime.UtcNow.Date);
                                 }
 
                                 // Marcar candle como recibido independientemente del valor de OI
@@ -576,12 +591,43 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             // Fase 1: esperar hasta que lleguen todos los Greeks (máx 15s)
             await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(15), cancellationToken));
 
+            // Filtro por banda de |delta|: solo pedimos Candle (OI) de strikes relevantes.
+            // Los deep OTM/ITM (fuera de la banda) aportan gamma ≈ 0 y solo agregan latencia.
+            // Si no llegó el Greek de un símbolo, no se puede evaluar → se omite (sin OI igual).
+            var candleSymbols = optionStreamerSymbols
+                .Where(sym =>
+                {
+                    if (!result.Greeks.TryGetValue(sym, out var g)) return false;
+                    var absDelta = Math.Abs(g.Delta);
+                    return absDelta >= candleDeltaMin && absDelta <= candleDeltaMax;
+                })
+                .ToArray();
+
+            // Cache diario: los símbolos ya cacheados hoy se resuelven sin pedir Candle.
+            // Solo se fetchea (vía WebSocket) los cache-miss.
+            var today = DateTime.UtcNow.Date;
+            var toFetch = new List<string>();
+            foreach (var sym in candleSymbols)
+            {
+                if (_oiCache.TryGetValue(sym, out var cached) && cached.Day == today)
+                {
+                    result.OpenInterest[sym] = cached.Oi;
+                    if (cached.PrevClose.HasValue)
+                        result.PrevClose[sym] = cached.PrevClose.Value;
+                }
+                else
+                {
+                    toFetch.Add(sym);
+                    pendingCandles.Add(sym);
+                }
+            }
+
             // Fase 2: Candle (OI + cierre anterior) en lotes secuenciales add → esperar → remove
-            for (int i = 0; i < optionStreamerSymbols.Length; i += CANDLE_BATCH_SIZE)
+            for (int i = 0; i < toFetch.Count; i += CANDLE_BATCH_SIZE)
             {
                 if (cancellationToken.IsCancellationRequested) break;
 
-                var batchSymbols = optionStreamerSymbols.Skip(i).Take(CANDLE_BATCH_SIZE).ToArray();
+                var batchSymbols = toFetch.Skip(i).Take(CANDLE_BATCH_SIZE).ToArray();
                 var addSubs = batchSymbols
                     .Select(sym => (object)new { type = "Candle", symbol = sym + "{=d}", fromTime })
                     .ToList();
