@@ -42,6 +42,12 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
             void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
 
+            // Asegurar que la conexión esté realmente establecida antes del handshake.
+            // socket.Start() puede retornar con IsRunning=false bajo churn de conexiones
+            // (la conexión inicial falla y el auto-reconnect tarda ~60s), lo que dejaba
+            // SETUP/AUTH enviados al vacío → AUTH timeout. Reintentamos Start() hasta conectar.
+            await EnsureConnectedAsync(socket);
+
             // Step 1+2: SETUP + AUTH (can be sent together, server processes in order)
             Send(new { type = "SETUP", channel = 0, version = "0.1-DXF-JS/0.3.0", keepaliveTimeout = 60, acceptKeepaliveTimeout = 60 });
             Send(new { type = "AUTH", channel = 0, token });
@@ -59,6 +65,32 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
             // Step 4: FEED_SETUP
             Send(new { type = "FEED_SETUP", channel = 3, acceptDataFormat = "FULL", parameters = new { } });
+        }
+
+        /// <summary>
+        /// Espera a que el WebSocket esté efectivamente conectado (IsRunning=true).
+        /// Si no lo está, reintenta Start() hasta 3 veces (la conexión inicial puede
+        /// fallar silenciosamente bajo churn). Lanza si no logra conectar.
+        /// </summary>
+        private static async Task EnsureConnectedAsync(WebsocketClient socket)
+        {
+            const int maxAttempts = 3;
+            const int waitPerAttemptMs = 3_000;
+
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                if (socket.IsRunning) return;
+
+                try { await socket.Start(); } catch { }
+
+                var deadline = DateTime.UtcNow.AddMilliseconds(waitPerAttemptMs);
+                while (!socket.IsRunning && DateTime.UtcNow < deadline)
+                    await Task.Delay(100);
+
+                if (socket.IsRunning) return;
+            }
+
+            throw new TimeoutException("DxLink handshake: WebSocket no conectó (IsRunning=false tras reintentos)");
         }
     }
 }

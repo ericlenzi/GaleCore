@@ -54,6 +54,9 @@ namespace DataFeed.Application.App.GammaExposure
         /// </summary>
         public List<GammaExposureStrike> Strikes { get; set; } = new();
 
+        public int StrikesWithOI => Strikes.Count(s => s.CallOI > 0 || s.PutOI > 0);
+        public int StrikesWithGEX => Strikes.Count(s => s.CallGEX > 0 || s.PutGEX < 0);
+
         public double CallGEX
         {
             get
