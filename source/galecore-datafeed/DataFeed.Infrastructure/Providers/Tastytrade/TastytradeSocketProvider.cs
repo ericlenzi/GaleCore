@@ -478,7 +478,17 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                 try
                 {
                     var json = JObject.Parse(m.Text);
-                    if (json["type"]?.ToString() != "FEED_DATA") return;
+                    var msgType = json["type"]?.ToString();
+
+                    // No tragar errores de DXLink en silencio: loguearlos (ej. límite de
+                    // suscripción Candle excedido) facilita diagnosticar fallos de feed.
+                    if (msgType == "ERROR")
+                    {
+                        Console.WriteLine($"[GetMultiGreeksAsync] DXLink ERROR: {m.Text}");
+                        return;
+                    }
+
+                    if (msgType != "FEED_DATA") return;
 
                     var dataArray = json["data"] as JArray;
                     if (dataArray == null) return;
@@ -502,14 +512,17 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                         {
                             // Candle para OI + cierre del período anterior (eventType puede ser "Candle" o ausente)
                             var candleData = item.ToObject<CandleData>();
-                            if (candleData != null && !string.IsNullOrEmpty(candleData.OpenInterest))
+                            if (candleData == null) continue;
+
+                            var candleKey = eventSymbol.Replace("{=d}", "");
+
+                            if (!string.IsNullOrEmpty(candleData.OpenInterest))
                             {
                                 // OI puede llegar como decimal ("1234.0") o entero
                                 if (double.TryParse(candleData.OpenInterest,
                                     NumberStyles.Any, CultureInfo.InvariantCulture, out double parsedOI)
                                     && parsedOI > 0)
                                 {
-                                    var candleKey = eventSymbol.Replace("{=d}", "");
                                     result.OpenInterest[candleKey] = (long)parsedOI;
 
                                     // Close del mismo candle = cierre del período anterior del leg
@@ -520,9 +533,16 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                                     {
                                         result.PrevClose[candleKey] = parsedClose;
                                     }
-
-                                    pendingCandles.Remove(candleKey);
                                 }
+
+                                // Marcar candle como recibido independientemente del valor de OI
+                                pendingCandles.Remove(candleKey);
+                            }
+                            // SNAPSHOT_END (0x08) o SNAPSHOT_SNIP (0x10): el snapshot del símbolo
+                            // terminó sin OI útil → marcarlo recibido para no esperar el timeout del lote.
+                            else if ((candleData.EventFlags & 0x08) != 0 || (candleData.EventFlags & 0x10) != 0)
+                            {
+                                pendingCandles.Remove(candleKey);
                             }
                         }
                     }
@@ -539,34 +559,52 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
             void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
 
-            // Suscribir a Greeks (IV real-time) y Candle (OI del cierre anterior)
+            // DXLink limita el TOTAL de suscripciones Candle activas en el canal (no por mensaje):
+            // si se acumulan demasiadas devuelve BAD_ACTION ("subscription size for event type
+            // 'Candle' is too big"). Por eso los Candle se procesan en lotes con ciclo
+            // add → esperar snapshot → remove, manteniendo las activas siempre ≤ batch size.
+            // Los Greeks (streaming liviano) no tienen ese límite y van en un solo bloque.
+            const int CANDLE_BATCH_SIZE = 80;
             var fromTime = new DateTimeOffset(DateTime.UtcNow.Date.AddDays(-2), TimeSpan.Zero).ToUnixTimeMilliseconds();
-            var subscriptions = new List<object>();
-            foreach (var sym in optionStreamerSymbols)
-            {
-                subscriptions.Add(new { type = "Greeks", symbol = sym });
-                subscriptions.Add(new { type = "Candle", symbol = sym + "{=d}", fromTime });
-            }
 
-            Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = subscriptions });
+            // Suscripción Greeks (IV/delta/gamma real-time) — un solo bloque
+            var greeksSubs = optionStreamerSymbols
+                .Select(sym => (object)new { type = "Greeks", symbol = sym })
+                .ToList();
+            Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = greeksSubs });
 
             // Fase 1: esperar hasta que lleguen todos los Greeks (máx 15s)
             await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(15), cancellationToken));
 
-            // Fase 2: si Greeks llegaron, esperar hasta 8s más para los snapshots de Candle (OI)
-            // Los candles históricos llegan después de los eventos en tiempo real.
-            if (tcs.Task.IsCompletedSuccessfully && pendingCandles.Count > 0)
+            // Fase 2: Candle (OI + cierre anterior) en lotes secuenciales add → esperar → remove
+            for (int i = 0; i < optionStreamerSymbols.Length; i += CANDLE_BATCH_SIZE)
             {
-                var candleTimeout = Task.Delay(TimeSpan.FromSeconds(8), cancellationToken);
-                var candleDone = Task.Run(async () =>
+                if (cancellationToken.IsCancellationRequested) break;
+
+                var batchSymbols = optionStreamerSymbols.Skip(i).Take(CANDLE_BATCH_SIZE).ToArray();
+                var addSubs = batchSymbols
+                    .Select(sym => (object)new { type = "Candle", symbol = sym + "{=d}", fromTime })
+                    .ToList();
+
+                Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = addSubs });
+
+                // Esperar a que lleguen los snapshots del lote (todos sus símbolos drenados) o timeout 4s
+                var batchTimeout = Task.Delay(TimeSpan.FromSeconds(4), cancellationToken);
+                var batchDone = Task.Run(async () =>
                 {
-                    while (pendingCandles.Count > 0 && !cancellationToken.IsCancellationRequested)
+                    while (batchSymbols.Any(s => pendingCandles.Contains(s)) && !cancellationToken.IsCancellationRequested)
                         await Task.Delay(100, CancellationToken.None);
                 });
-                await Task.WhenAny(candleDone, candleTimeout);
+                await Task.WhenAny(batchDone, batchTimeout);
+
+                // Liberar las suscripciones del lote antes de pasar al siguiente
+                var removeSubs = batchSymbols
+                    .Select(sym => (object)new { type = "Candle", symbol = sym + "{=d}" })
+                    .ToList();
+                Send(new { type = "FEED_SUBSCRIPTION", channel = 3, remove = removeSubs });
             }
 
-            Send(new { type = "FEED_SUBSCRIPTION", channel = 3, remove = subscriptions });
+            Send(new { type = "FEED_SUBSCRIPTION", channel = 3, remove = greeksSubs });
 
             return result;
         }

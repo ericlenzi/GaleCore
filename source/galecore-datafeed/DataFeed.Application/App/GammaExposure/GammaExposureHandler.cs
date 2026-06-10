@@ -185,16 +185,16 @@ namespace DataFeed.Application.App.GammaExposure
                 // ═══════════════════════════════════════════════════════════
                 response.GammaZeroLevel = CalculateGammaZero(response.Strikes, spot);
 
-                // Call Wall: strike con mayor CallGEX (mayor gamma long de dealers)
+                // Call Wall: strike por encima del spot con mayor CallGEX
                 var callWallStrike = response.Strikes
-                    .Where(s => s.CallGEX > 0)
+                    .Where(s => s.Strike > spot && s.CallGEX > 0)
                     .OrderByDescending(s => s.CallGEX)
                     .FirstOrDefault();
                 response.CallWall = callWallStrike?.Strike;
 
-                // Put Wall: strike con mayor |PutGEX| (mayor gamma short de dealers)
+                // Put Wall: strike por debajo del spot con mayor |PutGEX|
                 var putWallStrike = response.Strikes
-                    .Where(s => s.PutGEX < 0)
+                    .Where(s => s.Strike < spot && s.PutGEX < 0)
                     .OrderBy(s => s.PutGEX)
                     .FirstOrDefault();
                 response.PutWall = putWallStrike?.Strike;
