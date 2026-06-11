@@ -12,11 +12,5 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         Task<TradeModel> GetTradeAsync(string symbol, CancellationToken cancellationToken);
 
         Task<TradeQuoteGreeksModel> GetTradeQuoteGreeksAsync(string symbol, bool includeGreeks, CancellationToken cancellationToken);
-
-        /// <summary>
-        /// Suscribe a Candle (intervalo diario, último día) para múltiples símbolos en UNA sola conexión WebSocket.
-        /// Devuelve OI, IV y Close de cada opción + el spot del subyacente.
-        /// </summary>
-        Task<MultiCandleModel> GetMultiCandleAsync(string underlyingSymbol, string[] optionStreamerSymbols, CancellationToken cancellationToken);
     }
 }

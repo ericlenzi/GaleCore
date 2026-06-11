@@ -39,7 +39,7 @@ namespace DataFeed.Application.App.GammaExposure
         /// <summary>
         /// Obtiene Greeks (IV/delta/gamma) + OI por símbolo vía la conexión DXLink persistente,
         /// sin abrir una sesión nueva. Greeks pasa por reference-counting (no pisa al Monitor);
-        /// Candle (OI) va en lotes con cache diario. Reemplaza a TastytradeSocketProvider.GetMultiGreeksAsync.
+        /// Candle (OI) va en lotes con cache diario.
         /// </summary>
         private async Task<MultiGreeksModel> FetchGreeksAndOIAsync(
             string[] streamerSymbols, double candleDeltaMin, double candleDeltaMax, CancellationToken ct)
