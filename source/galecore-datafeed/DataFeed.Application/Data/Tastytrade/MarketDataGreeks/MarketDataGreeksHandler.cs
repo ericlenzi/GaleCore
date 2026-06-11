@@ -25,13 +25,15 @@ namespace DataFeed.Application.Data.Tastytrade.MarketDataGreeks
         private readonly IMapper _mapper;
         private readonly ITastytradeOAuth _auth;
         private readonly IHttpClientFactory _client;
+        private readonly IDxLinkStreamingService _streaming;
 
-        public MarketDataGreeksHandler(IConfiguration config, IMapper mapper, ITastytradeOAuth auth, IHttpClientFactory client)
+        public MarketDataGreeksHandler(IConfiguration config, IMapper mapper, ITastytradeOAuth auth, IHttpClientFactory client, IDxLinkStreamingService streaming)
         {
             _config = config;
             _mapper = mapper;
             _auth = auth;
             _client = client;
+            _streaming = streaming;
         }
 
         public async Task<MarketDataGreeksResponse> Handle(MarketDataGreeksRequest request, CancellationToken cancellationToken)
@@ -45,7 +47,7 @@ namespace DataFeed.Application.Data.Tastytrade.MarketDataGreeks
                     throw new Exception("Symbol incorrect. Option symbol must be 6+6+1+8=21 chars");
 
                 var symbol = isOption ? TastytradeHelper.GetOptionSymbolFromTicker(request.Symbol) : request.Symbol;
-                var tastyWSProvider = new TastytradeSocketProvider(_config, _auth, _client);
+                var tastyWSProvider = new TastytradeSocketProvider(_config, _auth, _client, _streaming);
 
                 var prices = await tastyWSProvider.GetGreeksAsync(symbol, cancellationToken);
                 if (prices == null)

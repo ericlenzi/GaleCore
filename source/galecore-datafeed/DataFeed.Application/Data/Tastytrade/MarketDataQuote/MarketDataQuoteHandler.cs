@@ -25,13 +25,15 @@ namespace DataFeed.Application.Data.Tastytrade.MarketDataQuote
         private readonly IMapper _mapper;
         private readonly ITastytradeOAuth _auth;
         private readonly IHttpClientFactory _client;
+        private readonly IDxLinkStreamingService _streaming;
 
-        public MarketDataQuoteHandler(IConfiguration config, IMapper mapper, ITastytradeOAuth auth, IHttpClientFactory client)
+        public MarketDataQuoteHandler(IConfiguration config, IMapper mapper, ITastytradeOAuth auth, IHttpClientFactory client, IDxLinkStreamingService streaming)
         {
             _config = config;
             _mapper = mapper;
             _auth = auth;
             _client = client;
+            _streaming = streaming;
         }
 
         public async Task<MarketDataQuoteResponse> Handle(MarketDataQuoteRequest request, CancellationToken cancellationToken)
@@ -41,7 +43,7 @@ namespace DataFeed.Application.Data.Tastytrade.MarketDataQuote
                 var response = new MarketDataQuoteResponse();
                 var isOption = TastytradeHelper.IsOptionSymbol(request.Symbol);
                 var symbol = isOption ? TastytradeHelper.GetOptionSymbolFromTicker(request.Symbol) : request.Symbol;
-                var tastyWSProvider = new TastytradeSocketProvider(_config, _auth, _client);
+                var tastyWSProvider = new TastytradeSocketProvider(_config, _auth, _client, _streaming);
 
                 var prices = await tastyWSProvider.GetQuoteAsync(symbol, cancellationToken);
                 if (prices == null)

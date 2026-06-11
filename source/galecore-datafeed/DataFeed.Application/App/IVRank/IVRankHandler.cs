@@ -11,12 +11,14 @@ namespace DataFeed.Application.App.IVRank
         private readonly IConfiguration _config;
         private readonly ITastytradeOAuth _auth;
         private readonly IHttpClientFactory _client;
+        private readonly IDxLinkStreamingService _streaming;
 
-        public IVRankHandler(IConfiguration config, ITastytradeOAuth auth, IHttpClientFactory client)
+        public IVRankHandler(IConfiguration config, ITastytradeOAuth auth, IHttpClientFactory client, IDxLinkStreamingService streaming)
         {
             _config = config;
             _auth = auth;
             _client = client;
+            _streaming = streaming;
         }
 
         public async Task<IVRankResponse> Handle(IVRankRequest request, CancellationToken cancellationToken)
@@ -57,7 +59,7 @@ namespace DataFeed.Application.App.IVRank
                 // Si falla, el historial queda vacío (z-score = 0 en Layer 2)
                 try
                 {
-                    var socketProvider = new TastytradeSocketProvider(_config, _auth, _client);
+                    var socketProvider = new TastytradeSocketProvider(_config, _auth, _client, _streaming);
                     var fromTime = DateTime.UtcNow.AddDays(-15);
                     var candles = await socketProvider.GetCandleAsync(
                         request.Symbol, "1d", fromTime, null, cancellationToken

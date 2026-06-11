@@ -33,358 +33,110 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         // instancia por request. Key: símbolo streamer. Value: (OI, prevClose, día UTC del fetch).
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Oi, double? PrevClose, DateTime Day)> _oiCache = new();
 
-        public TastytradeSocketProvider(IConfiguration config, ITastytradeOAuth auth, IHttpClientFactory client)
+        private readonly IDxLinkStreamingService _streaming;
+
+        public TastytradeSocketProvider(IConfiguration config, ITastytradeOAuth auth, IHttpClientFactory client, IDxLinkStreamingService streaming)
         {
             _config = config;
             _client = client.CreateClient();
             _client.BaseAddress = new Uri(_config["Tastytrade:BaseUrl"]);
             _auth = auth;
+            _streaming = streaming;
+        }
+
+        /// <summary>
+        /// Arma un modelo (TradeModel/QuoteModel/GreeksModel/CandleModel) a partir de los items de un
+        /// snapshot, recreando el mensaje FEED_DATA original para deserializar con el shape esperado.
+        /// </summary>
+        private static T BuildModel<T>(IReadOnlyList<JObject> items)
+        {
+            var arr = new JArray();
+            foreach (var it in items) arr.Add(it);
+            var msg = new JObject { ["type"] = "FEED_DATA", ["channel"] = 3, ["data"] = arr };
+            return msg.ToObject<T>()!;
         }
 
         #region Socket
 
         public async Task<CandleModel> GetCandleAsync(string symbol, string interval, DateTime fromTime, DateTime? toTime, CancellationToken cancellationToken)
         {
-            var response = new CandleModel()
-            {
-                type = "FEED_DATA",
-                channel = 3,
-                data = new List<CandleData>()
-            };
-
-            var tcs = new TaskCompletionSource<bool>();
-
-            var authws = await _auth.GetWsOAuthApiAsync();
-            string token = authws.Data.Token;
-
-            using var socket = new WebsocketClient(new Uri(authws.Data.DxlinkUrl));
-            socket.ReconnectTimeout = TimeSpan.FromSeconds(30);
-
-            socket.MessageReceived.Subscribe(m =>
-            {
-                var json = JObject.Parse(m.Text);
-
-                if (json["type"]?.ToString() == "FEED_DATA")
-                {
-                    var feedData = JsonConvert.DeserializeObject<CandleModel>(m.Text);
-                    if (feedData?.data == null)
-                        return;
-
-                    // Acumular candles de cada mensaje
-                    response.data.AddRange(feedData.data);
-
-                    // Verificar si algún evento tiene SNAPSHOT_END (0x08) o SNAPSHOT_SNIP (0x10)
-                    foreach (var candle in feedData.data)
-                    {
-                        if ((candle.EventFlags & 0x08) != 0 || (candle.EventFlags & 0x10) != 0)
-                        {
-                            tcs.TrySetResult(true);
-                            return;
-                        }
-                    }
-                }
-                else if (json["type"]?.ToString() == "ERROR")
-                {
-                    tcs.TrySetResult(false);
-                }
-            });
-
-            await socket.Start();
-            await DxLinkHandshake.PerformAsync(socket, token);
-
-            void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
-
-            string symball = symbol + "{=" + interval + "}";
+            // Vía la conexión DXLink persistente (snapshot) — no abre sesión nueva.
+            var symball = symbol + "{=" + interval + "}";
             var unixFromTime = new DateTimeOffset(fromTime, TimeSpan.Zero).ToUnixTimeMilliseconds();
 
-            Send(new
-            {
-                type = "FEED_SUBSCRIPTION",
-                channel = 3,
-                add = new[]
+            var items = await _streaming.RequestSnapshotAsync(
+                new (string, string, long?)[] { (symball, "Candle", unixFromTime) },
+                // El snapshot de un símbolo termina con SNAPSHOT_END (0x08) o SNAPSHOT_SNIP (0x10).
+                isSymbolComplete: it =>
                 {
-                    new {
-                        type = "Candle",
-                        symbol = symball,
-                        fromTime = unixFromTime
-                    }
-                }
-            });
+                    var flags = (int?)it["eventFlags"] ?? 0;
+                    return (flags & 0x08) != 0 || (flags & 0x10) != 0;
+                },
+                timeout: TimeSpan.FromSeconds(30),
+                cancellationToken: cancellationToken);
 
-            // ⏳ Esperar snapshot completo o timeout de 30 segundos
-            var completed = await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(30), cancellationToken));
-
-            // 🔌 Desuscribir
-            Send(new
+            var response = new CandleModel { type = "FEED_DATA", channel = 3, data = new List<CandleData>() };
+            foreach (var it in items)
             {
-                type = "FEED_SUBSCRIPTION",
-                channel = 3,
-                remove = new[]
-                {
-                    new {
-                        type = "Candle",
-                        symbol = symball
-                    }
-                }
-            });
-
+                var cd = it.ToObject<CandleData>();
+                if (cd != null) response.data.Add(cd);
+            }
             return response;
         }
 
         public async Task<TradeModel> GetTradeAsync(string symbol, CancellationToken cancellationToken)
         {
-            var response = new TradeModel();
-            var tcs = new TaskCompletionSource<bool>();
-
-            var authws = await _auth.GetWsOAuthApiAsync();
-            string token = authws.Data.Token;
-
-            using var socket = new WebsocketClient(new Uri(authws.Data.DxlinkUrl));
-            socket.ReconnectTimeout = TimeSpan.FromSeconds(30);
-
-            socket.MessageReceived.Subscribe(m =>
-            {
-                var json = JObject.Parse(m.Text);
-
-                if (json["type"]?.ToString() == "FEED_DATA")
-                {
-                    response = JsonConvert.DeserializeObject<TradeModel>(m.Text);
-                    tcs.TrySetResult(true);
-                }
-                else if (json["type"]?.ToString() == "ERROR")
-                {
-                    tcs.TrySetResult(false);
-                }
-            });
-
-            await socket.Start();
-            await DxLinkHandshake.PerformAsync(socket, token);
-
-            void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
-
-            Send(new
-            {
-                type = "FEED_SUBSCRIPTION",
-                channel = 3,
-                add = new[]
-                {
-                    new { type = "Trade", symbol }
-                }
-            });
-
-            await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(10), cancellationToken));
-
-            Send(new
-            {
-                type = "FEED_SUBSCRIPTION",
-                channel = 3,
-                remove = new[]
-                {
-                    new { type = "Trade", symbol }
-                }
-            });
-
-            return response;
+            var items = await _streaming.RequestSnapshotAsync(
+                new (string, string, long?)[] { (symbol, "Trade", null) },
+                isSymbolComplete: _ => true,
+                timeout: TimeSpan.FromSeconds(10),
+                cancellationToken: cancellationToken);
+            return BuildModel<TradeModel>(items);
         }
 
         public async Task<QuoteModel> GetQuoteAsync(string symbol, CancellationToken cancellationToken)
         {
-            var response = new QuoteModel();
-            var tcs = new TaskCompletionSource<bool>();
-
-            var authws = await _auth.GetWsOAuthApiAsync();
-            string token = authws.Data.Token;
-
-            using var socket = new WebsocketClient(new Uri(authws.Data.DxlinkUrl));
-            socket.ReconnectTimeout = TimeSpan.FromSeconds(30);
-
-            socket.MessageReceived.Subscribe(m =>
-            {
-                var json = JObject.Parse(m.Text);
-
-                if (json["type"]?.ToString() == "FEED_DATA")
-                {
-                    response = JsonConvert.DeserializeObject<QuoteModel>(m.Text);
-                    tcs.TrySetResult(true);
-                }
-                else if (json["type"]?.ToString() == "ERROR")
-                {
-                    tcs.TrySetResult(false);
-                }
-            });
-
-            await socket.Start();
-            await DxLinkHandshake.PerformAsync(socket, token);
-
-            void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
-
-            Send(new
-            {
-                type = "FEED_SUBSCRIPTION",
-                channel = 3,
-                add = new[]
-                {
-                    new { type = "Quote", symbol }
-                }
-            });
-
-            await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(10), cancellationToken));
-
-            Send(new
-            {
-                type = "FEED_SUBSCRIPTION",
-                channel = 3,
-                remove = new[]
-                {
-                    new { type = "Quote", symbol }
-                }
-            });
-
-            return response;
+            var items = await _streaming.RequestSnapshotAsync(
+                new (string, string, long?)[] { (symbol, "Quote", null) },
+                isSymbolComplete: _ => true,
+                timeout: TimeSpan.FromSeconds(10),
+                cancellationToken: cancellationToken);
+            return BuildModel<QuoteModel>(items);
         }
 
         public async Task<GreeksModel> GetGreeksAsync(string symbol, CancellationToken cancellationToken)
         {
-            var response = new GreeksModel();
-            var tcs = new TaskCompletionSource<bool>();
-
-            var authws = await _auth.GetWsOAuthApiAsync();
-            string token = authws.Data.Token;
-
-            using var socket = new WebsocketClient(new Uri(authws.Data.DxlinkUrl));
-            socket.ReconnectTimeout = TimeSpan.FromSeconds(30);
-
-            socket.MessageReceived.Subscribe(m =>
-            {
-                var json = JObject.Parse(m.Text);
-
-                if (json["type"]?.ToString() == "FEED_DATA")
-                {
-                    response = JsonConvert.DeserializeObject<GreeksModel>(m.Text);
-                    tcs.TrySetResult(true);
-                }
-                else if (json["type"]?.ToString() == "ERROR")
-                {
-                    tcs.TrySetResult(false);
-                }
-            });
-
-            await socket.Start();
-            await DxLinkHandshake.PerformAsync(socket, token);
-
-            void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
-
-            Send(new
-            {
-                type = "FEED_SUBSCRIPTION",
-                channel = 3,
-                add = new[]
-                {
-                    new { type = "Greeks", symbol }
-                }
-            });
-
-            await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(10), cancellationToken));
-
-            Send(new
-            {
-                type = "FEED_SUBSCRIPTION",
-                channel = 3,
-                remove = new[]
-                {
-                    new { type = "Greeks", symbol }
-                }
-            });
-
-            return response;
+            var items = await _streaming.RequestSnapshotAsync(
+                new (string, string, long?)[] { (symbol, "Greeks", null) },
+                isSymbolComplete: _ => true,
+                timeout: TimeSpan.FromSeconds(10),
+                cancellationToken: cancellationToken);
+            return BuildModel<GreeksModel>(items);
         }
 
         public async Task<TradeQuoteGreeksModel> GetTradeQuoteGreeksAsync(string symbol, bool includeGreeks, CancellationToken cancellationToken)
         {
-            var response = new TradeQuoteGreeksModel();
-            bool hasTrade = false;
-            bool hasQuote = false;
-            bool hasGreeks = !includeGreeks; // Si no se pide Greeks, se considera completo
-
-            var tcs = new TaskCompletionSource<bool>();
-
-            var authws = await _auth.GetWsOAuthApiAsync();
-            string token = authws.Data.Token;
-
-            using var socket = new WebsocketClient(new Uri(authws.Data.DxlinkUrl));
-            socket.ReconnectTimeout = TimeSpan.FromSeconds(30);
-
-            socket.MessageReceived.Subscribe(m =>
+            var subs = new List<(string, string, long?)>
             {
-                var json = JObject.Parse(m.Text);
-
-                if (json["type"]?.ToString() == "FEED_DATA")
-                {
-                    var dataArray = json["data"] as JArray;
-                    if (dataArray == null) return;
-
-                    foreach (var item in dataArray)
-                    {
-                        var eventType = item["eventType"]?.ToString();
-
-                        if (eventType == "Trade" && !hasTrade)
-                        {
-                            response.Trade = JsonConvert.DeserializeObject<TradeModel>(m.Text);
-                            hasTrade = true;
-                        }
-                        else if (eventType == "Quote" && !hasQuote)
-                        {
-                            response.Quote = JsonConvert.DeserializeObject<QuoteModel>(m.Text);
-                            hasQuote = true;
-                        }
-                        else if (eventType == "Greeks" && !hasGreeks)
-                        {
-                            response.Greeks = JsonConvert.DeserializeObject<GreeksModel>(m.Text);
-                            hasGreeks = true;
-                        }
-                    }
-
-                    // Completar cuando llegaron todos los datos esperados
-                    if (hasTrade && hasQuote && hasGreeks)
-                        tcs.TrySetResult(true);
-                }
-                else if (json["type"]?.ToString() == "ERROR")
-                {
-                    tcs.TrySetResult(false);
-                }
-            });
-
-            await socket.Start();
-            await DxLinkHandshake.PerformAsync(socket, token);
-
-            void Send(object msg) => socket.Send(JsonConvert.SerializeObject(msg));
-
-            // Suscribir a Trade + Quote, y Greeks solo si es opción
-            var subscriptions = new List<object>
-            {
-                new { type = "Trade", symbol },
-                new { type = "Quote", symbol }
+                (symbol, "Trade", null),
+                (symbol, "Quote", null)
             };
-            if (includeGreeks)
-                subscriptions.Add(new { type = "Greeks", symbol });
+            if (includeGreeks) subs.Add((symbol, "Greeks", null));
 
-            Send(new
-            {
-                type = "FEED_SUBSCRIPTION",
-                channel = 3,
-                add = subscriptions
-            });
+            var items = await _streaming.RequestSnapshotAsync(
+                subs,
+                isSymbolComplete: _ => true, // primer evento de cada tipo
+                timeout: TimeSpan.FromSeconds(10),
+                cancellationToken: cancellationToken);
 
-            // ⏳ Esperar todos los datos o timeout de 10 segundos
-            await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(10), cancellationToken));
+            var response = new TradeQuoteGreeksModel();
+            var trade = items.Where(i => i["eventType"]?.ToString() == "Trade").Take(1).ToList();
+            var quote = items.Where(i => i["eventType"]?.ToString() == "Quote").Take(1).ToList();
+            var greeks = items.Where(i => i["eventType"]?.ToString() == "Greeks").Take(1).ToList();
 
-            // 🔌 Desuscribir
-            Send(new
-            {
-                type = "FEED_SUBSCRIPTION",
-                channel = 3,
-                remove = subscriptions
-            });
+            if (trade.Count > 0) response.Trade = BuildModel<TradeModel>(trade);
+            if (quote.Count > 0) response.Quote = BuildModel<QuoteModel>(quote);
+            if (greeks.Count > 0) response.Greeks = BuildModel<GreeksModel>(greeks);
 
             return response;
         }
