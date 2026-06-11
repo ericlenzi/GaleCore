@@ -22,6 +22,11 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         private bool _handshakeComplete;
         private CancellationTokenSource? _cts;
 
+        // Suscripciones del socket actual (se disponen antes de tear down para que el disconnect
+        // que provocamos nosotros al reconectar no dispare otro ciclo de reconexión).
+        private IDisposable? _msgSub;
+        private IDisposable? _disconnectSub;
+
         // Handshake synchronization
         private TaskCompletionSource<bool>? _authTcs;
         private TaskCompletionSource<bool>? _channelTcs;
@@ -35,6 +40,13 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
         // Collectors activos para requests de snapshot (request/response sobre la conexión persistente)
         private readonly ConcurrentDictionary<Guid, SnapshotCollector> _collectors = new();
+
+        // Reference-count de suscripciones Candle por símbolo (con la fromTime más vieja pedida).
+        // Evita que un snapshot que termina desuscriba un Candle que otro request concurrente aún
+        // necesita (ej. IVRank y MarketDataCandle pidiendo "SPY{=1d}" a la vez → el remove de uno
+        // mataba el snapshot del otro → timeout de 30s).
+        private readonly Dictionary<string, (int Count, long FromTime)> _candleSubs = new();
+        private readonly object _candleLock = new();
 
         public DxLinkStreamingService(
             ITastytradeOAuth auth,
@@ -60,12 +72,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             _logger.LogInformation("DxLinkStreamingService deteniendo...");
             _cts?.Cancel();
 
-            if (_socket != null)
-            {
-                await _socket.Stop(WebSocketCloseStatus.NormalClosure, "Servicio detenido");
-                _socket.Dispose();
-                _socket = null;
-            }
+            await TearDownSocketAsync();
 
             _isConnected = false;
             _handshakeComplete = false;
@@ -85,28 +92,26 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             await _connectionLock.WaitAsync();
             try
             {
-                if (_isConnected) return;
+                if (_isConnected && _handshakeComplete) return;
+
+                // Tear down limpio del socket anterior ANTES de crear uno nuevo. Esto cierra la sesión
+                // server-side (evita acumular sesiones zombie que saturan el límite) y libera el canal 3,
+                // evitando el BAD_ACTION "Channel with id 3 already exists" al reconectar.
+                await TearDownSocketAsync();
 
                 var authws = await _auth.GetWsOAuthApiAsync();
                 var token = authws.Data.Token;
                 var url = new Uri(authws.Data.DxlinkUrl);
 
-                _socket = new WebsocketClient(url)
+                var socket = new WebsocketClient(url)
                 {
-                    ReconnectTimeout = null
+                    // Reconexión controlada por nosotros (vía DisconnectionHappened). Desactivamos la
+                    // reconexión automática del cliente para no tener DOS caminos compitiendo, que era
+                    // la causa del reconnect spiral (re-handshake sobre un canal ya abierto).
+                    IsReconnectionEnabled = false
                 };
 
-                _socket.ReconnectionHappened.Subscribe(info =>
-                {
-                    // Skip initial connection — handshake is done below in ConnectAsync
-                    if (info.Type != ReconnectionType.Initial)
-                    {
-                        _logger.LogInformation("DxLink reconectado: {Type}", info.Type);
-                        _ = OnReconnectedAsync();
-                    }
-                });
-
-                _socket.DisconnectionHappened.Subscribe(info =>
+                _disconnectSub = socket.DisconnectionHappened.Subscribe(info =>
                 {
                     _logger.LogWarning("DxLink desconectado: {Type} - {CloseStatus}", info.Type, info.CloseStatus);
                     _isConnected = false;
@@ -118,12 +123,16 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                     }
                 });
 
-                _socket.MessageReceived.Subscribe(OnMessageReceived);
+                _msgSub = socket.MessageReceived.Subscribe(OnMessageReceived);
 
-                await _socket.Start();
+                _socket = socket;
+                await socket.Start();
                 _isConnected = true;
 
                 await DoHandshakeAsync(token);
+
+                // Re-suscribir las suscripciones activas (tras cualquier reconexión).
+                ResubscribeActive();
             }
             catch (Exception ex)
             {
@@ -139,6 +148,38 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             finally
             {
                 _connectionLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// Cierra y descarta el socket actual de forma limpia, desuscribiendo primero sus handlers
+        /// para que el disconnect que provocamos no dispare otro ciclo de reconexión.
+        /// </summary>
+        private async Task TearDownSocketAsync()
+        {
+            _msgSub?.Dispose(); _msgSub = null;
+            _disconnectSub?.Dispose(); _disconnectSub = null;
+
+            if (_socket != null)
+            {
+                try { await _socket.Stop(WebSocketCloseStatus.NormalClosure, "reconnect"); } catch { }
+                _socket.Dispose();
+                _socket = null;
+            }
+        }
+
+        /// <summary>Re-envía las suscripciones activas (reference count &gt; 0) tras una reconexión.</summary>
+        private void ResubscribeActive()
+        {
+            var activeSubs = _subscriptions
+                .Where(kv => kv.Value > 0)
+                .Select(kv => (object)new { type = kv.Key.EventType, symbol = kv.Key.Symbol })
+                .ToList();
+
+            if (activeSubs.Count > 0)
+            {
+                Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = activeSubs });
+                _logger.LogInformation("Re-suscripción de {Count} feeds tras reconexión", activeSubs.Count);
             }
         }
 
@@ -197,36 +238,6 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             }
         }
 
-        private async Task OnReconnectedAsync()
-        {
-            try
-            {
-                var authws = await _auth.GetWsOAuthApiAsync();
-                await DoHandshakeAsync(authws.Data.Token);
-
-                // Re-suscribir todas las suscripciones activas
-                var activeSubs = _subscriptions
-                    .Where(kv => kv.Value > 0)
-                    .Select(kv => new { type = kv.Key.EventType, symbol = kv.Key.Symbol })
-                    .ToList();
-
-                if (activeSubs.Count > 0)
-                {
-                    Send(new
-                    {
-                        type = "FEED_SUBSCRIPTION",
-                        channel = 3,
-                        add = activeSubs
-                    });
-
-                    _logger.LogInformation("Re-suscripción de {Count} feeds después de reconexión", activeSubs.Count);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error durante re-suscripción post-reconexión");
-            }
-        }
 
         private void FlushPendingSubscriptions()
         {
@@ -544,13 +555,8 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                 foreach (var grp in refCountGroups)
                     await SubscribeBatchAsync(grp.Select(s => s.Symbol), new[] { grp.Key });
 
-                if (candleSubs.Count > 0)
-                {
-                    var add = candleSubs.Select(s => s.FromTime.HasValue
-                        ? (object)new { type = "Candle", symbol = s.Symbol, fromTime = s.FromTime.Value }
-                        : new { type = "Candle", symbol = s.Symbol }).ToList();
-                    Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add });
-                }
+                foreach (var s in candleSubs)
+                    CandleSubscribe(s.Symbol, s.FromTime ?? 0);
 
                 await Task.WhenAny(collector.Done.Task, Task.Delay(timeout, cancellationToken));
                 return collector.Items;
@@ -560,11 +566,8 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                 foreach (var grp in refCountGroups)
                     await UnsubscribeBatchAsync(grp.Select(s => s.Symbol), new[] { grp.Key });
 
-                if (candleSubs.Count > 0)
-                {
-                    var remove = candleSubs.Select(s => (object)new { type = "Candle", symbol = s.Symbol }).ToList();
-                    Send(new { type = "FEED_SUBSCRIPTION", channel = 3, remove });
-                }
+                foreach (var s in candleSubs)
+                    CandleUnsubscribe(s.Symbol);
 
                 _collectors.TryRemove(id, out _);
             }
@@ -620,6 +623,55 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             {
                 get { lock (_lock) return _items.ToList(); }
             }
+        }
+
+        #endregion
+
+        #region Candle ref-counting
+
+        /// <summary>
+        /// Suscribe Candle con reference-count por símbolo. Solo envía add cuando es el primer
+        /// suscriptor, o cuando un suscriptor nuevo necesita una fromTime más vieja (re-snapshot).
+        /// </summary>
+        private void CandleSubscribe(string symbol, long fromTime)
+        {
+            bool sendAdd; long effectiveFrom;
+            lock (_candleLock)
+            {
+                if (_candleSubs.TryGetValue(symbol, out var e))
+                {
+                    var olderFrom = Math.Min(e.FromTime, fromTime); // unix ms: más viejo = menor
+                    sendAdd = olderFrom < e.FromTime;               // ampliar la ventana si hace falta
+                    _candleSubs[symbol] = (e.Count + 1, olderFrom);
+                    effectiveFrom = olderFrom;
+                }
+                else
+                {
+                    _candleSubs[symbol] = (1, fromTime);
+                    sendAdd = true;
+                    effectiveFrom = fromTime;
+                }
+            }
+
+            if (sendAdd)
+                Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = new[] { new { type = "Candle", symbol, fromTime = effectiveFrom } } });
+        }
+
+        /// <summary>Desuscribe Candle; solo envía remove cuando el ref-count llega a 0.</summary>
+        private void CandleUnsubscribe(string symbol)
+        {
+            bool sendRemove = false;
+            lock (_candleLock)
+            {
+                if (_candleSubs.TryGetValue(symbol, out var e))
+                {
+                    if (e.Count <= 1) { _candleSubs.Remove(symbol); sendRemove = true; }
+                    else _candleSubs[symbol] = (e.Count - 1, e.FromTime);
+                }
+            }
+
+            if (sendRemove)
+                Send(new { type = "FEED_SUBSCRIPTION", channel = 3, remove = new[] { new { type = "Candle", symbol } } });
         }
 
         #endregion

@@ -179,14 +179,28 @@ vía `RequestSnapshotAsync` (request/response sobre el canal compartido):
 
 **Resultado:** ValidationLayer 8/8 sin AUTH timeout; GEX warm ~0.6s; el límite de sesiones dejó de aplicar.
 
-### Próximas mejoras / follow-ups
-- **Robustez de la conexión persistente (importante):** bajo saturación de sesiones (ej. cuenta llena de
-  sesiones zombie), el persistente entra en *reconnect spiral* y aparece `BAD_ACTION: "Channel with id 3
-  already exists"` — la reconexión reintenta abrir el canal 3 que ya existe. Hay que arreglar
-  `OnReconnectedAsync`/`DoHandshakeAsync` para no re-crear el canal y evitar el churn de reconexión.
-- **Métodos muertos:** `GetMultiQuoteAsync` y `GetMultiCandleAsync` quedaron sin uso (aún abren sesión propia);
-  borrarlos en una limpieza.
+### Robustez de la reconexión (RESUELTO)
+El *reconnect spiral* (`BAD_ACTION: "Channel with id 3 already exists"`) se arregló:
+- **Un solo camino de reconexión:** `IsReconnectionEnabled = false` en el `WebsocketClient` (la
+  reconexión la controla el servicio vía `DisconnectionHappened` → `ReconnectWithDelayAsync`), eliminando
+  los dos caminos que competían y re-handshakeaban sobre un canal ya abierto.
+- **Tear down limpio antes de reconectar** (`TearDownSocketAsync`): desuscribe handlers, hace `Stop`
+  (NormalClosure) y `Dispose` del socket viejo → libera la sesión server-side (no acumula zombies) y el
+  canal 3, así el `CHANNEL_REQUEST` del socket nuevo nunca colisiona.
+- **Re-suscripción** de los feeds activos tras reconectar (`ResubscribeActive`).
+- Validado: con desconexiones reales, el persistente reintenta con socket fresco hasta recuperar, **sin
+  spiral** (0 `BAD_ACTION`); los requests en vuelo esperan la reconexión y siguen.
+
+### Concurrencia de Candle (RESUELTO)
+Los Candle se reference-countean por símbolo (`CandleSubscribe`/`CandleUnsubscribe`) con la `fromTime` más
+vieja pedida. Antes, dos requests concurrentes del mismo símbolo (ej. IVRank y MarketDataCandle pidiendo
+`SPY{=1d}`) se pisaban: el `remove` de uno mataba el snapshot del otro → timeout de 30s.
+
+### Follow-ups pendientes
+- **Métodos muertos:** `GetMultiQuoteAsync` y `GetMultiCandleAsync` sin uso (aún abren sesión propia); borrarlos.
 - **Cachear símbolos sin OI** (los in-band con OI=0 se re-fetchean cada vez). Ganancia chica; baja prioridad.
+- **Límite de sesiones DXLink** sigue siendo una restricción externa de la cuenta: si se satura (muchas
+  conexiones en paralelo o zombies), el persistente puede tardar en re-autorizar. Ya se recupera solo.
 
 ---
 
