@@ -25,13 +25,50 @@ namespace DataFeed.Application.Data.Tastytrade.MarketDataCandle
         private readonly IMapper _mapper;
         private readonly ITastytradeOAuth _auth;
         private readonly IHttpClientFactory _client;
+        private readonly IDxLinkStreamingService _streaming;
 
-        public MarketDataCandleHandler(IConfiguration config, IMapper mapper, ITastytradeOAuth auth, IHttpClientFactory client)
+        public MarketDataCandleHandler(IConfiguration config, IMapper mapper, ITastytradeOAuth auth, IHttpClientFactory client, IDxLinkStreamingService streaming)
         {
             _config = config;
             _mapper = mapper;
             _auth = auth;
             _client = client;
+            _streaming = streaming;
+        }
+
+        /// <summary>
+        /// Obtiene candles vía la conexión DXLink persistente (snapshot request/response),
+        /// evitando abrir una sesión nueva por llamada. Devuelve un CandleModel equivalente al
+        /// que producía TastytradeSocketProvider.GetCandleAsync.
+        /// </summary>
+        private async Task<CandleModel> FetchCandlesViaStreamingAsync(string streamerSymbol, string interval, DateTime fromTime, CancellationToken ct)
+        {
+            var symball = streamerSymbol + "{=" + interval + "}";
+            var unixFrom = new DateTimeOffset(fromTime, TimeSpan.Zero).ToUnixTimeMilliseconds();
+
+            var items = await _streaming.RequestSnapshotAsync(
+                new (string, string, long?)[] { (symball, "Candle", unixFrom) },
+                // El snapshot de un símbolo termina con SNAPSHOT_END (0x08) o SNAPSHOT_SNIP (0x10).
+                isSymbolComplete: item =>
+                {
+                    var flags = (int?)item["eventFlags"] ?? 0;
+                    return (flags & 0x08) != 0 || (flags & 0x10) != 0;
+                },
+                timeout: TimeSpan.FromSeconds(30),
+                cancellationToken: ct);
+
+            var model = new CandleModel
+            {
+                type = "FEED_DATA",
+                channel = 3,
+                data = new List<DataFeed.Infrastructure.Providers.Tastytrade.Models.CandleData>()
+            };
+            foreach (var it in items)
+            {
+                var cd = it.ToObject<DataFeed.Infrastructure.Providers.Tastytrade.Models.CandleData>();
+                if (cd != null) model.data.Add(cd);
+            }
+            return model;
         }
 
         public async Task<MarketDataCandleResponse> Handle(MarketDataCandleRequest request, CancellationToken cancellationToken)
@@ -42,9 +79,8 @@ namespace DataFeed.Application.Data.Tastytrade.MarketDataCandle
 
                 var isOption = TastytradeHelper.IsOptionSymbol(request.Symbol);
                 var symbol = isOption ? TastytradeHelper.GetOptionSymbolFromTicker(request.Symbol) : request.Symbol;
-                var tastyWSProvider = new TastytradeSocketProvider(_config, _auth, _client);
 
-                var prices = await tastyWSProvider.GetCandleAsync(symbol, request.Interval, request.FromTime, request.ToTime, cancellationToken);
+                var prices = await FetchCandlesViaStreamingAsync(symbol, request.Interval, request.FromTime, cancellationToken);
                 if (prices == null)
                     return new MarketDataCandleResponse();
 
@@ -66,7 +102,7 @@ namespace DataFeed.Application.Data.Tastytrade.MarketDataCandle
                 //Calculate greeks for options historical
                 if (isOption)
                 {
-                    var pricesUnderlying = await tastyWSProvider.GetCandleAsync(request.Symbol.Substring(0, 6).Trim(), request.Interval, request.FromTime, request.ToTime, cancellationToken);
+                    var pricesUnderlying = await FetchCandlesViaStreamingAsync(request.Symbol.Substring(0, 6).Trim(), request.Interval, request.FromTime, cancellationToken);
                     Dictionary<DateTime, double> spotByDate = null;
                     spotByDate = pricesUnderlying.data
                                 .GroupBy(b => b.TimeStamp.Date)

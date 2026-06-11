@@ -4,6 +4,7 @@ using DataFeed.Infrastructure.Providers.Tastytrade;
 using DataFeed.Infrastructure.Providers.Tastytrade.Models;
 using MediatR;
 using Microsoft.Extensions.Configuration;
+using Newtonsoft.Json.Linq;
 using System.Globalization;
 using System.Net.Http;
 
@@ -14,6 +15,7 @@ namespace DataFeed.Application.App.GammaExposure
         private readonly IConfiguration _config;
         private readonly ITastytradeOAuth _auth;
         private readonly IHttpClientFactory _client;
+        private readonly IDxLinkStreamingService _streaming;
 
         // Tasa libre de riesgo por defecto (si FRED no disponible)
         private const double DEFAULT_RISK_FREE_RATE = 0.045;
@@ -23,11 +25,113 @@ namespace DataFeed.Application.App.GammaExposure
         // (~1.3s) y las siguientes la reutilizan. Estático porque el handler se instancia por request.
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (OptionChainsModel Chain, DateTime Day)> _chainCache = new();
 
-        public GammaExposureHandler(IConfiguration config, ITastytradeOAuth auth, IHttpClientFactory client)
+        // Cache diario de OI/cierre anterior por símbolo streamer (el OI settled no cambia intradía).
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Oi, double? PrevClose, DateTime Day)> _oiCache = new();
+
+        public GammaExposureHandler(IConfiguration config, ITastytradeOAuth auth, IHttpClientFactory client, IDxLinkStreamingService streaming)
         {
             _config = config;
             _auth = auth;
             _client = client;
+            _streaming = streaming;
+        }
+
+        /// <summary>
+        /// Obtiene Greeks (IV/delta/gamma) + OI por símbolo vía la conexión DXLink persistente,
+        /// sin abrir una sesión nueva. Greeks pasa por reference-counting (no pisa al Monitor);
+        /// Candle (OI) va en lotes con cache diario. Reemplaza a TastytradeSocketProvider.GetMultiGreeksAsync.
+        /// </summary>
+        private async Task<MultiGreeksModel> FetchGreeksAndOIAsync(
+            string[] streamerSymbols, double candleDeltaMin, double candleDeltaMax, CancellationToken ct)
+        {
+            var result = new MultiGreeksModel();
+            if (streamerSymbols == null || streamerSymbols.Length == 0) return result;
+
+            // ── Fase 1: Greeks (ref-counted) ──
+            var greeksItems = await _streaming.RequestSnapshotAsync(
+                streamerSymbols.Select(s => (s, "Greeks", (long?)null)).ToList(),
+                isSymbolComplete: it => { var v = (double?)it["volatility"]; return v.HasValue && v.Value > 0; },
+                timeout: TimeSpan.FromSeconds(15),
+                cancellationToken: ct);
+
+            foreach (var it in greeksItems)
+            {
+                var sym = it["eventSymbol"]?.ToString();
+                if (string.IsNullOrEmpty(sym)) continue;
+                var g = it.ToObject<GreeksEvent>();
+                if (g != null && g.Volatility > 0) result.Greeks[sym] = g;
+            }
+
+            // Filtro por banda de |delta|: solo pedimos OI de strikes relevantes (deep OTM/ITM ≈ 0 gamma).
+            var candleSymbols = streamerSymbols
+                .Where(sym => result.Greeks.TryGetValue(sym, out var g)
+                              && Math.Abs(g.Delta) >= candleDeltaMin && Math.Abs(g.Delta) <= candleDeltaMax)
+                .ToArray();
+
+            // Cache diario de OI: resolver hits sin pedir Candle; juntar los miss.
+            var today = DateTime.UtcNow.Date;
+            var toFetch = new List<string>();
+            foreach (var sym in candleSymbols)
+            {
+                if (_oiCache.TryGetValue(sym, out var c) && c.Day == today)
+                {
+                    result.OpenInterest[sym] = c.Oi;
+                    if (c.PrevClose.HasValue) result.PrevClose[sym] = c.PrevClose.Value;
+                }
+                else toFetch.Add(sym);
+            }
+
+            // ── Fase 2: Candle (OI) en lotes (DXLink limita las suscripciones Candle activas) ──
+            const int CANDLE_BATCH_SIZE = 80;
+            var fromTime = new DateTimeOffset(today.AddDays(-2), TimeSpan.Zero).ToUnixTimeMilliseconds();
+
+            for (int i = 0; i < toFetch.Count; i += CANDLE_BATCH_SIZE)
+            {
+                if (ct.IsCancellationRequested) break;
+                var batch = toFetch.Skip(i).Take(CANDLE_BATCH_SIZE).ToList();
+
+                var candleItems = await _streaming.RequestSnapshotAsync(
+                    batch.Select(s => (s + "{=d}", "Candle", (long?)fromTime)).ToList(),
+                    // Símbolo completo al primer Candle con OI, o al SNAPSHOT_END/SNIP si no trae OI.
+                    isSymbolComplete: it =>
+                    {
+                        if (!string.IsNullOrEmpty(it["openInterest"]?.ToString())) return true;
+                        var flags = (int?)it["eventFlags"] ?? 0;
+                        return (flags & 0x08) != 0 || (flags & 0x10) != 0;
+                    },
+                    timeout: TimeSpan.FromSeconds(6),
+                    cancellationToken: ct);
+
+                // Por símbolo, tomar el candle más reciente con OI > 0.
+                var byKey = candleItems
+                    .Select(it => new
+                    {
+                        Key = (it["eventSymbol"]?.ToString() ?? "").Replace("{=d}", ""),
+                        Time = (long?)it["time"] ?? 0,
+                        Cd = it.ToObject<CandleData>()
+                    })
+                    .Where(x => !string.IsNullOrEmpty(x.Key) && x.Cd != null && !string.IsNullOrEmpty(x.Cd.OpenInterest))
+                    .GroupBy(x => x.Key);
+
+                foreach (var grp in byKey)
+                {
+                    var newest = grp.OrderByDescending(x => x.Time).First();
+                    if (!double.TryParse(newest.Cd.OpenInterest, NumberStyles.Any, CultureInfo.InvariantCulture, out var poi) || poi <= 0)
+                        continue;
+
+                    result.OpenInterest[grp.Key] = (long)poi;
+                    double? pc = null;
+                    if (!string.IsNullOrEmpty(newest.Cd.Close)
+                        && double.TryParse(newest.Cd.Close, NumberStyles.Any, CultureInfo.InvariantCulture, out var pcv) && pcv > 0)
+                    {
+                        pc = pcv;
+                        result.PrevClose[grp.Key] = pcv;
+                    }
+                    _oiCache[grp.Key] = ((long)poi, pc, today);
+                }
+            }
+
+            return result;
         }
 
         public async Task<GammaExposureResponse> Handle(GammaExposureRequest request, CancellationToken cancellationToken)
@@ -119,18 +223,14 @@ namespace DataFeed.Application.App.GammaExposure
                 }
 
                 // ═══════════════════════════════════════════════════════════
-                // PASO 3: Greeks + OI vía WebSocket
-                // Greeks provee IV/delta/gamma en tiempo real.
-                // Candle (dentro de GetMultiGreeksAsync) provee OI del cierre anterior.
+                // PASO 3: Greeks + OI vía la conexión DXLink persistente (sin sesión nueva).
+                // Banda de |delta| 0.02–0.98 para pedir OI solo de strikes relevantes (gamma ≈ 0 afuera).
                 // ═══════════════════════════════════════════════════════════
-                var socketProvider = new TastytradeSocketProvider(_config, _auth, _client);
-                // Banda de |delta| para suscribir Candle (OI): saltea deep OTM/ITM (gamma ≈ 0)
-                // para reducir latencia sin perder los strikes relevantes para los muros.
-                var multiGreeks = await socketProvider.GetMultiGreeksAsync(
+                var multiGreeks = await FetchGreeksAndOIAsync(
                     streamerSymbols.ToArray(),
-                    cancellationToken,
                     candleDeltaMin: 0.02,
-                    candleDeltaMax: 0.98
+                    candleDeltaMax: 0.98,
+                    cancellationToken
                 );
 
                 response.Spot = spot;

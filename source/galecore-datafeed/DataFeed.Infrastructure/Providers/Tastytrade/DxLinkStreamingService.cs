@@ -33,6 +33,9 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         // Pending subscriptions queued before handshake completes
         private readonly ConcurrentQueue<List<object>> _pendingSubscriptions = new();
 
+        // Collectors activos para requests de snapshot (request/response sobre la conexión persistente)
+        private readonly ConcurrentDictionary<Guid, SnapshotCollector> _collectors = new();
+
         public DxLinkStreamingService(
             ITastytradeOAuth auth,
             IMarketDataBroadcaster broadcaster,
@@ -463,6 +466,13 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                     if (string.IsNullOrEmpty(eventType) || string.IsNullOrEmpty(eventSymbol))
                         continue;
 
+                    // Fan-out a collectors de snapshot (request/response). Incluye Candle, que no se broadcastea.
+                    if (!_collectors.IsEmpty && item is JObject jitem)
+                    {
+                        foreach (var collector in _collectors.Values)
+                            collector.Offer(eventType, eventSymbol, jitem);
+                    }
+
                     // Detectar si el simbolo es una opcion (formato DxFeed: ".SPY260620C530")
                     bool isOption = eventSymbol.StartsWith(".");
 
@@ -499,6 +509,116 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error procesando FEED_DATA");
+            }
+        }
+
+        #endregion
+
+        #region Snapshot (request/response sobre la conexión persistente)
+
+        public async Task<IReadOnlyList<JObject>> RequestSnapshotAsync(
+            IReadOnlyList<(string Symbol, string EventType, long? FromTime)> subs,
+            Func<JObject, bool> isSymbolComplete,
+            TimeSpan timeout,
+            CancellationToken cancellationToken)
+        {
+            if (subs == null || subs.Count == 0)
+                return Array.Empty<JObject>();
+
+            await EnsureConnectedAsync();
+
+            var interest = subs.Select(s => (s.Symbol, s.EventType));
+            var collector = new SnapshotCollector(interest, isSymbolComplete);
+            var id = Guid.NewGuid();
+            _collectors[id] = collector;
+
+            // Candle: suscripción directa (con fromTime). El Monitor no usa Candle, así que no colisiona.
+            // Otros event types (Greeks/Quote/Trade): por el reference-counting, para NO pisar las
+            // suscripciones persistentes del Monitor al desuscribir al terminar el snapshot.
+            var candleSubs = subs.Where(s => s.EventType == "Candle").ToList();
+            var refCountGroups = subs.Where(s => s.EventType != "Candle")
+                                     .GroupBy(s => s.EventType)
+                                     .ToList();
+            try
+            {
+                foreach (var grp in refCountGroups)
+                    await SubscribeBatchAsync(grp.Select(s => s.Symbol), new[] { grp.Key });
+
+                if (candleSubs.Count > 0)
+                {
+                    var add = candleSubs.Select(s => s.FromTime.HasValue
+                        ? (object)new { type = "Candle", symbol = s.Symbol, fromTime = s.FromTime.Value }
+                        : new { type = "Candle", symbol = s.Symbol }).ToList();
+                    Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add });
+                }
+
+                await Task.WhenAny(collector.Done.Task, Task.Delay(timeout, cancellationToken));
+                return collector.Items;
+            }
+            finally
+            {
+                foreach (var grp in refCountGroups)
+                    await UnsubscribeBatchAsync(grp.Select(s => s.Symbol), new[] { grp.Key });
+
+                if (candleSubs.Count > 0)
+                {
+                    var remove = candleSubs.Select(s => (object)new { type = "Candle", symbol = s.Symbol }).ToList();
+                    Send(new { type = "FEED_SUBSCRIPTION", channel = 3, remove });
+                }
+
+                _collectors.TryRemove(id, out _);
+            }
+        }
+
+        /// <summary>
+        /// Acumula eventos de un request de snapshot. Acepta items cuyo (eventSymbol, eventType) está
+        /// en su set de interés y marca un símbolo como completo cuando <c>isSymbolComplete</c> da true.
+        /// </summary>
+        private sealed class SnapshotCollector
+        {
+            private readonly HashSet<(string, string)> _interest;
+            private readonly HashSet<(string, string)> _pending;
+            private readonly Func<JObject, bool> _isSymbolComplete;
+            private readonly List<JObject> _items = new();
+            private readonly object _lock = new();
+
+            public TaskCompletionSource<bool> Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public SnapshotCollector(IEnumerable<(string Symbol, string EventType)> interest, Func<JObject, bool> isSymbolComplete)
+            {
+                // Normalizar el símbolo (quitar sufijo de agregación {=...}): dxFeed devuelve los
+                // Candle con el sufijo normalizado (ej. se pide "SPY{=1d}" pero llega "SPY{=d}").
+                _interest = new HashSet<(string, string)>(interest.Select(i => (Normalize(i.Symbol), i.EventType)));
+                _pending = new HashSet<(string, string)>(_interest);
+                _isSymbolComplete = isSymbolComplete;
+            }
+
+            private static string Normalize(string symbol)
+            {
+                var idx = symbol.IndexOf("{=", StringComparison.Ordinal);
+                return idx >= 0 ? symbol.Substring(0, idx) : symbol;
+            }
+
+            public void Offer(string eventType, string eventSymbol, JObject item)
+            {
+                var key = (Normalize(eventSymbol), eventType);
+                if (!_interest.Contains(key)) return;
+
+                lock (_lock)
+                {
+                    _items.Add(item);
+                    if (_pending.Contains(key) && _isSymbolComplete(item))
+                    {
+                        _pending.Remove(key);
+                        if (_pending.Count == 0)
+                            Done.TrySetResult(true);
+                    }
+                }
+            }
+
+            public IReadOnlyList<JObject> Items
+            {
+                get { lock (_lock) return _items.ToList(); }
             }
         }
 

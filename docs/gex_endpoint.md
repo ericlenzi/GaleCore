@@ -158,18 +158,35 @@ Medido sobre SPY (cadena completa, ~498 legs), warm = con caches calientes:
 
 ---
 
-## 7. Próximas mejoras candidatas
+## 7. #C — Reuso de la conexión persistente (IMPLEMENTADO)
 
-- **#C — Reusar conexión DXLink persistente (~830ms).** Hoy cada llamada abre un WebSocket nuevo y
-  hace el handshake completo. Ya existe `DxLinkStreamingService` con conexión persistente y
-  autenticada; ruteando greeks/candles por un canal compartido se elimina ese costo por llamada.
-  Es el mayor ahorro restante pero el más invasivo (multiplexar request/response, concurrencia,
-  aislar suscripciones). Alto impacto / alto riesgo.
-- **Cachear símbolos sin OI** (los ~115 in-band con OI=0 se re-fetchean cada vez). Llevaría `toFetch→0`
-  en warm (~0.5s menos). Ganancia chica vs. complejidad; baja prioridad.
-- **Tunear batch size de Candle** hacia el límite real de DXLink (probado: 80 anda, 100 acumulado falla)
-  para reducir el número de lotes. Ganancia moderada.
-- **Reducir la fase de Greeks (~850ms)** — sólo si se vuelve el cuello dominante tras #C.
+**Causa que lo motivó:** DXLink limita las **sesiones concurrentes por token** (`ERROR "The number of
+user sessions has exceeded the configured limit"`). El patrón viejo abría una **sesión nueva por request**
+(GetCandleAsync, GetMultiGreeksAsync, Trade/Quote/Greeks…), lo que saturaba el límite — sobre todo en
+ValidationLayer, que dispara GEX + Candle + IVRank en paralelo → `AUTH timeout` intermitente.
+
+**Solución:** todos los fetch puntuales pasan por la **única conexión persistente** (`DxLinkStreamingService`)
+vía `RequestSnapshotAsync` (request/response sobre el canal compartido):
+- Un **collector** por request acumula los eventos que matchean su set `(símbolo, eventType)` y completa
+  cuando cada símbolo cumple su condición (Candle → SNAPSHOT_END/OI; Greeks/Quote/Trade → primer evento).
+- `ProcessFeedDataAsync` hace **fan-out** de cada evento a los collectors activos (además del broadcast al Monitor).
+- **Greeks/Quote/Trade** se suscriben por el **reference-counting** (no pisan al Monitor al desuscribir);
+  **Candle** va directo con `fromTime` (el Monitor no usa Candle).
+- Normalización del sufijo de agregación (`SPY{=1d}` vs `SPY{=d}`) en el matching.
+
+**Métodos migrados:** `GetCandleAsync`, `GetMultiGreeksAsync` (→ `GammaExposureHandler.FetchGreeksAndOIAsync`),
+`GetTradeAsync`, `GetQuoteAsync`, `GetGreeksAsync`, `GetTradeQuoteGreeksAsync`. Ningún endpoint abre sesión propia.
+
+**Resultado:** ValidationLayer 8/8 sin AUTH timeout; GEX warm ~0.6s; el límite de sesiones dejó de aplicar.
+
+### Próximas mejoras / follow-ups
+- **Robustez de la conexión persistente (importante):** bajo saturación de sesiones (ej. cuenta llena de
+  sesiones zombie), el persistente entra en *reconnect spiral* y aparece `BAD_ACTION: "Channel with id 3
+  already exists"` — la reconexión reintenta abrir el canal 3 que ya existe. Hay que arreglar
+  `OnReconnectedAsync`/`DoHandshakeAsync` para no re-crear el canal y evitar el churn de reconexión.
+- **Métodos muertos:** `GetMultiQuoteAsync` y `GetMultiCandleAsync` quedaron sin uso (aún abren sesión propia);
+  borrarlos en una limpieza.
+- **Cachear símbolos sin OI** (los in-band con OI=0 se re-fetchean cada vez). Ganancia chica; baja prioridad.
 
 ---
 

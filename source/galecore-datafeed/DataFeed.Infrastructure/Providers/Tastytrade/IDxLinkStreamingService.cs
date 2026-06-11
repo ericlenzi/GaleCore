@@ -1,3 +1,5 @@
+using Newtonsoft.Json.Linq;
+
 namespace DataFeed.Infrastructure.Providers.Tastytrade
 {
     /// <summary>
@@ -6,6 +8,19 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
     /// </summary>
     public interface IDxLinkStreamingService
     {
+        /// <summary>
+        /// Pide un snapshot puntual (request/response) sobre la conexión persistente: suscribe los
+        /// (símbolo, eventType) indicados, acumula los eventos que llegan y devuelve cuando cada símbolo
+        /// "completa" (según <paramref name="isSymbolComplete"/>) o se agota el timeout; luego desuscribe.
+        /// Evita abrir una sesión DXLink nueva por request (que choca con el límite de sesiones).
+        /// </summary>
+        /// <param name="subs">Suscripciones a pedir. FromTime solo aplica a Candle (snapshot histórico).</param>
+        /// <param name="isSymbolComplete">Dado un evento, indica si ese símbolo ya está completo.</param>
+        Task<IReadOnlyList<JObject>> RequestSnapshotAsync(
+            IReadOnlyList<(string Symbol, string EventType, long? FromTime)> subs,
+            Func<JObject, bool> isSymbolComplete,
+            TimeSpan timeout,
+            CancellationToken cancellationToken);
         /// <summary>
         /// Agrega suscripciones para un símbolo. Si es la primera vez, envía FEED_SUBSCRIPTION add.
         /// </summary>
