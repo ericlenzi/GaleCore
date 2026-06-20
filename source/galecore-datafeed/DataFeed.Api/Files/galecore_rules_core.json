@@ -19,6 +19,38 @@
       "skew_repricing deshabilitado (enabled: false) hasta verificación de DataFeed"
     ]
   },
+  "_reading_guide": {
+    "_description": "Cómo leer este contrato: el orden en que se debe recorrer y la pregunta que responde cada nodo. Describe la dependencia conceptual de lectura; el orden de EJECUCIÓN lo fija cada nodo (regime_engine.evaluation_order, position_builder.cascade_rule, trade_management.priority).",
+    "context": [
+      { "node": "principles", "question": "¿Qué axiomas son innegociables?" },
+      { "node": "strategy_scope", "question": "¿Qué estructuras puedo y cuáles están prohibidas?" },
+      { "node": "universe", "question": "¿Sobre qué subyacentes opero?" }
+    ],
+    "vocabulary": [
+      { "node": "data_availability", "question": "¿Qué datos provee DataFeed hoy?" },
+      { "node": "data_quality", "question": "¿Puedo confiar en esos datos ahora mismo?" },
+      { "node": "operators", "question": "¿Qué comparadores usan los checks?" },
+      { "node": "on_fail_actions", "question": "¿Qué puede hacer un check al fallar?" },
+      { "node": "on_activate_actions", "question": "¿Qué puede hacer un régimen al activarse?" },
+      { "node": "definitions", "question": "¿Cómo se calcula cada métrica? Fuente única; los checks la referencian vía { ref: 'definitions.X' }." }
+    ],
+    "decision_pipeline": [
+      { "step": 1, "node": "hard_gates", "question": "¿Puedo siquiera evaluar hoy?", "nature": "binario; corta antes del régimen (short_circuit_no_trade)" },
+      { "step": 2, "node": "regime_engine", "question": "¿En qué régimen está el mercado y cuánto me deja operar?", "nature": "clasificador gradual; evaluation_order de más específico a fallback; solo crisis bloquea entradas nuevas" },
+      { "step": 3, "node": "position_builder", "question": "¿Qué estructura, strikes y tamaño construyo?", "nature": "capas 2-4 en cascada cortocircuitante, dentro del behavior del régimen activo" },
+      { "step": 4, "node": "execution", "question": "¿Cómo ejecuto la orden?" },
+      { "step": 5, "node": "trade_management", "question": "¿Qué hago con las posiciones ya abiertas?", "nature": "se evalúa siempre, incluso en crisis; tiene su propio orden de prioridad" }
+    ],
+    "cross_cutting": [
+      { "node": "monitoring", "question": "¿Cada cuánto se re-evalúa todo?" },
+      { "node": "display_config", "question": "¿Cómo lo renderiza el frontend (labels, semáforo, columnas)?" }
+    ],
+    "invariants": [
+      "Todo { ref: 'definitions.X' } debe resolver siempre, incluso en checks enabled:false.",
+      "Cada valor vive en un solo nodo (fuente única); el resto lo referencia, no lo duplica.",
+      "El pipeline es cortocircuitante: si un paso corta, los siguientes no se evalúan."
+    ]
+  },
   "principles": {
     "cash_is_a_position": true,
     "execution_quality_over_frequency": true,
