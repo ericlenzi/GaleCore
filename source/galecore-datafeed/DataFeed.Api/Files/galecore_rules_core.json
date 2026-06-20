@@ -1,10 +1,23 @@
 {
   "_meta": {
-    "version": "1.3.1",
+    "version": "2.1.3",
     "strategy": "gale_core_gamma_premium",
     "profile": "core",
-    "last_updated": "2026-05-27",
-    "notes": "v1.3.1: ranking usa regla 1/3 Tastytrade — credit/width como métrica de calidad del spread. priorityScore = (pop/100)*0.6 + (credit/width)*0.4. Backend expone strikeEngine.creditRatio (%) y strikeEngine.priorityScore. Frontend agrega columna 1/3 Rule en PM table."
+    "last_updated": "2026-06-12",
+    "notes": "v2.1.3: (1) Campo 'fallback: normal' eliminado — doble fuente de verdad con unclassified. El último régimen del evaluation_order (sin condiciones) ES el fallback; campo separado es redundante y divergente. Agregado fallback_invariant. (2) put_skew_25d_roc_5d definido como definition propia — ref del check skew_repricing ahora resuelve. Regla: todo ref debe resolver siempre, incluso en checks disabled (activación = cambiar un solo flag). (3) on_activate_actions: nuevo enum para acciones de régimen (separado de on_fail de checks). on_activate:'warn' en unclassified ahora tiene schema. --- v2.1.2: (1) credit_equity_divergence → enabled:false hasta verificar /App.Analytics/CreditSpread en runtime (regla: check no implementable no puede estar armado). Eliminado de crisis conditions; se reincorpora al activar. (2) Umbrales del check refactorizados a refs (threshold_block/threshold_warn de definitions.hy_oas_widening). warn modelado como check separado (patrón spy_exdiv_warn/block). (3) BUG: fallback 'normal' otorgaba permisos plenos en escenarios no clasificados (VIX 33, spot<ZGL, IVR 50, zscore -1.0 → ningún régimen matchea → fallback daba IC + heat 1.0 en mercado estresado). Corregido: nuevo régimen 'unclassified' como fallback defensivo (PCS only, heat 0.5, size 0.5, max 1 pos, on_activate: warn). Principio: el fallback de un clasificador de riesgo debe ser el más conservador que permita operar. (4) F-02 backend implementado (CreditSpreadHandler.cs) pero no verificado — check deshabilitado hasta confirmar datos. --- v2.1.1: Corrección de 6 residuos de v2.1.0. (B1) signal_labels y checks_render_order migrados de macro_regime a hard_gates + regime_engine. (B2) Descripción de caution corregida: opera PCS conservador, no bloquea. (B3) skew_repricing → enabled:false (dato no disponible en DataFeed; activar cuando /App.Analytics/PutSkew esté verificado). (P4) layers[4].config: risk_per_trade_pct → ref a definitions, max_positions → max_positions_hard_cap. (P5) caution no ensombrece dislocation: condición price_zscore_above:-1.5 agregada a caution. (P6) Nota fósil de macro_regime corregida en gex_skew. --- Resumen acumulado v2.1.x: Heat base 8% (fuente única), floor_min eliminado (no_trade por sizing es intencional, NO reintroducir), credit ratio 0.25/0.28/0.33, deltas entrada 0.20/0.18 con gap ≥12 vs defensa 0.32, macro_regime absorbido en regime_engine unificado con crisis alcanzable y caution, correlated_exposure_cap máx 2 mismo lado, term structure real VIX9D/VIX3M, grupo riesgo de cola parcial (skew disabled, VVIX/HY-OAS en feedback/). Frontend pendiente: motivo explícito de no_trade, checks disabled en gris.",
+    "breaking_changes_v2_1_0": [
+      "macro_regime eliminado — reemplazado por hard_gates + regime_engine unificado",
+      "floor_min eliminado — max_contracts puede ser 0",
+      "credit_ratio_min_by_iv_rank subido de 0.10-0.15 a 0.25-0.33",
+      "delta_max_put/call bajados de 0.30/0.25 a 0.20/0.18",
+      "heat_max_pct en regimes reemplazado por heat_factor multiplicativo"
+    ],
+    "breaking_changes_v2_1_1": [
+      "signal_labels condiciones migradas de macro_regime_pass/fail a hard_gates_pass/fail + regime",
+      "max_positions → max_positions_hard_cap en layers[4].config",
+      "risk_per_trade_pct en layers[4].config ahora es ref a definitions",
+      "skew_repricing deshabilitado (enabled: false) hasta verificación de DataFeed"
+    ]
   },
   "principles": {
     "cash_is_a_position": true,
@@ -72,6 +85,13 @@
       "reduce_contracts_to_fit_or_discard"
     ]
   },
+  "on_activate_actions": {
+    "_description": "Enum cerrado de acciones cuando un régimen se activa. Separado de on_fail porque aplica al clasificador de régimen, no a checks individuales.",
+    "values": [
+      "warn"
+    ],
+    "note": "Backend: régimen con on_activate emite el warning al frontend al clasificar. Frontend: muestra badge/tooltip con el régimen y su label. Actualmente solo usado por 'unclassified'."
+  },
   "definitions": {
     "_note": "Fuente única de verdad para fórmulas y lookups. Los checks referencian aquí vía { ref: 'definitions.X' }.",
     "iv_rank": {
@@ -94,6 +114,47 @@
         "field": "IV30_5d"
       },
       "endpoint": "/App.Analytics/ImpliedVolatility → IV30RocPct"
+    },
+    "iv_term_structure_ratio": {
+      "type": "formula",
+      "formula": "iv9d / iv3m",
+      "interpretation": "< 1.0 = contango (normal, vender prima OK) | >= 1.0 = curva plana/invertida (estrés, no vender)",
+      "threshold_block": 1.0,
+      "threshold_warn": 0.95,
+      "endpoint": "/App.Analytics/ImpliedVolatility → IV9D, IV3M",
+      "purpose": "Fallback de vix_term_structure si $VIX9D.X/$VIX3M.X no resuelven en ByType. Term structure del subyacente, detecta inversión intradía."
+    },
+    "put_skew_25d": {
+      "type": "formula",
+      "formula": "iv_put_25delta / iv_atm",
+      "lookback_percentile_window": 252,
+      "interpretation": "Ratio del costo del seguro de cola vs vol neutral. Empinamiento rápido (RoC 5d > +8%) = repricing de crash → block_new_entries put side. Percentil 1y < 10 = cola subpreciada → warn.",
+      "endpoint": "derived: /Data/Tastytrade/OptionChains + /Data/Tastytrade/MarketData/Greeks → /App.Analytics/PutSkew",
+      "purpose": "Riesgo de cola: se mueve ANTES que VIX e IVR cuando el mercado huele un shock. Complementa iv_momentum (que mide vol ATM, no la cola).",
+      "verification_required": "Confirmar que resolución del strike con delta más cercano a -0.25 es confiable en DataFeed (staleness de Greeks fuera del ATM). Si no → feedback/F-03."
+    },
+    "put_skew_25d_roc_5d": {
+      "type": "formula",
+      "formula": "((put_skew_25d_today - put_skew_25d_5d_ago) / put_skew_25d_5d_ago) * 100",
+      "unit": "percent",
+      "input": { "ref": "definitions.put_skew_25d" },
+      "endpoint": "derived: /App.Analytics/PutSkew → skew actual y 5d ago",
+      "purpose": "Rate of change 5d del skew 25Δ. Empinamiento rápido (>8%) = repricing de cola. Fórmula definida aquí para que el check skew_repricing se active cambiando un solo flag (enabled: true) sin necesitar edición adicional."
+    },
+    "hy_oas_widening": {
+      "type": "formula",
+      "formula": "roc_5d(BAMLH0A0HYM2)",
+      "series": "BAMLH0A0HYM2",
+      "series_name": "ICE BofA US High Yield Index Option-Adjusted Spread",
+      "unit": "basis_points",
+      "lookback_percentile_window": 252,
+      "threshold_warn": 10.0,
+      "threshold_block": 15.0,
+      "interpretation": "RoC 5d del OAS high yield. Widening >15% = flight to quality en curso, equity y crédito divergen → block_new_entries. >10% = warn.",
+      "endpoint": "/App.Analytics/CreditSpread?Series=BAMLH0A0HYM2",
+      "purpose": "Riesgo de cola: los spreads de crédito se amplían ANTES de que el equity corrija en eventos sistémicos. VIX puede tardar días en reaccionar; HY OAS se mueve primero.",
+      "data_frequency": "daily (FRED publica con 1 día de lag)",
+      "polling_interval_minutes": 60
     },
     "expected_move": {
       "type": "formula",
@@ -128,7 +189,7 @@
         "between_0.4_0.6": "symmetric — ancla equilibrada → favorece iron_condor"
       },
       "thresholds": { "call_dominant": 0.6, "put_dominant": 0.4 },
-      "note": "Siempre se evalúa dentro de un entorno GEX positivo (macro_regime.gex_total lo garantiza). Mide asimetría direccional de muros, no el signo neto.",
+      "note": "Siempre se evalúa dentro de un entorno GEX positivo (el clasificador de régimen lo garantiza: GEX < umbral → crisis). Mide asimetría direccional de muros, no el signo neto.",
       "endpoint": "/App.Analytics/GammaExposure → callGEX y putGEX"
     },
     "trend_ema": {
@@ -203,10 +264,11 @@
       "type": "lookup_by_range",
       "key": "iv_rank",
       "ranges": [
-        { "min": 0,  "max": 35, "value": 0.10 },
-        { "min": 35, "max": 50, "value": 0.12 },
-        { "min": 50, "max": 100, "value": 0.15 }
+        { "min": 0,  "max": 35, "value": 0.25 },
+        { "min": 35, "max": 50, "value": 0.28 },
+        { "min": 50, "max": 100, "value": 0.33 }
       ],
+      "note": "Piso absoluto 0.25 (ratio 'poor' del credit_ratio). Si el mercado no paga 0.25, cash_is_a_position — no relajar el umbral. Menor frecuencia de OPERAR post-corrección es intencional.",
       "range_convention": "min_inclusive_max_exclusive_except_last_inclusive"
     },
     "gex_total": {
@@ -219,7 +281,7 @@
     },
     "gex_threshold_by_symbol": {
       "type": "lookup_by_symbol",
-      "values": { "SPY": 50, "QQQ": 50 },
+      "values": { "SPY": 25, "QQQ": 25 },
       "unit": "billions_usd"
     },
     "gamma_zero_level": {
@@ -267,7 +329,8 @@
     },
     "max_heat": {
       "type": "formula",
-      "formula": "net_liq * 0.045"
+      "formula": "net_liq * 0.08",
+      "note": "Fuente única de verdad del heat cap. regime_engine aplica heat_factor multiplicativo sobre este base. NO duplicar este valor en otros nodos."
     },
     "heat_available": {
       "type": "formula",
@@ -283,8 +346,8 @@
     },
     "risk_per_trade": {
       "type": "formula",
-      "formula": "net_liq * 0.015",
-      "risk_per_trade_pct": 0.015
+      "formula": "net_liq * 0.025",
+      "risk_per_trade_pct": 0.025
     },
     "max_risk_per_contract": {
       "type": "formula",
@@ -293,7 +356,7 @@
     "max_contracts": {
       "type": "formula",
       "formula": "floor(risk_per_trade / max_risk_per_contract)",
-      "floor_min": 1
+      "note": "floor_min ELIMINADO intencionalmente. Si max_contracts = 0 → no_trade. Esto es correcto: el riesgo por contrato excede el presupuesto (ej: SPY 5pts con $5K net liq). NO reintroducir floor_min — ver feedback/F-04-xsp.md para solución vía ampliación de universo."
     },
     "positions_available": {
       "type": "formula",
@@ -314,6 +377,11 @@
       "method": "fixed_per_leg_dollars",
       "max_friction_per_leg": 0.05,
       "total_max_4_legs": 0.20
+    },
+    "correlation_clusters": {
+      "type": "static_lookup",
+      "clusters": { "us_equity_index": ["SPY", "QQQ"] },
+      "purpose": "Agrupa subyacentes cuyo riesgo de cola es compartido (corr ~0.9). 'Mismo lado' = misma exposición direccional del short (put side o call side). Un iron condor cuenta para ambos lados."
     },
     "spy_exdiv_days_until": {
       "type": "manual",
@@ -350,70 +418,21 @@
       "note": "Capital bloqueado por contrato. Se actualiza con crédito live. Idéntico a max_loss por contrato."
     }
   },
-  "macro_regime": {
-    "name": "macro_regime",
-    "description": "Régimen de mercado",
+  "hard_gates": {
+    "name": "hard_gates",
+    "description": "Gates binarios que se evalúan SIEMPRE, independiente del régimen. No son graduables. Si fallan, cortan antes de que el clasificador de régimen corra.",
     "pass_rule": "all_checks_pass",
     "on_fail": "short_circuit_no_trade",
     "checks": [
       {
-        "id": "vix_absolute",
-        "label": "VIX < 30",
-        "metric":    { "ref": "marketdata.$VIX.X.price" },
-        "operator":  "lt",
-        "threshold": { "value": 30 },
-        "source": "/Data/Tastytrade/MarketData/ByType?Symbol=$VIX.X",
-        "on_fail": "no_trade"
-      },
-      {
-        "id": "vix_term_structure",
-        "label": "VIX TS normal (VIX −9d < VIX −30d)",
-        "metric":    { "ref": "marketdata.$VIX.X.candle.close_9d_ago" },
-        "operator":  "lt",
-        "threshold": { "ref": "marketdata.$VIX.X.candle.close_30d_ago" },
-        "source": "/Data/Tastytrade/MarketData/Candle?Symbol=$VIX.X&Interval=1d&FromTime={35_trading_days_ago} → close[−9] y close[−30]",
-        "polling_interval_minutes": 5,
-        "on_fail": "no_trade",
-        "note": "VIX de hace 9 sesiones < VIX de hace 30 sesiones indica volatilidad en descenso o estable. Inversión = régimen de estrés activo."
-      },
-      {
-        "id": "iv_rank",
-        "label": "IV Rank entre 25 y 65",
-        "metric":    { "ref": "definitions.iv_rank" },
-        "operator":  "between",
-        "threshold": { "min": 25, "max": 65 },
-        "source": "/App.Analytics/IVRank",
-        "on_fail": "no_trade"
-      },
-      {
-        "id": "iv_momentum",
-        "label": "IV aceleración ≤ 12%",
-        "metric":    { "ref": "definitions.iv30_atm_roc_pct" },
-        "operator":  "lte",
-        "threshold": { "value": 12.0 },
-        "source": "/App.Analytics/ImpliedVolatility?Symbol={SYMBOL} → IV30RocPct",
-        "on_fail": "wait_for_stabilization",
-        "note": "IV en expansión rápida indica régimen de stress activo. IV30RocPct = ((IV30_0d − IV30_5d) / IV30_5d) × 100. Ventana de 5 días con umbral ajustado."
-      },
-      {
-        "id": "gex_total",
-        "label": "GEX ≥ umbral por símbolo",
-        "metric":    { "ref": "definitions.gex_total" },
-        "operator":  "gte",
-        "threshold": { "ref": "definitions.gex_threshold_by_symbol" },
-        "source": "/App.Analytics/GammaExposure",
-        "on_fail": "no_trade",
-        "note": "Post-OPEX el GEX colapsa — el ZGL sigue pero sin masa detrás."
-      },
-      {
-        "id": "spot_vs_zgl",
-        "label": "Spot > ZGL + 0.5%",
-        "metric":    { "ref": "marketdata.spot" },
-        "operator":  "gt",
-        "threshold": { "ref": "definitions.zgl_with_buffer" },
-        "source": "/App.Analytics/GammaExposure → gammaZeroLevel",
-        "on_fail": "no_trade",
-        "note": "Buffer evita operar en la barrera donde el ancla es inestable."
+        "id": "data_quality_gate",
+        "label": "Datos de mercado frescos y válidos",
+        "metric":    { "ref": "data_quality" },
+        "operator":  "custom",
+        "rule": "max_quote_age_seconds ≤ 15 AND max_structural_levels_age_minutes ≤ 15 AND no crossed_market AND no missing_critical_data",
+        "source": "data_quality config",
+        "on_fail": "block_until_fresh",
+        "note": "Prerequisito técnico: sin datos frescos no se evalúa nada."
       },
       {
         "id": "spy_exdiv_warn",
@@ -440,8 +459,182 @@
       }
     ]
   },
+  "regime_engine": {
+    "description": "Clasificador unificado de régimen de mercado. Absorbe las condiciones graduables del antiguo macro_regime. Se evalúa DESPUÉS de hard_gates. Solo crisis produce no_new_entries; caution restringe a put_credit_spread con tamaño reducido (size_factor 0.5, delta máx 0.15). Los demás adaptan comportamiento de layers 2-4. El heat efectivo de cada régimen = definitions.max_heat × heat_factor.",
+    "method": "rule_based_classification",
+    "evaluation_order": ["crisis", "caution", "dislocation_opportunity", "elevated_vol", "low_vol_grind", "optimal", "normal", "unclassified"],
+    "fallback_principle": "El fallback de un clasificador de riesgo debe ser el régimen más conservador que permita operar, nunca el estándar. Si ningún régimen explícito matchea, el mercado está en una combinación no prevista. Implementación: el último régimen del evaluation_order (unclassified) no tiene condiciones evaluables — siempre matchea. No existe campo 'fallback' separado para evitar doble fuente de verdad.",
+    "fallback_invariant": "El último régimen del evaluation_order debe ser el único sin condiciones evaluables. Si un campo 'fallback' existiera, debería apuntar a él — pero preferimos eliminarlo porque es redundante y fuente de divergencia.",
+    "checks": [
+      {
+        "id": "vix_absolute",
+        "label": "VIX nivel absoluto",
+        "metric":    { "ref": "marketdata.$VIX.X.price" },
+        "source": "/Data/Tastytrade/MarketData/ByType?Symbol=$VIX.X",
+        "note": "Insumo del clasificador, no gate independiente. Los umbrales por régimen están en conditions."
+      },
+      {
+        "id": "vix_term_structure",
+        "label": "Term structure normal (VIX9D < VIX3M)",
+        "metric":    { "ref": "marketdata.$VIX9D.X.price" },
+        "operator":  "lt",
+        "threshold": { "ref": "marketdata.$VIX3M.X.price" },
+        "source": "/Data/Tastytrade/MarketData/ByType?Symbol=$VIX9D.X y $VIX3M.X",
+        "polling_interval_minutes": 5,
+        "note": "Compara vol implícita a 9 días vs 3 meses, HOY. VIX9D > VIX3M = backwardation = estrés. Fallback: definitions.iv_term_structure_ratio. Inversión → condición de crisis."
+      },
+      {
+        "id": "vix_momentum_30d",
+        "label": "VIX momentum 30d descendente",
+        "metric":    { "ref": "marketdata.$VIX.X.candle.close_9d_ago" },
+        "operator":  "lt",
+        "threshold": { "ref": "marketdata.$VIX.X.candle.close_30d_ago" },
+        "source": "/Data/Tastytrade/MarketData/Candle?Symbol=$VIX.X&Interval=1d&FromTime={35_trading_days_ago}",
+        "on_fail": "warn",
+        "note": "Momentum histórico del VIX (no term structure). Señal válida pero secundaria — warn, no gate."
+      },
+      {
+        "id": "iv_rank",
+        "label": "IV Rank",
+        "metric":    { "ref": "definitions.iv_rank" },
+        "source": "/App.Analytics/IVRank",
+        "note": "Insumo del clasificador. Umbrales por régimen en conditions."
+      },
+      {
+        "id": "iv_momentum",
+        "label": "IV aceleración (RoC 5d)",
+        "metric":    { "ref": "definitions.iv30_atm_roc_pct" },
+        "source": "/App.Analytics/ImpliedVolatility?Symbol={SYMBOL} → IV30RocPct",
+        "note": "IV30RocPct = ((IV30_0d − IV30_5d) / IV30_5d) × 100. RoC > 12% → condición de crisis."
+      },
+      {
+        "id": "gex_total",
+        "label": "GEX neto",
+        "metric":    { "ref": "definitions.gex_total" },
+        "source": "/App.Analytics/GammaExposure",
+        "note": "Insumo del clasificador. GEX < umbral → condición de crisis. Post-OPEX el GEX colapsa — el ZGL sigue pero sin masa detrás."
+      },
+      {
+        "id": "spot_vs_zgl",
+        "label": "Spot vs ZGL + buffer",
+        "metric":    { "ref": "marketdata.spot" },
+        "operator":  "gt",
+        "threshold": { "ref": "definitions.zgl_with_buffer" },
+        "source": "/App.Analytics/GammaExposure → gammaZeroLevel",
+        "note": "Insumo del clasificador. spot_below_zgl → elevated_vol/dislocation."
+      },
+      {
+        "id": "skew_repricing",
+        "enabled": false,
+        "label": "Skew 25Δ sin empinamiento agudo (RoC 5d ≤ 8%)",
+        "metric":    { "ref": "definitions.put_skew_25d_roc_5d" },
+        "operator":  "lte",
+        "threshold": { "value": 8.0 },
+        "source": "/App.Analytics/PutSkew (pendiente verificación)",
+        "on_fail": "block_new_entries",
+        "note": "DISABLED: dato no disponible en DataFeed. Activar cuando /App.Analytics/PutSkew?Symbol=SPY&Delta=0.25 devuelva valor + percentil 252d + RoC 5d de forma estable. Frontend debe renderizar en gris con tooltip 'pendiente de datos'. Ver definitions.put_skew_25d.verification_required."
+      },
+      {
+        "id": "credit_equity_divergence",
+        "enabled": false,
+        "label": "HY OAS sin widening agudo (RoC 5d ≤ threshold)",
+        "metric":    { "ref": "definitions.hy_oas_widening" },
+        "operator":  "lte",
+        "threshold": { "ref": "definitions.hy_oas_widening.threshold_block" },
+        "source": "/App.Analytics/CreditSpread?Series=BAMLH0A0HYM2 (pendiente verificación)",
+        "on_fail": "block_new_entries",
+        "polling_interval_minutes": 60,
+        "note": "DISABLED: endpoint /App.Analytics/CreditSpread implementado pero no verificado en runtime. Activar cuando el endpoint devuelva datos estables de FRED BAMLH0A0HYM2. Al activar: (1) agregar hy_oas_fred_daily a data_availability.available_today, (2) agregar hy_oas_widening_above: 15.0 a crisis.conditions.rules, (3) cambiar enabled a true. Ver definitions.hy_oas_widening para umbrales. Frontend debe renderizar en gris con tooltip 'pendiente de verificación'."
+      },
+      {
+        "id": "credit_equity_divergence_warn",
+        "enabled": false,
+        "label": "HY OAS widening moderado (RoC 5d ≤ warn threshold)",
+        "metric":    { "ref": "definitions.hy_oas_widening" },
+        "operator":  "lte",
+        "threshold": { "ref": "definitions.hy_oas_widening.threshold_warn" },
+        "source": "/App.Analytics/CreditSpread?Series=BAMLH0A0HYM2 (pendiente verificación)",
+        "on_fail": "warn",
+        "note": "DISABLED: se activa junto con credit_equity_divergence. Patrón spy_exdiv_warn/block: dos checks, dos niveles de severidad."
+      }
+    ],
+    "regimes": [
+      {
+        "id": "crisis",
+        "label": "Crisis — No operar (entradas nuevas)",
+        "conditions": {
+          "match": "any_of",
+          "rules": [
+            { "vix_above": 40 },
+            { "gex_below": { "ref": "definitions.gex_threshold_by_symbol" } },
+            { "term_structure_inverted": true },
+            { "iv_momentum_above": 12 }
+          ]
+        },
+        "behavior": {
+          "structures": [],
+          "action": "no_new_entries",
+          "note": "trade_management sigue activo para posiciones abiertas. Cualquiera de las 4 condiciones activa crisis. HY OAS widening se incorporará como 5ta condición cuando /App.Analytics/CreditSpread esté verificado (F-02)."
+        }
+      },
+      {
+        "id": "caution",
+        "label": "Caution — VIX 30-40, solo PCS conservador",
+        "conditions": { "vix_between": [30, 40], "spot_above_zgl": true, "price_zscore_above": -1.5 },
+        "conditions_note": "price_zscore_above: -1.5 excluye escenarios de dislocación (zscore < -1.5) para que dislocation_opportunity gane cuando aplica. Regla general: regímenes más específicos van antes en evaluation_order.",
+        "behavior": { "structures": ["put_credit_spread"], "max_positions": 2, "heat_factor": 0.625, "dte_range": [35, 50], "delta_max_put": 0.15, "delta_max_call": 0.15, "size_factor": 0.5 }
+      },
+      {
+        "id": "dislocation_opportunity",
+        "label": "Dislocation — Oportunidad de reversión",
+        "conditions": { "vix_between": [25, 40], "price_zscore_below": -1.5, "iv_rank_above": 45 },
+        "behavior": { "structures": ["put_credit_spread"], "max_positions": 2, "heat_factor": 0.75, "dte_range": [21, 35], "delta_max_put": 0.20, "delta_max_call": 0.20, "size_factor": 0.7 }
+      },
+      {
+        "id": "elevated_vol",
+        "label": "Elevated Vol — PCS conservador",
+        "conditions": { "vix_between": [30, 40], "iv_rank_above": 60, "spot_below_zgl": true },
+        "behavior": { "structures": ["put_credit_spread"], "max_positions": 2, "heat_factor": 0.625, "dte_range": [35, 50], "delta_max_put": 0.15, "delta_max_call": 0.15, "size_factor": 0.5 }
+      },
+      {
+        "id": "low_vol_grind",
+        "label": "Low Vol — IC ancho",
+        "conditions": { "vix_below": 15, "iv_rank_below": 20, "gex_above": 50 },
+        "behavior": { "structures": ["iron_condor"], "max_positions": 4, "heat_factor": 1.5, "dte_range": [30, 45], "delta_max_put": 0.20, "delta_max_call": 0.18, "size_factor": 1.1, "spread_width_override": 15 }
+      },
+      {
+        "id": "optimal",
+        "label": "Optimal — Deploy máximo",
+        "conditions": { "vix_below": 25, "iv_rank_between": [30, 55], "gex_above": 50, "spot_above_zgl": true, "term_structure_normal": true },
+        "behavior": { "structures": ["iron_condor", "put_credit_spread", "call_credit_spread"], "max_positions": 4, "heat_factor": 1.25, "dte_range": [35, 50], "delta_max_put": 0.20, "delta_max_call": 0.18, "size_factor": 1.0 }
+      },
+      {
+        "id": "normal",
+        "label": "Normal — Operación estándar",
+        "conditions": { "vix_below": 35, "iv_rank_between": [20, 75], "gex_above": 25, "spot_above_zgl": true },
+        "behavior": { "structures": ["iron_condor", "put_credit_spread", "call_credit_spread"], "max_positions": 3, "heat_factor": 1.0, "dte_range": [35, 45], "delta_max_put": 0.20, "delta_max_call": 0.18, "size_factor": 1.0 }
+      },
+      {
+        "id": "unclassified",
+        "label": "Unclassified — Régimen no clasificado, operar con cautela",
+        "is_fallback": true,
+        "conditions": "none (fallback: se activa cuando ningún otro régimen matchea)",
+        "behavior": {
+          "structures": ["put_credit_spread"],
+          "max_positions": 1,
+          "heat_factor": 0.5,
+          "dte_range": [35, 50],
+          "delta_max_put": 0.15,
+          "delta_max_call": 0.15,
+          "size_factor": 0.5,
+          "on_activate": "warn"
+        },
+        "note": "Fallback defensivo. Si el clasificador no encuentra régimen, el mercado está en una combinación no prevista — el principio de diseño es que el fallback otorgue el mínimo operativo, no permisos estándar. Ejemplo: VIX 33, spot < ZGL, IVR 50, zscore −1.0 no matchea ningún régimen explícito. Frontend debe mostrar badge 'régimen no clasificado' con tooltip explicativo."
+      }
+    ]
+  },
   "position_builder": {
-    "description": "Motor de construcción de posición. Se evalúa solo si macro_regime pasa.",
+    "description": "Motor de construcción de posición. Se evalúa solo si hard_gates pasa y régimen no es crisis.",
     "cascade_rule": "sequential_short_circuit",
     "ranking": {
       "description": "Criterio de priorización cuando hay múltiples tickers operables simultáneamente. El backend calcula priorityScore y lo expone en strikeEngine.priorityScore. El frontend ordena por ese campo descendente.",
@@ -626,11 +819,11 @@
           },
           {
             "id": "put_strike_delta",
-            "label": "|Δ put short| ≤ 0.30",
+            "label": "|Δ put short| ≤ 0.20",
             "side": "put",
             "metric":    { "ref": "calc.put_short_delta_abs" },
             "operator":  "lte",
-            "threshold": { "value": 0.30 },
+            "threshold": { "value": 0.20 },
             "source": "/Data/Tastytrade/MarketData/Greeks",
             "on_fail": "discard_put_side"
           },
@@ -666,11 +859,11 @@
           },
           {
             "id": "call_strike_delta",
-            "label": "|Δ call short| ≤ 0.25",
+            "label": "|Δ call short| ≤ 0.18",
             "side": "call",
             "metric":    { "ref": "calc.call_short_delta_abs" },
             "operator":  "lte",
-            "threshold": { "value": 0.25 },
+            "threshold": { "value": 0.18 },
             "source": "/Data/Tastytrade/MarketData/Greeks",
             "on_fail": "discard_call_side"
           },
@@ -770,9 +963,10 @@
         "pass_rule": "all_checks_pass",
         "on_layer_fail": "short_circuit_no_trade",
         "config": {
-          "risk_per_trade_pct": 0.015,
-          "max_positions": 3,
-          "max_heat_pct_net_liq": 0.045
+          "risk_per_trade_pct": { "ref": "definitions.risk_per_trade" },
+          "max_positions_hard_cap": 4,
+          "max_positions_hard_cap_note": "Techo absoluto del sistema. El efectivo por régimen = min(regime.max_positions, hard_cap). No duplicar en otros nodos.",
+          "max_heat_pct_net_liq": { "ref": "definitions.max_heat" }
         },
         "checks": [
           {
@@ -783,7 +977,7 @@
             "threshold": { "value": 1 },
             "source": "calc",
             "on_fail": "no_trade",
-            "note": "Si el riesgo por contrato supera el 1.5% del Net Liq, no operar."
+            "note": "Sin floor_min: si max_contracts = 0, el riesgo por contrato excede risk_per_trade y no se opera. Frontend debe mostrar motivo explícito (ej: 'max_contracts = 0: riesgo/contrato $375 > presupuesto $125')."
           },
           {
             "id": "positions_available",
@@ -796,12 +990,22 @@
           },
           {
             "id": "heat_after_entry",
-            "label": "Heat total ≤ 4.5% NL",
+            "label": "Heat total ≤ max_heat (8% NL base)",
             "metric":    { "ref": "definitions.heat_after_new_position" },
             "operator":  "lte",
             "threshold": { "ref": "definitions.max_heat" },
             "source": "calc",
             "on_fail": "reduce_contracts_to_fit_or_discard"
+          },
+          {
+            "id": "correlated_exposure_cap",
+            "label": "Máx 2 posiciones mismo lado en cluster correlacionado",
+            "metric":    { "ref": "calc.open_positions_same_side_same_cluster" },
+            "operator":  "lte",
+            "threshold": { "value": 2 },
+            "source": "account.positions + definitions.correlation_clusters",
+            "on_fail": "no_trade",
+            "note": "SPY y QQQ: cluster us_equity_index (corr ~0.9). max_positions: 4 solo se alcanza mezclando lados/condors; el límite direccional efectivo es 2, intencional."
           }
         ]
       }
@@ -863,7 +1067,7 @@
     },
     "hard_defense": {
       "trigger_any": {
-        "short_leg_delta_abs_gt": 0.30,
+        "short_leg_delta_abs_gt": 0.32,
         "unrealized_loss_pct_of_initial_credit_gte": 2.0
       },
       "action": "evaluate_immediate_risk_reduction"
@@ -884,7 +1088,7 @@
     "review_frequency_minutes": 30
   },
   "display_config": {
-    "checks_render_order": "macro_regime.checks[] en orden de declaración / position_builder.layers[].checks[] en orden de declaración",
+    "checks_render_order": "hard_gates.checks[] + regime_engine.checks[] + position_builder.layers[].checks[] en orden de declaración",
     "portfolio_manager_table": {
       "description": "Columnas del Portfolio Manager. El frontend debe renderizar exactamente estas columnas en este orden, leyendo los campos del endpoint /App/GaleCore/PositionBuilder.",
       "columns": [
@@ -927,19 +1131,19 @@
     "signal_labels": {
       "OPERAR": {
         "color": "green",
-        "condition": "macro_regime_pass AND all_position_builder_layers_pass"
+        "condition": "hard_gates_pass AND regime NOT IN [crisis] AND all_position_builder_layers_pass"
       },
       "OPERAR_PCS": {
         "color": "green",
-        "condition": "macro_regime_pass AND strike_engine_skew_degradation AND microstructure_pass AND risk_sizing_pass"
+        "condition": "hard_gates_pass AND regime NOT IN [crisis] AND strike_engine_skew_degradation AND microstructure_pass AND risk_sizing_pass"
       },
       "ESPERAR": {
         "color": "yellow",
-        "condition": "macro_regime_pass AND position_builder_partial_fail"
+        "condition": "hard_gates_pass AND regime NOT IN [crisis] AND position_builder_partial_fail"
       },
       "NO_OPERAR": {
         "color": "red",
-        "condition": "macro_regime_fail OR position_builder_short_circuit"
+        "condition": "hard_gates_fail OR regime == crisis OR position_builder_short_circuit"
       }
     }
   }
