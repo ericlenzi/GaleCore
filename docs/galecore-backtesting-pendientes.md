@@ -92,6 +92,31 @@ juntos. BT-0 mide esa apuesta.
 | **Dónde impacta** | La apuesta central del diseño (§3.1 y §6 de la definición). Si el lead time no es positivo, se endurecen los inputs rápidos (iv_momentum, vix_term_structure) **antes** de construir nada |
 | **Criterio** | Lead time **positivo en todos los episodios mayores** — se reporta el peor episodio, no el promedio. Complemento de BT-1: BT-1 mide *dónde* se rompe delta-POP; BT-0 mide si el régimen te saca *antes* de ahí. Se corren juntos sobre los mismos episodios |
 
+**⚙ PRIMERA CORRIDA (2026-07-08) — SPY 2013–2025, 15 episodios (drawdown ≥7% desde máx 60d),
+inputs rápidos v2.1.5 (VIX≥30 ∨ VIX9D>VIX3M ∨ RoC5d VIX>12%), lead = inicio de racha continua:**
+
+1. **La apuesta de diseño SE SOSTIENE:** lead mediano **+3 días**, positivo en **11/15** episodios;
+   el engine estaba fuera **en el peor día en 14/15** (única falla: oct-2023, grind lento de −8,8%).
+   Los 5 episodios catastróficos (−34% mar-2020, −20% Q4-2018, −21% abr-2022, −19% mar-2025,
+   −17% ago-2022) TODOS cubiertos en el peor día, con 55–100% de la ventana de daño fuera.
+2. **Protege de la trampa exacta que temíamos:** VRP en el momento de detección > 1.2 en 12/15 —
+   el engine te saca mientras el VRP-trailing todavía dice "prima rica". Validación empírica
+   directa del punto ciego calma→tormenta.
+3. **Los 4 episodios tardíos son grinds lentos** (sep-2020, dic-2022, oct-2023, abr-2022 lead 0)
+   — drawdowns graduales sin shock de vol, el modo de pérdida lenta (no catastrófica) de la
+   venta de prima. El engine anticipa shocks; los grinds los detecta tarde por construcción.
+4. **El costo, medido:** engine fuera el **28,3%** de los días; 119 rachas falso-positivas
+   (13% de los días, mediana 3 días). El anticipador es `iv_momentum` (RoC5d>12) que dispara
+   el 18,6% de los días — es a la vez el héroe del lead time y el generador de ruido. Su
+   calibración (12%) es trade-off ocurrencias↔anticipación → se decide en BT-5 con P&L, no acá.
+5. **🐛 Componente GEX EXCLUIDO — fórmula y umbral incompatibles:** la reconstrucción histórica
+   con la fórmula del JSON (Σ OI·gamma·100·spot²·0.01, calls−puts) da mediana ~0B / p90 7B
+   contra un umbral de crisis de 25B → dispararía el 99,7% de los días. Consistente con el bug
+   de `netGexBillions` visto en la API (2026-07-06, valores −5×10¹⁶). **Recalibrar
+   fórmula/umbral GEX antes de sumarlo al régimen** — issue abierto. `spot_vs_zgl` tampoco
+   testeado (requiere ZGL histórico; posible con OI, pendiente junto al fix GEX).
+6. Cache generado: `data/derived/spy_gex_daily.parquet` (GEX diario reconstruido 2013–2025).
+
 ### BT-1 — Validación de `POP ≈ 1 − |delta|` (prioridad máxima)
 
 | | |
@@ -100,6 +125,26 @@ juntos. BT-0 mide esa apuesta.
 | **Dato necesario** | Cadenas EOD (delta al momento de entrada) + OHLC (para saber el resultado al vencimiento) |
 | **Dónde impacta** | `definitions.pop_proxy` — es el insumo de **edge, priorityScore y creditRatio**. Si el delta subestima la probabilidad real de pérdida, TODO el edge del diseño está inflado |
 | **Criterio** | Si el ITM real por bucket excede el delta en > X% de forma sistemática (sobre todo en regímenes tensos), el `colchón_incertidumbre` de `min_edge` debe absorber esa diferencia medida — no un número inventado |
+
+**⚙ PRIMERA CORRIDA (2026-07-08) — SPY+QQQ 2013–2025, DTE 30–50, 1,17M observaciones:**
+
+1. **Global: el delta SOBRESTIMA levemente el ITM** (ratio real/pred 0.65–1.0, mejora al crecer
+   delta) → `POP = 1−|delta|` es conservador en promedio. Bien para el vendedor.
+2. **Por año: el signo se invierte en años bajistas.** 2022: ITM real +3,3pp sobre lo predicho
+   (SPY; QQQ +2,6pp) — en stress el delta subestima. **Ese ~3pp (≈15% relativo sobre base 21%)
+   es el tamaño medido del `colchón_incertidumbre` para regímenes malos.**
+3. **HALLAZGO MAYOR — asimetría put/call brutal (zona 0.10–0.35):**
+   - **Puts: pred 21% → ITM real 11,5–12,7%.** El delta sobrestima el riesgo put ~2× (drift
+     alcista + put skew). El edge de PCS calculado con delta está sistemáticamente subestimado.
+   - **Calls: pred 21,7% → ITM real 33,5%.** El delta SUBESTIMA el riesgo call en +12pp: un
+     short call delta 0.20 expiró ITM 1 de cada 3 veces (POP real ~66%, no ~80%).
+   - Consistente en ambos índices. Refleja el drift realizado del período (13 años, mayormente
+     alcista, incl. 2 bears) — no es conocible ex ante, pero 13 años de persistencia exigen
+     respuesta de diseño: **el edge del lado call no puede usar el mismo POP-delta que el put.**
+   - Decisión pendiente que esto abre: corrección empírica por lado (tabla de calibración), o
+     `min_edge` más exigente para CCS/lado call del IC, o preferencia estructural por PCS.
+4. Nota metodológica: observaciones diarias solapadas (mismo contrato en días sucesivos) — n
+   inflado pero medias insesgadas; la significancia real la da el conteo de vencimientos.
 
 ### BT-2 — Distribución del VRP y calibración de `vrp_min`
 
@@ -278,7 +323,29 @@ El día del cálculo resultó una demostración empírica del diseño completo:
 
 ---
 
-## 8. Orden recomendado de ejecución
+## 8. Filtro OI de microestructura — recalibrado con datos (2026-07-08)
+
+**Decisión confirmada: `open_interest_min` baja de 2000 → 100 para SPY/QQQ** (sujeto a
+validación en años de stress). Evidencia (SPY 2025, 33.108 filas en zona operativa):
+
+- El spread es **plano a través del OI**: mediana 1,01% (OI=0) → 0,83% (OI 5000+); el % que
+  pasa el filtro de spread ≤5% es 93,8–98,7% en TODOS los buckets. En SPY el OI no predice
+  calidad de quote — el filtro de spread (medida directa) es el gate que trabaja.
+- En días de stress (p90 IV) tampoco hay gradiente: 1,17–1,54% sin patrón por OI.
+- Costo del 2000: mataba el 76% de la zona operativa y la mitad de los strikes redondos de $5.
+- OI ≥ 100 conserva el 80% de la zona y filtra solo strikes genuinamente muertos.
+- **Validación en años de stress (hecha 2026-07-08, 2018/2020/2022 + 2013):** en la era moderna
+  (2018+) el gradiente OI→spread es leve incluso en días p90 de IV (2020 stress: OI<100 pasa el
+  filtro de 5% en 82% de los casos; 2022: 95%). **Confirmado OI ≥ 100.** Excepción histórica:
+  en 2013–2017 el gradiente era real (OI<100 → spread ~6%, solo 37% pasa) — era otra
+  microestructura de mercado; en backtests de esos años el filtro de spread muerde más, lo cual
+  es correcto y realista. El filtro de spread ≤5% queda como el gate primario (se auto-protege:
+  un quote ancho falla sin importar el OI).
+- **Pendiente en el mismo espíritu:** el filtro de volumen (>200) muerde parecido (volumen
+  mediano en zona: 17–126) — revisarlo con el mismo método junto a BT-3.
+- JSON-first: aplicar al nodo de microestructura junto con el merge v2.1.5.
+
+## 9. Orden recomendado de ejecución
 
 1. ~~**Piso de fricción** (sección 7)~~ — ✅ hecho 2026-07-06 (piso ~1.02–1.06 para trades regla 1/3).
 2. ~~**Adquirir cadenas históricas EOD**~~ — ⚙ parcial 2026-07-08: SPY 2013–2023 adquirido; **faltan OI y QQQ** (sección 2.1).
