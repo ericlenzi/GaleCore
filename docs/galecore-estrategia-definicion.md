@@ -357,6 +357,7 @@ del 50% es más fuerte en riesgo indefinido que en spreads definidos → BT-4 lo
 | barras dinámicas | `behavior.{vrp_min, min_edge}` por régimen | nodo nuevo |
 | definición del edge | `definitions.edge` (fórmula con POP empírico + refs) | nodo nuevo |
 | calibración POP | `definitions.pop_calibration` (tabla por lado × bucket de delta, interpolada; reemplaza `pop_proxy` en el edge) | nodo nuevo |
+| umbral GEX | `definitions.gex_threshold_by_symbol`: 25B → **0** (recalibrado BT-5: el 25B era inalcanzable bajo la fórmula del propio JSON; señal `GEX ≥ 0` validada 15/15 episodios) | recalibración |
 | fricción | `execution.friction` — **extiende** el modelo de slippage existente (comisiones + gestión) | extensión |
 | anti-correlación | `risk_limits.correlation_veto` (veto duro mismo lado) | nodo nuevo |
 | bandas de riesgo | `risk_limits.risk_bands` (estándar/high_risk/never + heat 7%) | nodo nuevo |

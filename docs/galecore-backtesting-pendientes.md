@@ -275,6 +275,45 @@ Correr la estrategia incrementalmente y medir cada escalón contra el anterior:
 | **Criterio clave (capa de cola)** | Counterfactual: ¿cuántas veces el veto de cola te habría sacado *antes* del peor día? Eso — no el Sharpe — justifica o mata la capa |
 | **Pregunta que debe responder sí o sí** | ¿El alpha_gate (IV/RV) por sí solo ya filtra los malos trades, o gamma/cola/anti-correlación aportan por encima? |
 
+**⚙ FIX GEX + PRIMERA CORRIDA BT-5 (2026-07-08):**
+
+**Fix del GEX (prerequisito):**
+- Diagnóstico completo del caos de unidades: el JSON declara `Σ OI·gamma·100·spot²·0.01` en $B;
+  el backend (`GammaExposureHandler.cs:280`) calcula **sin el ×0.01** y guarda por strike **/1e6
+  (millones)** en un campo que se expone como `NetGexBillions` (por eso la API dio −5×10¹⁶).
+  Bug de código flaggeado como tarea separada.
+- Con la fórmula del JSON sobre 13 años reales: mediana 0,1B, p10 −7,6B, p90 +7,3B → **el
+  umbral 25B/50B es inalcanzable y queda retirado.** Señal recalibrada: **`GEX ≥ 0`**
+  (dealers long gamma = amortiguan; <0 = amplifican).
+- **Validación 15/15:** en TODOS los episodios BT-0 el GEX reconstruido era **negativo en D0**.
+  La tesis original de GaleCore (gamma como soporte) confirmada con 13 años de datos.
+
+**La escalera (señales-día, P&L hold neto):**
+
+| Capa | n/año | win% | avg$ | p5$ | p1$ | pérdidas >$200 |
+|---|---|---|---|---|---|---|
+| L0 pelado (PCS mecánico) | 207 | 91,9 | 17,1 | −434 | −454 | 195 |
+| L1 +alpha (VRP≥1.2) | 82 | 93,8 | 24,2 | −305 | −457 | 58 |
+| L2 +régimen/cola | 51 | 94,7 | 25,5 | −138 | −460 | 31 |
+| L3 +edge≥barra | 21 | 97,8 | 46,2 | +50 | −445 | 5 |
+| **L4 +gamma (GEX≥0)** | **10** | **99,2** | **50,9** | **+49** | **+46** | **1** |
+
+1. **Toda capa paga:** avg monótono 17→51; las pérdidas grandes colapsan 195→58→31→5→1.
+   Respuesta a la pregunta del feedback: el alpha_gate solo NO alcanza (58 pérdidas grandes);
+   régimen, edge y gamma aportan cada uno por encima.
+2. **Counterfactual 2015 (la única pérdida del portfolio sim):** las dos entradas de agosto
+   2015 tenían **GEX negativo** (−0,95B / −3,59B) → **la capa gamma las filtra.** Queda UNA
+   pérdida grande en 13 años (30-nov-2015, GEX +0,15B marginal). Con L4, hasta el **p1 es
+   positivo**.
+3. **El costo de la capa gamma, explícito:** halvea las ocurrencias (21→10/año) y el P&L total
+   (12.330→6.766) para eliminar 4 de 5 pérdidas de cola. Por mandato safety-first se adopta
+   como veto; es la capa más cara en ocurrencias — si alguna vez se poda algo, es la primera
+   candidata a re-examen con más datos.
+4. **Caveat mayor:** la escalera completa es in-sample con 5 capas ajustadas sobre los mismos
+   13 años — el riesgo de sobreajuste del feedback (2.3) aplica con fuerza. Walk-forward
+   obligatorio antes de cualquier `enabled:true`.
+5. Escalón (e) anti-correlación: pendiente (requiere réplica QQQ — BT-6).
+
 ### BT-6 — Veto de correlación SPY/QQQ
 
 | | |
