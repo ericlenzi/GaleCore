@@ -323,6 +323,63 @@ Correr la estrategia incrementalmente y medir cada escalón contra el anterior:
 | **Dónde impacta** | Nodo nuevo `correlation_veto` en risk_limits; allocation policy (concentrar vs. repartir) |
 | **Criterio** | Si 2 posiciones correlacionadas empeoran el peor-caso sin mejorar el retorno, el veto queda; definir mecanismo (veto duro vs. tope de heat combinado) |
 
+**⚙ RÉPLICA QQQ COMPLETA + PRIMERA CORRIDA BT-6 (2026-07-08):**
+
+**La réplica confirma el diseño (validación cruzada entre índices):**
+
+| | SPY | QQQ |
+|---|---|---|
+| Calibración puts (factor ITM/delta en zona) | 0,44–0,58 | 0,50–0,62 |
+| Calibración calls | 1,46–1,59 | 1,49–1,65 |
+| edge_emp mediana | 1,11 | 1,12 |
+| Gate L3: señales/año · win · avg · p5 | 20,5 · 97,8% · $46,2 · +$50 | 17,3 · 96,0% · $45,8 · +$52 |
+| Cartera (1 pos, hold): total · pérdidas | $1.568 · 1 | $1.526 · 1 |
+
+La asimetría put/call, el edge empírico y el gate L3 **replican casi idénticos** en el segundo
+índice — el hallazgo de BT-1 no era idiosincrasia de SPY. Cache: `pop_calibration_qqq.parquet`,
+`qqq_gex_daily.parquet`, `bt3_trades_qqq.parquet`.
+
+**🔴 PODA: la capa gamma NO paga en QQQ** — en ninguna variante (GEX propio ≥0: avg 45,8→38,8,
+pérdidas>200 8→5; GEX de mercado/SPY: 40,6, 6; ambos: p5 se vuelve negativo). Nota estructural:
+el GEX de cadena-QQQ (±2B) ignora que el hedging Nasdaq vive también en NDX/futuros. **Decisión:
+capa gamma queda para SPY (donde deja 1 pérdida en 13 años con 99,2% win) y `enabled:false`
+para QQQ** hasta walk-forward o mejor señal. Primera aplicación real de "podar, no sumar".
+
+**BT-6 — correlación y veto:**
+- Subyacentes correlacionan **0,931** diario; pero las señales gated solo coinciden **37%** de
+  los días (132 días simultáneos en 13 años ≈ 10/año).
+- En esos 132 días: correlación de P&L **−0,05** y **cero días donde ambos pierden**.
+- Lectura honesta: **no hay evidencia in-sample de que el veto al mismo lado pague** — porque
+  los gates ya esquivan las tormentas donde vivirían las pérdidas conjuntas. El escenario que
+  justifica el veto (crash que mata ambos a la vez) es exactamente el que la muestra no
+  contiene *gracias a* los gates (que son in-sample).
+- Costo del veto medido: ~10 señales/año del segundo índice renunciadas (menos en cartera real
+  por ocupación). **Decisión pendiente del operador:** mantener el veto como seguro de cola por
+  principio (costo modesto, beneficio no medible in-sample) vs. relajarlo a "ambos permitidos
+  si ambos pasan todos los gates". Safety-first sugiere mantener; el dato no lo exige.
+
+**⚙ TEST OUT-OF-FAMILY: IWM (2026-07-08) — VEREDICTO: NO ENTRA AL UNIVERSO, y la validación
+fue oro:**
+
+1. **La calibración IWM CONFIRMA la explicación por drift del hallazgo BT-1:** en IWM (sin el
+   drift persistente de large caps) el delta es casi honesto — puts 0,52–0,87 (sesgo mucho
+   menor que SPY) y **calls 0,81–1,16 (≈ justo, sin la subestimación 1,5× de SPY/QQQ)**. La
+   "mentira del delta" no es universal: es hija del drift del subyacente. Esto **endurece el
+   caveat** sobre la calibración put de SPY/QQQ: si el drift cambia, el factor cambia — el
+   walk-forward debe monitorearlo por ventana.
+2. **La fricción IWM es 2× SPY:** bid-ask 2,44% del mid (vs 0,61%) → ~$13,3/contrato.
+3. **Ancho $5:** edge_emp mediana 0,87 (<1) — la prima small-cap no es rica (VRP fino, como se
+   sospechaba). L1/L2 con avg NEGATIVO (vender puts IWM neto de fricción no pagó). El gate L3
+   deja solo **1,6 señales/año** (21 en 13 años — eso sí: 95% win, sin pérdidas grandes,
+   p5 +$60). El sistema correctamente casi nunca encuentra trade en IWM.
+4. **Ancho $2 (la promesa de granularidad): REFUTADA por fricción** — $13,3 sobre crédito
+   ~$29 = 45% del crédito; cartera 13 años en **negativo** (−$181). La granularidad fina
+   existe pero la microestructura se la come.
+5. **Overlap:** IWM aporta solo 0,8 señales/año propias. No mitiga el régimen-cero.
+6. **Decisión:** IWM queda **fuera del universo operable** (regla SPY/QQQ intacta). Su valor
+   fue diagnóstico: los gates rechazan solos un mercado sin prima rica — el sistema funcionando
+   fuera de su hábitat. Cache: `pop_calibration_iwm.parquet`, `bt3_trades_iwm.parquet`.
+
 ### BT-7 — Secuencia y riesgo de ruina (validación path-level)
 
 | | |
