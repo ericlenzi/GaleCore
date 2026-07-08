@@ -230,6 +230,31 @@ DTE 35–50, hold a vencimiento, neto de fricción), 2013–2025:**
 | **Dónde impacta** | `trade_management` (profit target, DTE de salida). El prior Tastytrade de 50% está validado mayormente en **strangles**; para spreads de riesgo definido la evidencia es más débil |
 | **Criterio** | La política que domina ajustada por riesgo. Nota: la gestión **reescribe la distribución** — el edge calculado a vencimiento y el edge con gestión al 50% son números distintos; el segundo es el real y es el que calibra BT-3 |
 
+**⚙ PRIMERA CORRIDA (2026-07-08) — mark-to-market diario de los 2.692 PCS (79.747 path-rows),
+4 políticas, foco en las 304 señales gated:**
+
+| Política (gated) | win% | avg$ | p5$ | días prom | $/día |
+|---|---|---|---|---|---|
+| A: hold a vencimiento | 97,4 | **43,4** | **+47,8** | 42,7 | 1,0 |
+| B: cierre al 50% profit | **99,0** | 25,1 | +22,7 | **16,5** | **1,5** |
+| C: 50% o salida 21 DTE | 85,5 | 10,4 | −110 | 14,5 | 0,7 |
+| D: salida 21 DTE sola | 74,7 | 9,6 | −121 | 21,8 | 0,4 |
+
+1. **🔴 La salida forzada a 21 DTE queda REFUTADA para spreads OTM de riesgo definido:** destruye
+   el win rate (97→75%) y vuelve negativa la cola (p5 −$110/−$121) porque **cristaliza drawdowns
+   que casi siempre se recuperan** (el ITM real es bajo — BT-1). El prior de Tastytrade está
+   calibrado para strangles de riesgo indefinido (gamma risk); acá vende barato el rebote.
+   Exactamente la sospecha del feedback ronda 1 ("¿o es el default de Tasty que copiaste?").
+2. **El 50% profit target es válido y domina en velocidad de capital:** win 99%, p5 positivo,
+   libera el capital en 16,5 días vs 42,7 → $/día 1,5 vs 1,0. Cobra menos por trade (−42%)
+   pero rota 2,6× más rápido — con la regla de 1 posición por símbolo, permite tomar más
+   señales del año.
+3. **Decisión adoptada: política B (50% profit target, SIN salida forzada por DTE).** Las
+   salidas defensivas siguen siendo `hard_defense` (no testeada acá — requiere sim de triggers
+   intradía de delta, pendiente).
+4. Matiz de fricción: se cobró fricción completa a todas las políticas; hold-to-exp con
+   expiración worthless paga menos cierre → A está levemente subestimada. No cambia el orden.
+
 ### BT-5 — Escalera de atribución por capas (¿qué protección paga?)
 
 Correr la estrategia incrementalmente y medir cada escalón contra el anterior:
@@ -267,6 +292,27 @@ Correr la estrategia incrementalmente y medir cada escalón contra el anterior:
 | **Dato necesario** | Los mismos trades de BT-3/BT-5, evaluados en secuencia real (no promediada) |
 | **Dónde impacta** | `risk_limits` (sizing, heat) y la viabilidad global. En venta de prima la distribución tiene sesgo negativo: el número que decide si seguís vivo no es el drawdown promedio, es el peor caso |
 | **Criterio** | Una curva con buen Sharpe y un día de −40% es **inoperable**. El sizing debe sobrevivir a la peor secuencia histórica con margen |
+
+**⚙ PRIMERA CORRIDA BT-7 + BT-8 (2026-07-08) — cartera realista: 1 posición SPY por vez,
+entrada en señal gated, gestión B (50%), 1 contrato:**
+
+1. **Compresión de señales (BT-8 por ocupación):** 304 señales-día → **68 trades reales =
+   5,2/año**. La ocupación de la posición (17 días promedio) hace el 80% del trabajo del
+   cooldown; el δ de histéresis queda como refinamiento menor.
+2. **Secuencia (BT-7): 1 sola pérdida en 13 años** (flash crash ago-2015, −$446 = max loss
+   pleno). Peor racha: 1. Max drawdown de equity = ese único trade = **4,5% del Net Liq $10k**
+   (dentro del tope de 5%; por encima del target 3,5% — el ancho $5 con crédito fino da max
+   loss ~$445). Años negativos: 1 de 11 con trades.
+3. **Win 98,5% | avg $23/trade | total $1.568 en 13 años con 1 contrato ≈ $120/año.** Sobre
+   $10k: **~1,2% anual con 1 contrato** — la escala honesta del sistema a este capital. El edge
+   es real pero chico en dólares absolutos: es un sistema safety-first de renta chica, no una
+   máquina de yield. Escala linealmente con contratos (capital).
+4. **Régimen-cero MEDIDO:** espera mediana entre entradas 36 días; p90 154 días; **máxima 803
+   días** (2017–2018: vol baja sin VRP — cero trades en dos años). La pregunta abierta de la
+   definición (§6.2 del feedback ronda 1) ahora tiene número: el sistema pasa años esperando
+   por diseño.
+5. Ocupación del capital: en posición ~35% de los días. El colchón está ocioso el 65% del
+   tiempo — coherente con "el capital ocioso es defensa".
 
 ### BT-8 — Cooldown / histéresis del edge
 
@@ -318,8 +364,11 @@ Correr la estrategia incrementalmente y medir cada escalón contra el anterior:
 **El régimen-cero:** hay entornos donde vender prima estructuralmente no paga
 (IV/RV ≈ 1 por meses, o IV alta pero RV más alta). El sistema correctamente diría "no operar"
 durante meses. ¿Espera ociosa, o eventualmente una segunda pata no correlacionada?
-Se deja **nombrado como límite estructural, no como feature**. El backtest debe medir cuánto
-tiempo histórico el sistema pasa en régimen-cero (% de días sin señal posible).
+Se deja **nombrado como límite estructural, no como feature**.
+
+**MEDIDO (BT-7, 2026-07-08):** espera máxima histórica entre entradas = **803 días**
+(2017–2018); p90 = 154 días. El régimen-cero no es hipotético: el sistema pasó dos años
+enteros sin operar. La pregunta (esperar vs. segunda pata) sigue abierta, ahora con número.
 
 ---
 

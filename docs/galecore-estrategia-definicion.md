@@ -333,7 +333,10 @@ histéresis (régimen vs. por-estado); δ del cooldown (BT-8).
 
 **La estrategia nueva ADOPTA la gestión existente sin cambios**, hasta que BT-4 diga otra cosa:
 
-- Profit target: cierre al **50% del crédito**.
+- Profit target: cierre al **50% del crédito** — ✅ validado en BT-4 (win 99%, p5 positivo,
+  libera capital 2,6× más rápido que hold). **Sin salida forzada por DTE:** la regla 21-DTE de
+  Tastytrade quedó refutada para spreads OTM definidos (BT-4: cristaliza drawdowns recuperables,
+  win 97→75%) — aplica a strangles indefinidos, no a nuestra estructura.
 - `hard_defense`: delta short > 0.30 o pérdida ≥ 2× crédito → defensa/cierre.
 - `daily_kill_switch`: MTM diario −1% → freno del libro.
 - Rolls: solo spread OTM, por crédito neto, nueva expiración ≥ 21 DTE. ITM se cierra, no se rolla.
