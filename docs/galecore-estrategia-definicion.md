@@ -84,10 +84,19 @@ subvaluado por más linda que sea la estructura.
 ### 3.2 edge_gate — ¿el spread captura bien esa prima? (nivel spread, Tier B)
 
 ```
-edge = (crédito / ancho) / (1 − POP)        con POP ≈ 1 − |delta_short|
-edge > 1  ⟺  EV > 0        (identidad: EV = crédito − (1−POP)·ancho)
+edge = (crédito / ancho) / p_pérdida        con p_pérdida = POP_empírica(lado, |delta_short|)
+edge > 1  ⟺  EV > 0        (identidad: EV = crédito − p_pérdida·ancho)
 disparo:  edge ≥ min_edge(régimen)
 ```
+
+**POP empírico (decisión 2026-07-08, BT-1/BT-3):** `1 − |delta|` quedó refutado como proxy de
+POP por lado — el delta sobrestima el riesgo put ~2× (factor ITM-real/delta 0,34–0,69) y
+subestima el call ~1,5× (1,27–1,59). La probabilidad de pérdida sale de la **tabla de
+calibración empírica** (por lado y bucket de delta, interpolada; SPY 2013–2025, DTE 30–50 —
+`data/derived/pop_calibration_spy.parquet`, futuro nodo `definitions.pop_calibration`).
+Con esto el edge recupera su semántica absoluta y absorbe la asimetría put/call. Caveats: es
+calibración in-sample y dependiente del drift del período — validación walk-forward pendiente;
+el colchón por régimen de `min_edge` sigue cubriendo el error residual.
 
 - **Corrección de prosa (feedback §4):** el denominador `(1−POP)×ancho` es *probabilidad de
   pérdida × ancho*, NO "la pérdida promedio" (esa es `p·(ancho−crédito)`).
@@ -177,16 +186,22 @@ compensa que el delta subestima la probabilidad real de pérdida en regímenes t
 - **Piso duro:** `min_edge ≥ 1 + fricción/crédito` en todo régimen.
 - **Sin compensación cruzada** entre barras.
 
-**Valores placeholder (a reemplazar por BT-2/BT-3):**
+**Valores calibrados con datos (BT-2/BT-3, 2026-07-08 — edge en escala POP-empírico; in-sample,
+pendiente walk-forward):**
 
-| Régimen | `vrp_min` | `min_edge` |
-|---|---|---|
-| optimal | 1.15 | 1.10 |
-| normal | 1.20 | 1.15 |
-| low_vol_grind | 1.25 | 1.15 |
-| elevated_vol | 1.35 | 1.25 |
-| caution / dislocation | 1.45 | 1.35 |
-| crisis | — (bloqueado) | — |
+| Régimen | `vrp_min` | `min_edge` (emp) | Base empírica |
+|---|---|---|---|
+| low_vol (VIX<15) | 1.20 | **1.10** | prima fina, cola presente en toda barra; espejismo de denominador confirmado |
+| normal (VIX 15–25) | 1.20 | **1.05** | p5 positivo desde 1.0; ~14 señales/año, avg $53 |
+| elevated (VIX 25–30 sin stress) | 1.20 | **1.10** | sweet spot (98,9% win) pero n=11 → prudencia |
+| caution / dislocation | 1.30 | 1.20 | sin datos suficientes — provisorio conservador |
+| crisis / engine_out | — (bloqueado) | — | los flags rápidos vetan (BT-0) |
+
+Gate completo medido (operable ∧ VRP≥1.2 ∧ edge_emp≥1.05): **23 señales-día/año, win 97,4%,
+p5 +$48** — el complemento rechazado rinde 3× menos. `vrp_min = 1.2` validado directamente
+(avg $25,50 vs $9,55 en lo rechazado). Piso de calidad: el 33,3% queda retirado para spreads
+de un lado (inalcanzable a delta ≤0.25 — 0% de días en 13 años); guardia anti-pennies:
+`credit_ratio ≥ 10%` + `credit_min` $0,30.
 
 **Piso de fricción — CALCULADO (2026-07-06, datos reales; detalle en doc de backtesting §7):**
 fricción ≈ $6.30–9.30 por contrato (PCS 2 legs, round trip, cierre 50%). Para trades que
@@ -337,7 +352,8 @@ del 50% es más fuerte en riesgo indefinido que en spreads definidos → BT-4 lo
 |---|---|---|
 | alpha_gate | activar y promover el `iv_vs_rv` **que ya existe deshabilitado** en regime_engine.checks | reconciliado, no inventado |
 | barras dinámicas | `behavior.{vrp_min, min_edge}` por régimen | nodo nuevo |
-| definición del edge | `definitions.edge` (fórmula + refs a pop_proxy/credit_ratio) | nodo nuevo |
+| definición del edge | `definitions.edge` (fórmula con POP empírico + refs) | nodo nuevo |
+| calibración POP | `definitions.pop_calibration` (tabla por lado × bucket de delta, interpolada; reemplaza `pop_proxy` en el edge) | nodo nuevo |
 | fricción | `execution.friction` — **extiende** el modelo de slippage existente (comisiones + gestión) | extensión |
 | anti-correlación | `risk_limits.correlation_veto` (veto duro mismo lado) | nodo nuevo |
 | bandas de riesgo | `risk_limits.risk_bands` (estándar/high_risk/never + heat 7%) | nodo nuevo |

@@ -165,6 +165,62 @@ inputs rápidos v2.1.5 (VIX≥30 ∨ VIX9D>VIX3M ∨ RoC5d VIX>12%), lead = inic
 | **Dónde impacta** | Tabla `min_edge` por régimen en los nodos `behavior` del regime engine — hoy los niveles son placeholders (1.10 … 1.35) |
 | **Criterio** | Corte de edge neto rentable por régimen, respetando dos invariantes de diseño: **monotonía** (barra no-decreciente con el peligro del régimen) y **piso duro** `min_edge ≥ 1 + fricción` en todo régimen |
 
+**⚙ PRIMERA CORRIDA BT-2/BT-3 (2026-07-08) — 2.692 PCS SPY simulados (delta ~0.20, ancho $5,
+DTE 35–50, hold a vencimiento, neto de fricción), 2013–2025:**
+
+1. **🔴 HALLAZGO QUE ROMPE PARÁMETROS: el piso 1/3 y el edge>1 con delta-POP son inalcanzables
+   en el PCS canónico.** Credit ratio mediano 11,6%; **0,0% de los días** ofreció ratio ≥33,3%
+   a delta 0.20/ancho $5. Edge de entrada: mediana 0,59, p90 0,74 — **nunca cruzó 1 en 13 años**.
+   El pipeline como está parametrizado habría disparado CERO trades. Causa: la regla 1/3 de
+   Tastytrade presupone strangles/IC con deltas más altos; a delta 0.20 un spread paga ~10-15%
+   del ancho, no 33%.
+2. **Y SIN EMBARGO los trades fueron +EV:** win rate 88–99%, P&L medio positivo en todos los
+   regímenes ($11–62/contrato neto). La reconciliación es BT-1: el delta miente 2× en puts
+   (ITM real 11,5% vs 21% predicho) → el edge real con POP real ≈ 1,05–1,10, no 0,59. **El
+   edge con delta-POP subestima sistemáticamente el lado put** — la fórmula necesita POP
+   calibrado (tabla empírica de BT-1) o el min_edge debe recalibrarse como corte relativo.
+3. **✅ VRP≥1.2 VALIDADO como gate:** P&L medio con VRP≥1.2 = $25,50 vs $9,55 en lo rechazado
+   (2,7×); banda 1.2–1.4 con p5 POSITIVO (las pérdidas se concentran en entradas de VRP bajo).
+   No monótono perfecto (banda 1.4–1.7 mezcla calma-pre-tormenta), pero el corte 1.2 funciona.
+4. **El régimen `elevated` (VIX 25–30 sin flags de stress) es el sweet spot:** 98,9% win,
+   P&L medio $62, p5 positivo — prima rica sin tormenta.
+5. **Matiz sobre engine_out:** los trades dentro de ventanas vetadas promediaron +$22,7 (la
+   prima post-crash es enorme) — el valor del engine NO está en el promedio sino en la cola
+   (p5 −$431) y en la secuencia; eso lo mide BT-5/BT-7, no este promedio.
+6. **Decisión abierta (bloqueante para BT-5):** recalibrar piso de calidad + edge:
+   (a) POP empírico por lado desde BT-1 en la fórmula del edge, o (b) min_edge como percentil
+   histórico del edge-delta (corte relativo), o (c) mover la selección a deltas mayores
+   (0.30–0.35) donde el 1/3 es alcanzable — cambia el carácter de la estrategia (menos POP).
+
+**⚙ SEGUNDA CORRIDA — OPCIÓN (a): POP EMPÍRICO EN EL EDGE (2026-07-08). DECISIÓN ADOPTADA.**
+
+1. **Tabla de calibración construida** (SPY 2013–2025, DTE 30–50, por lado y bucket de delta;
+   cache: `data/derived/pop_calibration_spy.parquet`). Factores ITM-real/delta: **puts 0,34–0,69**
+   (el delta sobrestima el riesgo put), **calls 1,27–1,59** (lo subestima ~1,5×). Monótona y
+   estable. El edge pasa a ser `edge_emp = (credit/width) / p_itm_empírica(lado, delta)`.
+2. **Con POP empírico el edge recupera su semántica:** mediana 1,11 (antes 0,59), 73% de los
+   días >1 — los trades +EV ahora miden +EV.
+3. **El gate completo (régimen operable AND VRP≥1.2 AND edge_emp≥1.05) sobre 13 años:**
+   - **304 señales-día ≈ 23/año (~2/mes)** — la baja ocurrencia esperada, ahora cuantificada.
+   - **Win 97,4% | P&L medio $43,36/contrato | p5 POSITIVO (+$47,85)** — la cola izquierda de
+     lo seleccionado es ganadora; las pérdidas quedaron en lo rechazado.
+   - Complemento rechazado: win 91,2%, avg $13,79 → el gate selecciona 3× mejor.
+   - Único año negativo: 2015 (−$400, flash crash de agosto). 2018 y 2022: el sistema
+     correctamente casi no operó (engine_out) — 2022 tomó 2 señales, ambas ganadoras.
+4. **Barrido de `min_edge` por régimen (datos, no placeholders):**
+   - `normal`: p5 positivo ya en 1,0; barra **1,05** retiene ~14 señales/año con avg $53.
+   - `low_vol`: prima fina y cola presente en cualquier barra (p5 −150/−240) → barra **1,10**
+     — consistente con la intuición original ("VRP en vol baja es espejismo de denominador").
+   - `elevated`: n=11 (insuficiente para calibrar) → barra **1,10** por prudencia.
+5. **Piso de calidad:** con edge_emp en su lugar, el credit ratio pierde poder predictivo
+   (bandas no monótonas). Se propone **ratio ≥10% como guardia anti-pennies** (banda 8–10% fue
+   la peor: avg $4,2) + el `credit_min` absoluto existente ($0,30). El 33,3% queda **retirado
+   como piso** para spreads de un solo lado; se conserva solo como métrica display.
+6. **Caveats obligatorios:** calibración in-sample (tabla y evaluación en el mismo período) →
+   pendiente walk-forward; la calibración put es dependiente del drift (13 años mayormente
+   alcistas, incl. 2 bears); hold-to-expiration (BT-4 recalcula con gestión al 50%); señales-día
+   ≠ trades (el cooldown las comprime); falta réplica QQQ.
+
 ### BT-4 — Gestión activa: ¿50% profit / 45 DTE es óptimo en spreads definidos?
 
 | | |
