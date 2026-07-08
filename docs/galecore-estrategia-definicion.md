@@ -8,7 +8,9 @@
 > **Documentos relacionados:**
 > - `galecore-backtesting-pendientes.md` — validaciones empíricas pendientes (BT-1…BT-8)
 > - `GaleCore-Estrategia-Resumen.docx` — one-pager en lenguaje natural (pre-feedback; §4 corrige su prosa del edge)
-> - Feedback externo incorporado: `feedback-mejora-edge-estados.md` (revisión de otra sesión)
+> - Feedback externo incorporado: `feedback-mejora-edge-estados.md` (ronda 1) y `feedback.md`
+>   (ronda 2, consolidado Perplexity/ChatGPT/Gemini — origina BT-0, la histéresis del régimen
+>   y la tabla de adecuación de capital de §7.4)
 
 **Fecha de consolidación:** 2026-07-06
 **Base de reglas:** v2.1.5 (regime engine de 8 regímenes) — decisión fijada.
@@ -121,6 +123,14 @@ candidatos → piso 1/3 (descarta crédito < 33.3% del ancho)
            → disparar solo si edge ≥ min_edge(régimen)
 ```
 
+**Fricción sin doble descuento (feedback ronda 2):** el piso 1/3 se evalúa sobre el crédito
+**bruto** (es un piso estructural de calidad); la fricción se descuenta **una sola vez**, en el
+piso del edge (§6: `min_edge ≥ 1 + fricción/crédito`). Exigir 1/3 *neto* contaría el costo dos
+veces. Consecuencia deliberada del piso: los strikes del modelo quedan **más cerca del dinero
+que los muros GEX** (POP ~70–80% en vez de ~85+) — el anclaje puro a muros produce créditos de
+centavos (caso vivo 2026-07-06: crédito 8,7% del ancho, edge 0,53) que el piso 1/3 rechaza por
+diseño. "Strikes lejanos sin ejecución" no es un defecto: es el filtro funcionando.
+
 ---
 
 ## 5. Flujo de entrada completo
@@ -186,6 +196,23 @@ margen. El piso se expresa como función del crédito (`1 + fricción$/crédito$
 **Cooldown:** histéresis local sobre el edge — dispara al cruzar `min_edge`; no re-arma hasta
 que caiga bajo `min_edge − δ` y vuelva a cruzar. Anclado a prima, no a timer. δ pendiente (BT-8).
 
+**Transiciones e histéresis del régimen (formalización — feedback ronda 2):**
+
+- Las **variables** del clasificador ya están enumeradas en v2.1.5 (`price_of_volatility`,
+  `tail_risk`, `fragility_structure` + `tail_risk_score`); lo que se formaliza acá es la dinámica.
+- **Histéresis asimétrica — "salir rápido, volver lento":** toda degradación de régimen (hacia
+  más restrictivo) aplica en la **primera** recalculación; toda mejora (hacia más permisivo)
+  requiere **N recalculaciones consecutivas** confirmándola (placeholder N=3 — extiende el patrón
+  `confirm_consecutive_recalculations` que v2.1.5 ya usa para el override de cola). Las barras
+  `vrp_min`/`min_edge` heredan esta estabilidad: no parpadean con el régimen.
+- **La apuesta de diseño, explícita:** el sistema descarga los puntos ciegos de VRP-trailing
+  (miente en calma→tormenta) y de delta-POP (subestima con colas gordas) en la **detección
+  temprana del régimen** — ambos fallan en el mismo momento, y el régimen debe sacarte antes.
+  Esa apuesta se valida con **BT-0 (latencia de detección)**: si el lead time no es positivo en
+  los episodios históricos, se endurecen los inputs rápidos (iv_momentum, vix_term_structure)
+  antes de construir. El upgrade del estimador de RV (HAR-RV, extensión de BT-2) es *mitigación*
+  de este problema, no sustituto del regime engine.
+
 ---
 
 ## 7. Allocation policy (cerrada 2026-07-06)
@@ -233,6 +260,37 @@ opuesto → IC, o (b) roll/reemplazo. Nunca entrada adicional.
 - Se descartó el tope de heat combinado: a esta escala requeriría un parámetro inventado
   (~5%) y es compensación dentro de un gate de seguridad (viola principio 3).
 - Regla puramente restrictiva → puede activarse en paper desde el día 1; BT-6 decide si queda.
+- **Nota (feedback ronda 2):** posiciones de lado opuesto (SPY PCS + QQQ CCS) **no son cobertura**
+  — ante un gap bajista el skew asimétrico hace que el lado testeado pierda más rápido de lo que
+  el opuesto compensa. Se sizean como **dos apuestas short-vol independientes y correlacionadas**
+  (cada una consume su presupuesto pleno de riesgo); el lado opuesto solo evita *duplicar* la
+  misma apuesta, no la neutraliza.
+
+### 7.4 Adecuación de capital — el acantilado de granularidad (feedback ronda 2)
+
+A capital chico, el sizing porcentual es nominal: todo trade estándar es exactamente **1 contrato
+de ancho $5** (max loss $333, fijo en dólares), de modo que el % por trade **sube solo cuando la
+cuenta cae** (dinámica inversa a la que el sizing porcentual promete) y los `size_factor` por
+régimen no pueden reducir nada por debajo de 1 contrato. El sistema se auto-bloquea —
+correctamente — antes de la ruina:
+
+| Net Liq | Estado del sistema |
+|---|---|
+| < $6.7k | **Lockout automático** — ninguna estructura entra en el tope de 5% |
+| $6.7k – $10k | Degradado: 1 contrato fijo, riesgo/trade deriva 3,5%→5%, `size_factor` inoperante |
+| $10k – $16.7k | Operable en banda estándar (3,3–5%), sin granularidad |
+| ≥ $16.7k | $333 ≤ 2% del NL — el sizing porcentual empieza a funcionar de verdad |
+| ≥ $33k | Ancho $10 entra en banda estándar; granularidad real (2+ contratos) |
+
+Aritmética de referencia: el lockout requiere ~33% de drawdown desde $10k (≈7–8 pérdidas máximas
+consecutivas al 3,5%) — no "dos pérdidas", como sugería el feedback; pero el punto de fondo
+(granularidad) es válido y queda declarado.
+
+**Declaración:** con Net Liq < ~$17k el sistema corre en **modo validación (paper)** de la
+lógica — coherente con la regla `enabled:false` hasta backtest, que hoy impide operar en real de
+todos modos. La operación real se habilita cuando se cumplen AMBAS: lógica validada por backtest
+Y capital en zona operable de esta tabla. (Ampliar universo NO resuelve la granularidad: XSP
+tiene el mismo notional que SPY — corrección registrada en §7.1.)
 
 ---
 
@@ -320,7 +378,7 @@ Un solo día de datos reales demostró que el rediseño cambia decisiones concre
 |---|---|
 | Contrato `TradeSuggestion` (payload, TTL, persistencia, campo state) | frontera diseño→implementación |
 | Refinamientos de la máquina de estados (§8) | formalización menor |
-| Calibración de barras, δ cooldown, validación POP, escalera de atribución | backtests BT-1…BT-8 (doc aparte) |
+| Latencia del régimen, calibración de barras, δ cooldown, N de histéresis, validación POP, escalera de atribución | backtests BT-0…BT-8 (doc aparte) |
 | Régimen-cero: qué hace el sistema cuando vender prima no paga por meses | límite estructural **nombrado, no feature** |
 | XSP como universo opcional (cash settlement, sin asignación) | decisión opcional del operador |
 | Merge de v2.1.5 + nodos nuevos al repo | implementación (JSON-first) |

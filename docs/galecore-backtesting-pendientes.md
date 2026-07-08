@@ -8,9 +8,9 @@
 > **Regla:** ningún nodo nuevo del JSON pasa a `enabled: true` hasta que su backtest correspondiente
 > lo justifique. Los valores actuales de la tabla de barras son **placeholders**, no calibraciones.
 
-**Fecha:** 2026-07-06
+**Fecha:** 2026-07-06 · actualizado 2026-07-08 (feedback ronda 2: se agrega BT-0)
 **Base de reglas:** v2.1.5 (regime engine de 8 regímenes) — decisión fijada en sesión de diseño.
-**Estado:** ningún backtest ejecutado. No existe aún infraestructura de backtesting.
+**Estado:** ningún backtest ejecutado. Dataset SPY EOD 2013–2023 adquirido en Parquet (ver §2.1).
 
 ---
 
@@ -26,6 +26,7 @@
 | Correlación SPY/QQQ ~0.95 | Hecho estilizado | Verificación trivial, datos gratis |
 | Tabla `vrp_min`/`min_edge` por régimen | **Inventada.** Estructura razonada (monotonía, piso = 1 + fricción); niveles sin base empírica | **Sí — lo más desnudo del diseño** |
 | Umbrales de tail_risk_score | Calibrados con ~5 crashes reales (muestra de un dígito) | Sí — tratarlos como provisorios y sobreajustados |
+| Cobertura de los puntos ciegos (VRP-trailing y delta-POP) por detección temprana del régimen | **Apuesta de diseño** — asumida en la definición, nunca medida | **Sí — BT-0 (nuevo, feedback ronda 2)** |
 
 ---
 
@@ -49,6 +50,13 @@ y su **mark-to-market día a día** (necesario para profit target 50%, rolls y s
 - Ventana mínima deseable: ≥ 5 años (incluye al menos un shock de vol; ideal ≥ 10 años para
   cubrir 2018, 2020, 2022).
 
+**Estado (2026-07-08): SPY EOD 2013–2023 ADQUIRIDO** en Parquet (~500 MB, 11 años; por strike:
+bid/ask/last, delta/gamma/vega/theta/rho, IV, volumen). Evaluado 2023: 250 días completos,
+zona operativa siempre poblada, bid-ask mediana 0,61% del mid, crossed markets despreciables.
+**Faltantes: (a) Open Interest** — no viene en el dataset; bloquea la reconstrucción de GEX
+(escalón c de BT-5 y componente GEX de BT-0) y el filtro de microestructura; **(b) QQQ**
+(bloquea BT-6). Prioridad de adquisición: OI primero, QQQ después, luego años post-2023.
+
 ### 2.2 Datos derivables o gratuitos
 
 | Insumo | Fuente | Para qué |
@@ -70,6 +78,20 @@ y su **mark-to-market día a día** (necesario para profit target 50%, rolls y s
 
 ## 3. Backtests pendientes — detalle
 
+### BT-0 — Latencia de detección del regime engine (nuevo — feedback ronda 2)
+
+La definición descarga los dos puntos ciegos conocidos del trigger (VRP con RV trailing que
+miente en calma→tormenta; delta-POP que subestima pérdidas con colas gordas) en la **detección
+temprana del régimen**. Ambos fallan en el mismo momento; si el régimen llega tarde, fallan
+juntos. BT-0 mide esa apuesta.
+
+| | |
+|---|---|
+| **Qué calcular** | Para cada episodio histórico de expansión de vol en la ventana 2013–2023 (ago-2015, feb-2018, dic-2018, mar-2020, 2022): reconstruir día a día la clasificación del regime engine con sus reglas actuales y medir el **lead time** (en días) entre (i) la degradación de régimen que dispara el motor, (ii) el día en que RV30 alcanza a IV30 (fin del espejismo del VRP) y (iii) el día en que delta-POP empieza a subestimar la pérdida realizada |
+| **Dato necesario** | Familia VIX (VIX, VIX9D, VIX3M, VVIX, SKEW — CBOE, gratis) + HY OAS (FRED, integrado) + IV de los parquets + OHLC. **Componente GEX del régimen: bloqueado por falta de OI** — se corre BT-0 sin él y se repite al conseguirlo |
+| **Dónde impacta** | La apuesta central del diseño (§3.1 y §6 de la definición). Si el lead time no es positivo, se endurecen los inputs rápidos (iv_momentum, vix_term_structure) **antes** de construir nada |
+| **Criterio** | Lead time **positivo en todos los episodios mayores** — se reporta el peor episodio, no el promedio. Complemento de BT-1: BT-1 mide *dónde* se rompe delta-POP; BT-0 mide si el régimen te saca *antes* de ahí. Se corren juntos sobre los mismos episodios |
+
 ### BT-1 — Validación de `POP ≈ 1 − |delta|` (prioridad máxima)
 
 | | |
@@ -87,7 +109,7 @@ y su **mark-to-market día a día** (necesario para profit target 50%, rolls y s
 | **Dato necesario** | IV30 (cadenas o proxy VIX/VXN) + OHLC (RV30) + serie de régimen (VIX family, gratis) |
 | **Dónde impacta** | `alpha_gate.vrp_min` por régimen (nodo nuevo del JSON). Hoy 1.2 es convención de literatura |
 | **Criterio** | El corte de VRP que históricamente separó trades ganadores de perdedores **en neto**, por régimen. Documentar además el comportamiento del VRP medido en las transiciones calma→tormenta (su punto ciego conocido: RV trailing laggeada) |
-| **Extensión (v1, opcional)** | Comparar RV30 trailing vs. forecast forward (EWMA/GARCH) vs. estimador range-based (Yang-Zhang): ¿el estimador mejor reduce los falsos positivos de transición? Solo se adopta si mejora el resultado ajustado por riesgo |
+| **Extensión (v1, opcional)** | Comparar RV30 trailing vs. **HAR-RV** / EWMA/GARCH (forward-looking) vs. estimador range-based (Yang-Zhang): ¿el estimador mejor reduce los falsos positivos de transición? Solo se adopta si mejora el resultado ajustado por riesgo. **Nota (feedback ronda 2):** este upgrade es *mitigación* del problema de detección de régimen (BT-0), no sustituto del regime engine |
 
 ### BT-3 — Calibración de `min_edge` por régimen
 
@@ -259,9 +281,9 @@ El día del cálculo resultó una demostración empírica del diseño completo:
 ## 8. Orden recomendado de ejecución
 
 1. ~~**Piso de fricción** (sección 7)~~ — ✅ hecho 2026-07-06 (piso ~1.02–1.06 para trades regla 1/3).
-2. **Adquirir cadenas históricas EOD** (sección 2.1) — la inversión que desbloquea todo.
-3. **BT-1** (POP vs delta) — si falla, recalibra todo lo demás antes de seguir.
+2. ~~**Adquirir cadenas históricas EOD**~~ — ⚙ parcial 2026-07-08: SPY 2013–2023 adquirido; **faltan OI y QQQ** (sección 2.1).
+3. **BT-0 + BT-1 juntos** (latencia del régimen + POP vs delta, sobre los mismos episodios) — si cualquiera falla, se recalibra antes de seguir.
 4. **BT-2 + BT-3** (VRP y edge por régimen) — llenan la tabla de barras con datos.
 5. **BT-4** (gestión activa) — redefine el edge real; iterar BT-3 con la gestión puesta.
-6. **BT-5** (escalera de atribución) — decide qué capas quedan y cuáles se podan.
+6. **BT-5** (escalera de atribución) — decide qué capas quedan y cuáles se podan (escalón GEX requiere OI).
 7. **BT-6 + BT-7 + BT-8** (correlación, secuencia/ruina, cooldown) — sobre la config ganadora.
