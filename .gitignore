@@ -30,3 +30,9 @@ obj/
 *.suo
 .vs/
 publish/
+
+# Claude Code local artifacts
+.claude/
+
+# Backtesting datasets (locales, re-descargables)
+data/
