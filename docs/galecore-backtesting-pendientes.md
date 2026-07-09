@@ -421,6 +421,31 @@ entrada en señal gated, gestión B (50%), 1 contrato:**
 
 ---
 
+## 3-bis. Test de muros como restricción (2026-07-09) — Capa 2 redefinida con datos
+
+Put wall diario reconstruido 13 años × 2 símbolos (strike con máx gamma×OI de puts, DTE<90 —
+misma cuenta que `GammaExposureHandler`; cache `{sym}_walls_daily.parquet`). Tres veredictos:
+
+1. **El muro como ANCLA (Capa 2 original) ya estaba retirado** — producía créditos de centavos
+   (caso 6-jul: edge 0,53). Confirmado: no vuelve.
+2. **El muro como RESTRICCIÓN: se adopta, y es casi gratis.** El strike delta-0.20 ya nace
+   debajo del put wall el **100% (SPY) / 99% (QQQ)** de los días — la restricción
+   `short_strike ≤ put_wall` muerde <1% de las entradas. Pero donde muerde, muerde bien:
+   los 5–16 trades que entraron POR ENCIMA del muro promediaron **−$152 (SPY) / −$73 (QQQ)**
+   con win 60–75% (vs +$17/+$21 y 92% protegidos). Configuración tóxica real, filtro barato.
+3. **El muro como PROTECCIÓN ANTI-CRASH: refutado.** Las 13 pérdidas grandes gated (2015,
+   2021, 2023, 2024) entraron TODAS cómodamente protegidas ($10–40 debajo del muro) — los
+   crashes atraviesan los muros sin frenar. El muro es estructura de buen clima (concentración
+   de OI donde los dealers hedgean en calma), no barrera de tormenta. La protección de cola
+   real sigue siendo el régimen (BT-0) + gamma agregado (solo SPY).
+
+Curiosidad NO adoptada (anti data-mining): la banda "strike 0–5$ bajo el muro" muestra stats
+superiores (p5 positivo en SPY) — sin hipótesis causal clara, se registra y no se codifica.
+
+**Capa 2 queda formalmente redefinida:** selección por delta objetivo → piso anti-pennies →
+selector de edge → gate, con `short_strike ≤ put_wall` como restricción de sanidad. El anclaje
+a muros y el expected move salen de la definición.
+
 ## 4. Requisitos transversales del backtest (no negociables)
 
 1. **Path-level, no agregado.** Simular la secuencia real de trades con mark-to-market diario.

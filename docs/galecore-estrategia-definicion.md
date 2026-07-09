@@ -127,10 +127,19 @@ el colchón por régimen de `min_edge` sigue cubriendo el error residual.
 **Selección de strikes dentro del símbolo:**
 
 ```
-candidatos → piso 1/3 (descarta crédito < 33.3% del ancho)
+candidatos por delta objetivo (~0.20)
+           → restricción de sanidad: short_strike ≤ put_wall   (casi nunca muerde; filtra
+             configuraciones tóxicas — test de muros 2026-07-09)
+           → piso anti-pennies (credit_ratio ≥ 10% + credit_min)
            → elegir el de MAYOR edge entre los que pasan
            → disparar solo si edge ≥ min_edge(régimen)
 ```
+
+**Capa 2 redefinida con datos (test de muros):** el anclaje a muros como método de selección
+queda retirado (créditos de centavos); el muro se conserva solo como restricción de sanidad
+(muerde <1% de los días; donde muerde, los trades promediaban −$73/−$152). El muro NO es
+protección anti-crash — las 13 pérdidas grandes históricas entraron "protegidas" y el crash
+atravesó igual; esa protección la dan el régimen y el gamma agregado.
 
 **Fricción sin doble descuento (feedback ronda 2):** el piso 1/3 se evalúa sobre el crédito
 **bruto** (es un piso estructural de calidad); la fricción se descuenta **una sola vez**, en el
