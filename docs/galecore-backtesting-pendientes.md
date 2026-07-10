@@ -758,6 +758,65 @@ estructuras, como está, degrada el sistema en vez de mejorarlo.**
    (P&L de rechazadas IC/CCS no computado) — el veredicto no depende de ellos: la falla es
    por C1 (QQQ) y por la vara de degradación vs baseline, ambas terminales.
 
+### BT-12 — Robustez y monotonía del delta: ESPECIFICACIÓN PRE-DECLARADA (2026-07-10, antes de correr)
+
+**Pregunta:** ¿el delta 0.30 de la config de referencia es una meseta o un pico fiteado?
+**Este test NO busca un delta mejor.** Compromiso inamovible: la config queda en 0.30 sea cual
+sea el resultado — las únicas ramas son (i) "robusto confirmado" o (ii) "frágil → se re-abre el
+ciclo". Migrar el delta por rendimiento observado sería fitting sobre la ventana agotada.
+
+**Pipeline:** idéntico a H3+B (trailing puts anti-lookahead, tail_score, gates congelados,
+GEX≥0 solo SPY, gestión B path-level), variando solo el delta objetivo del short put:
+**grilla 0.15 / 0.20 / 0.25 / 0.28 / 0.30 / 0.32 / 0.35**. SPY + QQQ, OOS 2018–2025.
+C1/C3 se juzgan sobre gestión B (la config de referencia).
+
+**Predicciones escritas antes de correr:**
+1. *Meseta:* 0.28 y 0.32 pasan C1/C3 con métricas similares a 0.30. Si solo 0.30 pasa →
+   hallazgo frágil, downgrade y re-apertura del ciclo.
+2. *Monotonía del mecanismo:* factor de honestidad (p_emp/delta → 1), crédito y ocurrencia
+   de cruce de barra crecen con el delta; win% por trade decrece.
+3. *Extremos:* 0.15 casi sin señales (pennies + edge inalcanzable); 0.20 falla C3 (ya medido
+   a nivel hold: −$2.232 en 2018).
+4. Uso colateral: el comportamiento en 0.32–0.35 informa el rediseño de `hard_defense`
+   (pendiente b) — perfil de riesgo de la zona a la que deriva una entrada 0.30 testeada.
+
+**Una corrida, sin retoques.**
+
+**⚙ RESULTADO BT-12 (2026-07-10, corrido una vez): ROBUSTO CONFIRMADO — 0.30 es meseta, no
+pico. La config queda en 0.30, conforme al compromiso.**
+
+Gestión B (la vara pre-declarada), OOS 2018–2025:
+
+| tgt | SPY: n/año · winB · avgB · peor añoB | QQQ: n/año · winB · avgB · peor añoB |
+|---|---|---|
+| 0.15 | 20,0 · 99,4% · $17 · −100 | 23,5 · 99,5% · $21 · +177 |
+| 0.20 | 21,2 · 98,8% · $22 · −542 | 26,9 · 99,5% · $35 · +412 |
+| 0.25 | 17,6 · 97,9% · $33 · −91 | 19,2 · 100% · $44 · +234 |
+| **0.28** | 15,2 · 96,7% · $33 · −473 | 16,5 · 98,5% · $46 · +13 |
+| **0.30** | 14,4 · 96,5% · $36 · −449 | 14,6 · 97,4% · $48 · −83 |
+| **0.32** | 12,1 · 96,9% · $44 · −374 | 13,5 · 94,4% · $44 · −323 |
+| 0.35 | 12,5 · 96,0% · $52 · −363 | 13,8 · 92,7% · $43 · −129 |
+
+1. **Predicción 1 (meseta) CONFIRMADA:** 0.28/0.30/0.32 pasan C1 y C3 en ambos índices con
+   métricas y patrones anuales casi idénticos. El 0.30 no es un número fiteado.
+2. **Predicción 2 (monotonía) parcialmente confirmada, con una inversión:** el factor de
+   honestidad sube monótono con el delta (0,44→0,55 SPY; 0,42→0,56 QQQ) y el win% baja,
+   como se predijo — pero la **ocurrencia BAJA con el delta** (predije que subía): la tabla
+   trailing le ve *más* mispricing relativo al wing lejano, así que los deltas bajos cruzan
+   la barra más seguido. Predicción invertida, declarada.
+3. **Predicción 3 (extremos mueren) REFUTADA en la dirección informativa:** bajo gestión B,
+   0.15 y 0.20 PASAN C1/C3 (QQQ 0.20-B: total $7.424, el mayor de la grilla) — la gestión al
+   50% acorta la exposición y esquiva los desastres que a nivel hold los hunden (0.20-hold:
+   peor año −$2.232 SPY / −$1.599 QQQ, C3 falla). **Lectura honesta:** el edge de los deltas
+   bajos existe solo *a través de la política de gestión* (path-dependent, frágil a fills);
+   la meseta 0.28–0.32 pasa en hold Y en B en SPY (QQQ-hold solo 0.30 pasa — fragilidad
+   registrada). **NO se adopta 0.20 por su total** — sería el fitting que este test juró no
+   hacer; queda registrado como curiosidad para un eventual ciclo futuro.
+4. **Insumo para hard_defense (pendiente b):** el deterioro hacia 0.32–0.35 es gradual, sin
+   acantilado (win B 96→92,7%; primer p5 negativo recién en QQQ 0.35). Una entrada 0.30 que
+   deriva a 0.35 no es todavía una emergencia — el umbral de defensa puede vivir más arriba
+   (~0.40–0.45), a calibrar en el rediseño de (b).
+
 ## 3-bis. Test de muros como restricción (2026-07-09) — Capa 2 redefinida con datos
 
 Put wall diario reconstruido 13 años × 2 símbolos (strike con máx gamma×OI de puts, DTE<90 —
