@@ -658,6 +658,106 @@ declarada y margen fino en C1.**
   exploratorios), (d) merge JSON-first de los nodos nuevos (`delta_target` 0.30, edge trailing,
   tail_score, sin shrinkage) `enabled:false`.
 
+**⚙ (a) GESTIÓN B PATH-LEVEL sobre H3 (2026-07-10) — mejora todos los márgenes de criterio.**
+MTM diario EOD de las señales gated OOS; política BT-4-B exacta (cierre al valor observado
+cuando el spread ≤ 50% del crédito, sin salida por DTE; fricción $6,30 en ambas políticas —
+A levemente subestimada, mismo caveat BT-4). La corrida SPY a nivel hold reproduce el scan
+exacto (n=115, avg $60,4 ✓), lo que de paso formaliza la réplica del punto (c):
+
+| | win% | avg$ | total$ | p5$ | días | $/día | peor año |
+|---|---|---|---|---|---|---|---|
+| QQQ A hold | 90,6 | 59,1 | 6.916 | −390 | 42,7 | 1,38 | −513 (2018) |
+| **QQQ B 50%** | **97,4** | 47,7 | 5.577 | **+41** | **17,6** | **2,71** | **−83 (2018)** |
+| SPY A hold | 93,9 | 60,4 | 6.951 | −118 | 42,9 | 1,41 | −385 (2022) |
+| **SPY B 50%** | **96,5** | 35,5 | 4.080 | **+32** | **21,0** | 1,69 | −449 (2018) |
+
+1. **C1 y C3 pasan bajo B en ambos índices, con márgenes mucho más holgados:** el filo de C1
+   en QQQ (90,6%) desaparece (97,4%); el peor año QQQ pasa de −$513 a **−$83**; p5 POSITIVO en
+   ambos. El patrón BT-4 se repite en el nuevo delta: B cobra menos por trade (−20/−40%) pero
+   rota el capital ~2× más rápido y arregla la cola.
+2. El 96–97% de las señales alcanza el profit target; la ocupación baja de ~43 a ~18–21 días —
+   con la regla de 1 posición por símbolo, en cartera real B permite tomar más señales del año
+   (mismo argumento BT-7).
+3. Matiz: algún año individual empeora bajo B (SPY 2018 −$160→−$449) porque los ganadores
+   cobran la mitad mientras los perdedores no cambian — el criterio C3 sigue pasando.
+4. **Pendiente (a) CERRADO. La config de referencia de H3 pasa a ser: delta 0.30 + trailing +
+   tail_score + gestión B.** Siguen (b) hard_defense, (d) merge JSON.
+
+### BT-11 — Motor de estructuras (IC/PCS/CCS) con config H3: ESPECIFICACIÓN PRE-DECLARADA (2026-07-10, antes de correr)
+
+**Pregunta:** el sistema desplegado sugiere estructura vía `structure_selection` (multi_factor).
+Todo lo validado hasta hoy es PCS. ¿El motor de estructuras, congelado tal como está en el JSON,
+mejora o degrada la config de referencia H3 (delta 0.30 + trailing + tail_score + gestión B)?
+
+**Advertencias de honestidad (declaradas antes de correr):**
+- **No queda superficie virgen** — SPY y QQQ 2018–2025 ya fueron usados (scan + BT-10c). El
+  veredicto habilita a lo sumo paper. Ventana reutilizada, declarado.
+- Los umbrales del motor (neutral_z 1.0, extreme_z 1.5, cortes gex_skew 0.6/0.4, trend
+  0.002) son priors de diseño jamás calibrados: se toman **congelados**. Si falla, la
+  conclusión es "el motor como está no paga" — no se prueban otros umbrales.
+- **Sin flow histórico las reglas 2–5 no pueden matchear** (lectura estricta): el motor
+  efectivo es regla 1 (|z|<1 ∧ skew simétrico → IC), 6 (z>1.5 ∧ simétrico ∧ trend up → PCS),
+  7 (z<−1.5 ∧ simétrico ∧ down → CCS), 8 (fallthrough → no_trade).
+- Expectativa previa registrada: la tabla trailing de calls (lag conservador: años alcistas
+  enseñan "calls peligrosos") puede dejar el edge de IC/CCS bajo — "PCS-only era la respuesta"
+  es un resultado posible y válido.
+
+**Pipeline congelado:**
+- Inputs del motor reconstruidos con las fórmulas del JSON: `zscore = ret5d_log/(atm_iv/√252)`;
+  `gex_skew = callGEX/(callGEX+|putGEX|)` de cadenas (OI×gamma, DTE<90) con cortes 0.6/0.4;
+  `trend` EMA20/50 (neutral <0.2%). Estructura del día = primera regla que matchea.
+- Legs delta 0.30 espejado (short put 0.30 / short call 0.30), ancho $5 por lado; IC = ambos.
+  Restricción de sanidad ambos muros (`short_put ≤ put_wall`, `short_call ≥ call_wall`).
+  Ex-div SPY: block CCS con ex-dividend ≤3 días (fechas de `dividend_amount`); IC sin block
+  (la regla del JSON aplica a CCS, se toma como está).
+- Edge con tabla trailing **por lado** (obs de calls a construir con la misma metodología
+  anti-lookahead que puts, DTE 30–50, buckets n≥50). Para IC (pérdidas mutuamente
+  excluyentes al vencimiento): `edge_IC = (crédito_total/ancho) / (p_put + p_call)`.
+- Fricción: $6,30 spreads / $12,60 IC (2×). Crédito mínimo total $0,30. Gates de entorno y
+  barras idénticos a H3 (GEX≥0 solo SPY). Gestión B path-level sobre el crédito total.
+- **Criterios:** C1–C4 + robustez de barras ±0,05, idénticos a BT-10c, sobre el flujo de
+  señales del motor completo. **Vara adicional (la pregunta del test):** contra el baseline
+  PCS-only H3+B, el motor no debe degradar C3 y debe mejorar ocurrencia o total neto.
+  SPY principal, QQQ réplica. **Una corrida, sin retoques.** Si falla → producción PCS-only,
+  IC/CCS quedan `enabled:false`, y el motor pasa a re-diseño con ciclo nuevo.
+
+**⚙ RESULTADO BT-11 (2026-07-10, corrido una vez): VEREDICTO REPROBADO — el motor de
+estructuras, como está, degrada el sistema en vez de mejorarlo.**
+
+| | señ/año | win% (B) | avg$ (B) | total 8a (B) | peor año (B) |
+|---|---|---|---|---|---|
+| Baseline PCS-only H3+B (SPY) | 14,4 | 96,5 | 35,5 | 4.080 | −449 |
+| **Motor BT-11 (SPY)** | **2,2** | 100 | 50,1 | **903** | +42 |
+| Baseline PCS-only H3+B (QQQ) | 14,6 | 97,4 | 47,7 | 5.577 | −83 |
+| **Motor BT-11 (QQQ)** | **2,9** | **87,0 → C1 FALLA** | 19,5 | **449** | −312 |
+
+1. **IC y CCS no dispararon NI UNA señal en 8 años × 2 símbolos.** Todas las señales
+   sobrevivientes son PCS. La causa es aritmética y honesta: la tabla trailing de calls
+   confirma OOS el hallazgo BT-1 (factor call ≈ 1,4–1,7 estable en todas las ventanas —
+   el delta subestima el riesgo call ~1,5×). Con p honesto, `p_put+p_call ≈ 0,6` a delta
+   0.30 espejado → un IC necesitaría crédito ≥ ~$3,15 (63% del ancho) para tener EV>0:
+   el mercado no lo ofrece jamás. **El iron condor a probabilidades honestas es
+   estructuralmente in-edgeable en estos deltas.** CCS ídem (crédito requerido ~$2,40).
+2. **El motor degrada el baseline en toda métrica de flujo:** la regla 1 secuestra los días
+   simétricos (la mayoría del entorno ARMED) hacia IC — que nunca puede disparar — y la
+   regla 6 raciona el PCS a días con z>1.5 ∧ trend up ∧ skew simétrico: ocurrencia 14,4→2,2
+   señales/año (SPY), total $4.080→$903. En QQQ además **C1 falla** (win 87%). La vara
+   pre-declarada (no degradar C3, mejorar ocurrencia o total) NO se cumple.
+3. **Consecuencia (conforme al compromiso): producción PCS-only.** IC y CCS quedan
+   `enabled:false`; `structure_selection` del JSON pasa a re-diseño con ciclo nuevo si se
+   quiere revivir. La config validada del sistema sigue siendo: **PCS SPY delta 0.30 +
+   trailing puts + tail_score + gestión B** (+ réplica QQQ).
+4. Curiosidad registrada NO adoptada (anti data-mining): las 18 señales SPY del motor
+   (z>1.5 ∧ trend up ∧ simétrico) dieron 100% win / avg $89 hold — el momentum con muros
+   equilibrados como *conditioner* de calidad es hipótesis para un ciclo futuro, no un
+   ajuste de este.
+5. Activos nuevos del test: `pop_obs_calls_{spy,qqq}.parquet` (calibración call por lado,
+   validada estable) y `{sym}_structinputs_daily.parquet` (gex_skew, call_wall, zscore,
+   trend históricos). El costo del test fue bajo y el diagnóstico definitivo.
+6. Matiz de medición declarado: C2 y la sensibilidad de barras se reportaron parciales
+   (P&L de rechazadas IC/CCS no computado) — el veredicto no depende de ellos: la falla es
+   por C1 (QQQ) y por la vara de degradación vs baseline, ambas terminales.
+
 ## 3-bis. Test de muros como restricción (2026-07-09) — Capa 2 redefinida con datos
 
 Put wall diario reconstruido 13 años × 2 símbolos (strike con máx gamma×OI de puts, DTE<90 —
