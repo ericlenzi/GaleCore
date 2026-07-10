@@ -483,6 +483,60 @@ demostrado out-of-time. Corolario devastador y honesto: **buena parte del result
    cerrado 2018 antes. NADA de esto se prueba "hasta que pase" — una sola iteración
    pre-declarada, o el walk-forward pierde su valor.
 
+### BT-9b — Iteración 2 (H2): ESPECIFICACIÓN PRE-DECLARADA (2026-07-09, antes de correr)
+
+**Cambio 1 — Shrinkage 50% hacia el delta (sin parámetro libre):**
+```
+p_pérdida = ( |delta| + p_empírica_trailing ) / 2
+```
+Principio de ignorancia: a mitad de camino entre lo que pricea el mercado (risk-neutral) y lo
+que realizó la historia. La tabla empírica solo puede acreditar la MITAD del beneficio del
+drift — nunca el total, porque el drift no es conocible ex ante (lección de IWM + BT-9).
+El 50% se fija por simetría, no por tuning; se declara y no se toca.
+
+**Cambio 2 — Activar tail_risk_score con los umbrales propios de v2.1.5 (no fiteados):**
+- Ángulos históricamente disponibles: **VVIX nivel** (warn ≥110 / block ≥130, CBOE) y
+  **skew 25Δ RoC 5d** (warn ≥5% / block ≥8%; skew = IV_put25Δ / IV_ATM de nuestras cadenas
+  SPY, DTE 25–35). HY OAS excluido: FRED restringió las series ICE a ~3 años (no cubre
+  2018/2020); put_call_flow sin histórico.
+- Puntos none/warn/block = 0/1/2; **score ≥ 2 → engine_out** (mapeo conservador del
+  `degrade_to_caution_min: 2` de v2.1.5 a nuestro proxy binario). Score de mercado (SPY),
+  aplica a ambos símbolos. Mismo suavizado de rachas (huecos ≤2d).
+
+**Sin otros cambios:** mismas ventanas, mismas barras congeladas (1.05/1.10), mismos gates,
+misma fricción. **Mismos criterios C1–C3.** C4 se evalúa sobre el **factor efectivo** usado
+(el shrunk `(1+f)/2`), que es lo que realmente entra al edge — umbral ±0.15 sin cambios.
+
+**Compromiso:** esta es LA iteración. Si falla, la conclusión es que la estrategia necesita
+replanteo profundo (no más ajustes de calibración), y se reporta así.
+
+**⚙ RESULTADO H2 (2026-07-09, corrido una vez): VEREDICTO APROBADO — CON LETRA CHICA EXISTENCIAL.**
+
+| Criterio | Resultado |
+|---|---|
+| C1 (avg>0, win≥90%) | ✅ **avg $91,25 · win 100%** (11/11) |
+| C2 (gate separa) | ✅ **$91,25 vs $12,47 — separación 7×** (en BT-9 era 1,06×) |
+| C3 (sin ventana < −$700) | ✅ peor ventana: $0 — **2018 quedó completamente cerrado** (0 señales) |
+| C4 (factor efectivo ±0.15) | ✅ máx salto 0,135 — el shrinkage estabiliza la calibración |
+
+**La letra chica:** el sistema que sobrevive al walk-forward dispara **11 señales en 8 años OOS
+× 2 símbolos ≈ 0,7 señales/año por símbolo** (~1 trade/año el libro entero tras compresión).
+El engine_out sube a 42,1% de los días (tail score activo). P&L OOS total: ~$1.000 en 8 años
+con 1 contrato. **La versión honesta y segura de la estrategia existe, gana siempre que
+opera (100% win, p5 +$70), y casi nunca opera.**
+
+**Lecturas:**
+1. Formalmente: H2 habilita la discusión de `enabled:true` en paper — todos los criterios
+   pre-declarados pasan, la calibración es estable, el gate OOS separa de verdad.
+2. Estratégicamente: el régimen-cero no es un caso borde — es el estado normal. La renta a
+   este nivel de seguridad es ~$100-250/año total. La pregunta pasa de "¿funciona?" (sí) a
+   "¿el negocio justifica la infraestructura?" — decisión de negocio, no de backtest.
+3. Palancas legítimas para subir ocurrencia SIN romper la disciplina: más capital (escala
+   lineal por contrato), más subyacentes validados (cada uno con su réplica + walk-forward),
+   o una calibración condicional al régimen más fina — que sería un NUEVO ciclo de research
+   con nueva pre-declaración, no un ajuste de esta.
+4. El compromiso se cumplió: una iteración, corrida una vez, reportada tal cual.
+
 ## 3-bis. Test de muros como restricción (2026-07-09) — Capa 2 redefinida con datos
 
 Put wall diario reconstruido 13 años × 2 símbolos (strike con máx gamma×OI de puts, DTE<90 —
