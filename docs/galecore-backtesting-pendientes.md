@@ -421,6 +421,68 @@ entrada en señal gated, gestión B (50%), 1 contrato:**
 
 ---
 
+### BT-9 — Walk-forward (ESPECIFICACIÓN PRE-DECLARADA — escrita 2026-07-09 ANTES de correr)
+
+**Esquema:** ventana expansiva, recalibración anual. Calibrar 2013→(Y−1), operar Y congelado.
+Primera: 2013–2017 → OOS 2018. Última: 2013–2024 → OOS 2025. **8 años OOS** (incluyen
+Volmageddon, Q4-2018, COVID, bear 2022, ago-2024, mar-2025). SPY + QQQ pooled.
+
+**Se recalibra por ventana:** SOLO la tabla POP de puts (por bucket), usando exclusivamente
+contratos con **vencimiento ≤ corte** (guardia anti-lookahead: un trade entrado en nov-(Y−1)
+que vence en ene-Y no existe para la calibración de Y).
+
+**Congelado (arquitectura):** gates y su orden, flags de régimen (VIX 30/40, TS, RoC 12%),
+`vrp_min = 1.2`, gestión, fricción, GEX≥0 (solo SPY), muro-sanidad, y **las barras min_edge
+(1.05 normal / 1.10 resto)**. Advertencia de leakage declarada: las barras se eligieron con
+barrido full-sample → se corre **sensibilidad con barras ±0.05** (1.00/1.05/1.10 base y
+desplazadas) para verificar que el veredicto no dependa del valor fiteado.
+
+**Criterios de éxito (definidos ahora, inamovibles):**
+- **C1** — Agregado OOS pooled (8 años, 2 símbolos, nivel señal-día): avg neto > 0 Y win ≥ 90%.
+- **C2** — El gate separa OOS: avg de seleccionados > avg de rechazados en el agregado pooled.
+- **C3** — Ninguna ventana OOS con suma < −$700 por símbolo (≈1,5 max losses; lo peor
+  in-sample fue −$400).
+- **C4** — Estabilidad de calibración: el factor put de zona (buckets 0.15–0.25) varía ≤ ±0.15
+  absoluto entre ventanas consecutivas. Si falla C4, la tabla es inestable y el colchón de
+  incertidumbre debe absorber el gap medido (no invalida C1–C3, pero condiciona el diseño).
+- Veredicto: **C1+C2+C3 aprueban → habilita discusión de `enabled:true` (paper)**. Cualquier
+  fallo → se reporta tal cual, sin re-tocar barras ni criterios después de visto el resultado.
+
+**Nota:** el test de transferencia de régimen queda embebido (calibración 2013–2017 ≈ calma →
+OOS 2018 = dos shocks; calibración pre-2020 → OOS COVID; pre-2022 → OOS bear).
+
+**⚙ RESULTADO (2026-07-09, corrido inmediatamente después de pre-declarar): VEREDICTO REPROBADO.**
+
+| Criterio | Resultado | Detalle |
+|---|---|---|
+| C1 (avg>0, win≥90%) | ✅ pasa (justo) | avg $13,31 · win 90,4% — degradado desde $43-46 / 97%+ in-sample |
+| C2 (gate separa) | ⚠️ pasa (trivial) | sel $13,31 vs rech $12,60 — la separación 3× in-sample casi desapareció OOS |
+| **C3 (sin ventana < −$700)** | **❌ FALLA** | **2018: SPY −$5.496 / QQQ −$4.743** (win 52-58%); 2020 y QQQ-2024 también negativas |
+| **C4 (factor estable ±0.15)** | **❌ FALLA** | saltos de 0,17 (2018→19) y 0,27 (2022→23); factor deriva 0,33→0,61 entre ventanas |
+
+**El mecanismo de la falla (el hallazgo central):** la calibración 2013–2017 (años calmos de
+drift) aprendió factor put 0,33 ("el delta miente 3×") → infló el edge de 2018 → el gate
+disparó masivamente hacia Volmageddon y Q4-2018 en los días en que los flags de régimen
+estaban apagados. **La tabla de calibración tiene la misma enfermedad de lag que el RV30**:
+aprende del pasado calmo y miente en la transición — el espejismo del estimador, un nivel
+meta más arriba. Es exactamente lo que el test IWM advirtió (calibración hija del drift), ahora
+demostrado out-of-time. Corolario devastador y honesto: **buena parte del resultado in-sample
+"perfecto" provenía de que la calibración full-sample ya conocía 2018/2022.**
+
+**Consecuencias (conforme a la spec, sin retocar nada post-resultado):**
+1. **`enabled:true` NEGADO.** El sistema como está calibrado no se habilita ni en paper con
+   pretensión de validez.
+2. La sensibilidad de barras (±0.05) no altera el veredicto — no es un problema de barras,
+   es la calibración.
+3. Matiz de medición: C3 se midió a nivel señal-día (solapamiento infla la suma); a nivel
+   cartera 1-posición la pérdida 2018 sería menor pero múltiple — el veredicto no cambia.
+4. **Camino siguiente (a diseñar como hipótesis NUEVA pre-declarada, y re-walk-forwardear):**
+   calibración POP conservadora con piso anti-lag (ej. `p_loss = max(p_empírica, α·delta)` con
+   α ~0,7–0,8), y/o calibración condicional al régimen (tabla de años-stress cuando hay señales
+   de alerta), y/o activar los checks de cola dormidos (SKEW/VVIX/HY) que podrían haber
+   cerrado 2018 antes. NADA de esto se prueba "hasta que pase" — una sola iteración
+   pre-declarada, o el walk-forward pierde su valor.
+
 ## 3-bis. Test de muros como restricción (2026-07-09) — Capa 2 redefinida con datos
 
 Put wall diario reconstruido 13 años × 2 símbolos (strike con máx gamma×OI de puts, DTE<90 —
