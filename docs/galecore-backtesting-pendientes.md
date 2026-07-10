@@ -537,6 +537,127 @@ opera (100% win, p5 +$70), y casi nunca opera.**
    con nueva pre-declaración, no un ajuste de esta.
 4. El compromiso se cumplió: una iteración, corrida una vez, reportada tal cual.
 
+### BT-10 — Descomposición del colapso de ocurrencia H2 (2026-07-10)
+
+**Motivación:** H2 aprobó el walk-forward pero dispara ~0,7 señales/año. BT-9b metió dos cambios
+a la vez (shrinkage 50% + tail_score) sin medir el aporte de cada uno al colapso de ocurrencia
+(~10/año in-sample → ~0,4/año OOS en SPY). Se corrió la misma maquinaria walk-forward (ventana
+expansiva, calibración put anti-lookahead, barras congeladas, gates congelados) en variantes
+aisladas, SPY OOS 2018–2025, nivel señal-día, hold neto.
+
+| Variante | señ/año | win% | avg$ | 2018$ | peor año$ |
+|---|---|---|---|---|---|
+| V0 trailing puro (=BT-9) | 26,2 | 90,5 | 6,2 | −4.103 | −4.103 |
+| V2 trailing + tail_score | 21,5 | 91,9 | 9,9 | −2.232 | −2.232 |
+| V1 shrinkage solo (sin tail) | 0,4 | 100 | 73,7 | 0 | +74 |
+| V3 H2 completo | 0,4 | 100 | 73,7 | 0 | +74 |
+
+1. **El colapso de ocurrencia es 100% del shrinkage:** V1 = V3 señal por señal; el tail_score
+   no filtra ni una señal marginal una vez puesto el shrinkage (bajo delta 0.20).
+2. **El tail_score solo NO salva C3:** con tabla trailing plena deja 2018 en −$2.232 y 2020 en
+   −$2.075. Como conmutador de calibración condicional queda pre-refutado a delta 0.20.
+3. **Análisis de bloqueador marginal bajo H2:** el edge gate rechaza el 95,1% de los días OOS y
+   es el único bloqueador en 191 días (~24/año); régimen 0 días, GEX 2 días. Aritmética: el
+   shrinkage impone p_pérdida ≥ |delta|/2 → crédito requerido mediano $0,82 vs $0,62 ofrecido —
+   solo 1,5% de los días operables ofrece crédito suficiente. Contrafactual de los bloqueados:
+   win 92,7%, avg +$13, pero con 2018 −$2.232 y 2020 −$2.222 adentro.
+4. **🐛 ERRATUM BT-9:** la corrida original NO aplicó el piso anti-pennies (ratio ≥10% =
+   crédito ≥ $0,50) que BT-3 run-2 ya había adoptado — solo corrió `credit_min` $0,30. Con el
+   piso puesto, 2018 se reduce 4,5× (−$903) y win sube a 94%. No cambia veredictos (2020 −$1.776
+   sigue violando C3; H2 da idéntico con o sin piso), pero corrige la narrativa: el "disparo
+   masivo hacia Volmageddon" fue en gran parte créditos de centavos ya prohibidos por diseño.
+5. Nota de reproducción: la reconstrucción aproxima BT-9 (2018: −$4.103/win 60% vs −$5.496/52–58%
+   reportado) — mecanismo idéntico, diferencia residual por detalles de tabla/series.
+
+### BT-10b — Scan exploratorio de fuentes de prima desde ARMED (2026-07-10 — EXPLORATORIO)
+
+Sobre los 194 días OOS operables (todos los gates menos edge), 4 familias de hipótesis con
+pagador económico identificado ex-ante. **Estatus: exploratorio — genera hipótesis, no habilita.**
+
+- **Resaca post-stress (CONFIRMADA direccional):** RV30 cayendo fuerte (Δ10d en los 2 cuartiles
+  inferiores) = 100% win, avg $51, cero días del cluster 2018/2020. La zona de peligro es RV
+  *plana* (calma-espejismo), no RV subiendo (esa ya la corta el VRP).
+- **VRP como trigger tiene techo:** banda 1,20–1,25 = 100% win / cero cluster; VRP >1,55 = el
+  peor cuartil. VRP extremo en entorno verde es espejismo de denominador, medido. (Idem IV
+  percentil: banda media p16–p51 perfecta; extremos malos — la banda IVR de Tastytrade reaparece
+  como *conditioner* de trigger, no como gate.)
+- **Skew nivel (REFUTADA):** forma de U sin hipótesis causal; no se adopta.
+- **Pinning GEX-magnitud (DÉBIL):** no monótona; no se adopta.
+- Counterfactuales de calibración condicional simple (tabla plena si condición): **todos fallan
+  C3** (peor-año ≤ −$1.395). Un conmutador solo no alcanza a delta 0.20.
+
+**Hallazgo central — el delta (opción c de BT-3, nunca corrida):** reconstrucción de PCS a
+delta 0.25/0.30 desde cadenas crudas (réplica sanity delta-0.20 vs cache: corr crédito 1,000),
+mismo pipeline walk-forward, OOS 2018–2025 SPY:
+
+| Config (trailing sin shrinkage, tail activo) | señ/año | win% | avg$ | total 8a | peor año |
+|---|---|---|---|---|---|
+| delta 0.20 | 21,4 | 91,8 | 9,6 | 1.644 | −2.232 → **C3 falla** |
+| delta 0.25 | 17,8 | 93,0 | 38,6 | 5.482 | −559 → pasa pero **frágil a barras** (−0.05 → −$1.829) |
+| **delta 0.30** | **14,4** | **93,9** | **60,4** | **6.951** | **−385 → C3 pasa, robusto ±0.05** |
+
+- A 0.30: C2 separa fuerte ($60,4 vs −$16,5 rechazadas); 2018 −$160; 2020 **+$1.996** (cobra la
+  resaca sola); **el tail_score se vuelve load-bearing** (sin él 2018 = −$2.605 → C3 falla).
+  El shrinkage a 0.30 sigue matando todo (edge mediano 0,79) — la palanca es el delta, no la
+  calibración.
+- Explicación económica: en el wing lejano el precio es casi puro premio de crash (probabilidad
+  inestimable — el empate que el shrinkage declara); cerca del dinero domina la vol realizada
+  estimable: factor empírico/delta sube 0,33→~0,5–0,6, crédito mediano $0,57→$0,92.
+- Caveats: hold-to-exp (falta gestión B); C4-style inestabilidad persiste (saltos 0,16–0,19);
+  **conflicto de diseño: `hard_defense` (delta short >0.30) dispararía en la entrada** —
+  gestión defensiva a redefinir antes de adoptar; win 93,9% pasa C1 con menos margen.
+
+### BT-10c — Iteración 3 (H3, delta 0.30): ESPECIFICACIÓN PRE-DECLARADA (2026-07-10, antes de correr)
+
+**Estatus de superficies:** SPY queda **contaminado por el scan** (sus números arriba son
+exploratorios). La superficie de confirmación fresca es **QQQ OOS 2018–2025**, no tocada por el
+scan. Excepción puntual a la directiva solo-SPY autorizada 2026-07-10, únicamente como
+validación out-of-family (mismo rol que IWM en BT-6).
+
+**Pipeline (congelado):**
+- PCS QQQ: expiración DTE∈[35,50] más cercana a 45; short put = |delta| más cercano a 0.30;
+  long = short − $5; crédito = mark_short − mark_long > 0; hold a vencimiento; fricción $6,30.
+- Edge: `(crédito/5) / p_trailing` — tabla empírica put **sin shrinkage**, ventana expansiva
+  anual, solo vencimientos ≤ corte, buckets n≥50, interpolación lineal (obs QQQ propias).
+- Gates congelados: régimen operable ∧ VRP≥1.2 ∧ short ≤ put_wall ∧ crédito ≥ $0,30 ∧
+  tail_score de mercado (SPY: VVIX 110/130 + skew25 RoC5d 5%/8%, score≥2 → out, huecos ≤2d) —
+  **sin capa GEX** (per BT-6: gamma `enabled:false` en QQQ). Barras: 1,05 normal / 1,10
+  low_vol y elevated / 1,20 caution.
+- **Criterios (inamovibles, por año-ventana):** C1 avg>0 ∧ win≥90% · C2 avg seleccionadas >
+  avg rechazadas-por-edge · C3 ninguna ventana anual < −$700 · C4 factor efectivo (mediana
+  p_trail/|delta| por ventana) varía ≤ ±0,15 entre ventanas consecutivas (su falla condiciona
+  el diseño, no invalida C1–C3) · Robustez: el veredicto C3 no debe flipear con barras ±0,05.
+- **Compromiso:** una corrida, sin retoques. Si QQQ falla → el hallazgo delta-0.30 se degrada a
+  idiosincrasia de SPY y no se adopta sin un ciclo nuevo. Si pasa → habilita la discusión de
+  rediseño (gestión defensiva para deltas 0.30, gestión B, merge JSON) antes de cualquier
+  `enabled:true`.
+
+**⚙ RESULTADO H3 (2026-07-10, corrido una vez sobre QQQ): VEREDICTO APROBADO — con C4 en falla
+declarada y margen fino en C1.**
+
+| Criterio | Resultado |
+|---|---|
+| C1 (avg>0, win≥90%) | ✅ **avg $59,11 · win 90,6%** — pasa al filo (margen 0,6pp) |
+| C2 (gate separa) | ✅ seleccionadas $59,1 vs rechazadas $30,7 (n=117 vs 62) |
+| C3 (sin año < −$700) | ✅ peor año: **2018 −$513**; 2022 correctamente en cero señales |
+| C4 (saltos factor ≤0,15) | ❌ salto máx **0,215** (2018→19); factor deriva 0,43→0,73 |
+| Robustez barras ±0,05 | ✅ C3 pasa en las tres (peor-año −$513 idéntico) |
+
+- **14,6 señales/año, total $6.916 en 8 años** — réplica cruzada casi idéntica al scan SPY
+  (14,4/año, avg $60,4): el hallazgo no es idiosincrasia de un índice.
+- **La letra chica de C4:** el shrinkage era lo que estabilizaba la calibración en H2; H3
+  renuncia a él y la inestabilidad vuelve (como en BT-9). Las barras robustas la absorben en
+  esta muestra, pero el diseño queda condicionado: el factor de calibración se monitorea por
+  ventana y el colchón de `min_edge` debe cubrir el gap medido (~0,2 de factor).
+- Distribución anual grumosa: 2021 concentra 48 de 117 señales; 2019 solo 4. La ocurrencia
+  promedio (~14/año) no es un flujo parejo.
+- **Consecuencia:** el hallazgo delta-0.30 queda VALIDADO out-of-family. Antes de discutir
+  `enabled:true` (paper) faltan, en orden: (a) recalcular con gestión B (50%) path-level,
+  (b) redefinir la gestión defensiva (`hard_defense` delta>0.30 dispara en la entrada),
+  (c) corrida formal SPY como réplica (sus números de scan coinciden pero quedan marcados
+  exploratorios), (d) merge JSON-first de los nodos nuevos (`delta_target` 0.30, edge trailing,
+  tail_score, sin shrinkage) `enabled:false`.
+
 ## 3-bis. Test de muros como restricción (2026-07-09) — Capa 2 redefinida con datos
 
 Put wall diario reconstruido 13 años × 2 símbolos (strike con máx gamma×OI de puts, DTE<90 —
