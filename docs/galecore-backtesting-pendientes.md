@@ -941,6 +941,60 @@ de las diagonales (TP al 50% de la prima del short) distinto de la regla B del P
 variable (D1/D3 n=99 por strikes faltantes en el back-month; PCS $20 n=96); P&L del overlay
 del libro combinado atribuido al día de salida (Sharpe aproximado).
 
+### BT-14 — Libro combinado L2-long + overlay PCS-B: ESPECIFICACIÓN PRE-DECLARADA (2026-07-11, antes de correr)
+
+**Pregunta:** el hallazgo BT-13(a/b) — long del subyacente filtrado por las capas de
+seguridad (L2 = régimen operable ∧ ¬tail_out) más el overlay PCS-B H3 en ARMED — ¿sostiene
+su ventaja sobre buy&hold una vez puestos: ejecución realista, dividendos, histéresis N=3,
+costos de switching y réplica QQQ? Es el único hallazgo del ciclo que ataca el problema de
+negocio de H2/H3 (capital ocioso 65%, régimen-cero).
+
+**Advertencias de honestidad (declaradas antes de correr):**
+- Ventana reutilizada (2013–2025; OOS 2018–2025 agotada) — el veredicto habilita a lo sumo
+  **paper del libro**, nunca real directo.
+- A favor de la validez: los flags L2 son priors de seguridad de v2.1.5 (VIX 30, TS, RoC 12%,
+  VVIX/skew) **jamás fiteados a retornos de stock** — el filtro direccional emergió como
+  subproducto. Mitiga el sobreajuste, no lo elimina (BT-0 los validó sobre esta misma ventana).
+- QQQ como superficie de confirmación ya fue usada por BT-10c/11/12 — declarado.
+- Aprobar BT-14 abre además una decisión de IDENTIDAD del producto (libro de stock filtrado
+  + overlay de prima vs. sistema de prima puro) — decisión de negocio usuario+socio, no de
+  backtest.
+
+**Pipeline congelado:**
+- **Filtro L2:** régimen operable (flags rápidos v2.1.5) ∧ ¬tail_out_sm (VVIX 110/130 +
+  skew25 RoC5d 5%/8%, score≥2, huecos ≤2d; tail de mercado = SPY para ambos símbolos).
+  SIN GEX y SIN VRP en la pata stock (BT-13a midió que destruyen el filtro long). Régimen/VRP
+  diarios con ffill≤5d sobre huecos del cache; días sin clasificar = OFF.
+- **Cuatro variantes de dinámica, todas pre-declaradas** (no se elige la mejor a posteriori;
+  la de referencia para el veredicto es V4, la única operable de verdad):
+  V1 cierre-mismo-día (=BT-13a) · V2 ejecución a la apertura siguiente · V3 histéresis
+  asimétrica N=3 (degradación inmediata, mejora tras 3 recalculaciones consecutivas,
+  §6 de la definición) con cierre-mismo-día · **V4 = histéresis N=3 + apertura siguiente**.
+- **Retorno total:** dividendos de `{sym}_underlying_prices.parquet` (`dividend_amount`,
+  disponible 1999–2025) devengados al ex-date solo si el libro está long; afuera = cash al
+  0% (sin devengar tasa — conservador). Slippage stock: 2bp por vía sobre cada switch.
+- **Overlay:** señales H3 (delta 0.30 + trailing anti-lookahead + tail + GEX≥0 solo SPY) +
+  gestión B, cartera secuencial 1 posición por símbolo, 1 contrato, base $10k. El overlay
+  solo existe 2018–2025 (la tabla trailing empieza en 2018); la pata stock se corre
+  2013–2025 y el veredicto C1–C4 se evalúa 2018–2025 (ventana común), con 2013–2017
+  reportado como contexto.
+- **Métricas:** CAGR, Sharpe, maxDD, peor año, nº de switches y costo total de switching,
+  días expuesto; descomposición de concentración (contribución por episodio evitado; métricas
+  re-computadas excluyendo el episodio de mayor contribución).
+- **Criterios (inamovibles):**
+  - **C1 (la promesa central, SPY V4, 2018–2025, neto de todo):** maxDD ≤ 2/3 del maxDD de
+    B&H **Y** CAGR ≥ CAGR(B&H) − 1,5pp.
+  - **C2 (robustez de ejecución):** el veredicto C1 no flipea entre V1/V2/V3/V4.
+  - **C3 (no-concentración):** excluyendo el episodio de mayor contribución del filtro, el
+    maxDD del libro sigue ≤ 80% del de B&H en la muestra restante.
+  - **C4 (réplica):** C1 se sostiene en QQQ (mismos umbrales; overlay sin GEX).
+  - **C5 (aditividad del overlay):** agregar el overlay PCS-B no empeora ni maxDD ni Sharpe
+    del libro respecto de la pata stock sola, y su P&L 2018–2025 es > 0.
+- **Veredicto:** C1–C5 aprueban → habilita la discusión de paper del libro combinado (con la
+  decisión de identidad sobre la mesa). Cualquier falla → el libro queda como curiosidad
+  documentada y el sistema sigue PCS-only. **Una corrida por variante, sin retoques
+  post-resultado.**
+
 ## 3-bis. Test de muros como restricción (2026-07-09) — Capa 2 redefinida con datos
 
 Put wall diario reconstruido 13 años × 2 símbolos (strike con máx gamma×OI de puts, DTE<90 —
