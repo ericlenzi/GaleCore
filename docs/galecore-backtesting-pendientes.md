@@ -817,6 +817,130 @@ Gestión B (la vara pre-declarada), OOS 2018–2025:
    deriva a 0.35 no es todavía una emergencia — el umbral de defensa puede vivir más arriba
    (~0.40–0.45), a calibrar en el rediseño de (b).
 
+### BT-13 — Ciclo exploratorio: monetizar el entorno con otras estructuras (2026-07-11 — EXPLORATORIO)
+
+**Motivación (pregunta del operador):** el entorno medido (gates H3) quedó validado; ¿hay
+estructuras distintas al PCS $5 que lo moneticen mejor — long del subyacente, wheel, CSP,
+wings anchos, diagonales/calendars? **Estatus: exploratorio en su totalidad** — todo corre
+sobre la ventana OOS 2018–2025 agotada y las mismas 115 señales gated H3 SPY (aísla
+estructura de señal); genera hipótesis, no habilita nada, la config de referencia no se toca.
+Scripts persistidos: `research/backtesting/explore_{armed_spy_long,wheel_csp,wing_width,diagonal,bwb}.py`.
+
+**⚙ (a) ARMED como señal direccional del subyacente — REFUTADA, con hallazgo colateral.**
+Long SPY al prenderse ARMED / flat al apagarse (señal EOD, entrada al cierre): CAGR 0,8%
+con 11,8% de exposición; días ARMED 2,8bp/día vs 5,6bp/día los OFF (t −0,73). ARMED
+selecciona días quietos *por diseño* (GEX+ pinning, VRP alto = realizada pobre) — filtra el
+drift a propósito. **Hallazgo colateral (escalera por gate):** las capas de seguridad solas
+(régimen operable + tail_score = "L2") SÍ son filtro direccional genuino para un long de
+stock: CAGR ~igual a buy&hold con **la mitad del maxDD** (−15,3% vs −34,1%) y Sharpe 1,2
+vs 0,8 — validación en el subyacente del lead time de BT-0 (2018: +3,8% vs −6,3%; 2022 casi
+no expuesto; costo: pierde las recuperaciones en V, 2019 −1,9% vs +28,8%). GEX≥0 y VRP≥1.2
+destruyen el filtro long (exposición 12%, CAGR 0,8%) — correctos para prima, tóxicos para drift.
+
+**⚙ (b) Wheel / cash-secured put — el wing consume el 87% de la prima; la wheel es una CSP
+con pasos extra.** Sobre las mismas señales: prima bruta del short $450/señal, PCS-B retiene
+$35,5 — **el wing de la misma expiración se lleva ~87% de la prima bruta** (la compra de
+premio de crash que BT-10b describió, ahora en P&L). CSP-B: $264/señal (7,4× PCS-B) con peor
+año −$644, PERO capital ~$42k/contrato (cash-secured), retorno sobre capital 10× peor que
+PCS, y heat incomputable (1 contrato ≈ 100% del NL de referencia $10k; un gap −30% ≈ −$12k =
+27× el max loss del PCS). A riesgo constante la CSP muere ($3,1/señal). **Wheel:** solo 6,1%
+de las señales expira ITM → la fase covered-call es anecdótica (n=3 episodios en cartera
+secuencial); lo poco visible confirma la calibración de calls (la clásica vendió CC delta
+0.30 en el crash 2018 y cristalizó −$2.739; la variante env-aware esperó y terminó mejor:
+$11.4k vs $9.9k en 8 años). **Desaconsejada por diseño:** la pata CC vende el lado que la
+calibración midió subvaluado (factor call 1,4–1,7×) y la asignación viola dos reglas duras
+(long direccional, riesgo indefinido). **Libro combinado (la vía que no rompe nada):**
+L2-long SPY + overlay PCS-B en ARMED = CAGR 12,83% / Sharpe 1,24 / maxDD −14,9% (vs B&H
+12,47 / 0,70 / −34,1); ocupación del capital ~35%→~70%.
+
+**⚙ (c) Ancho del wing — el ranking se invierte con la vara; la config de referencia queda
+reivindicada.** Por señal (1 contrato) ensanchar paga más: $5→$35,5 · $10→$67,5 · $20→$132 ·
+wing d0.10→$164 · CSP→$264 (captura 19/33/53/67/100% de la prima bruta). **A riesgo
+constante ($500 max loss — la métrica del heat) gana el $5:** $43,8/señal y $5.034 total vs
+$40,8/$4.491 ($10), $38,4/$3.687 ($20), $29,7/$3.411 (d0.10), $3,1/$357 (CSP). El 87% que se
+lleva el wing es compensación exacta por el riesgo que absorbe, no plata regalada. El $10
+queda dominado por el $5; el wing d0.10 dominado por el $20; **el $20 es el único dial
+no-dominado: −27% de total a cambio de peor-año 5× mejor (−$98 vs −$541)** — suavidad, no
+rentabilidad. Implicación para §7.4 de la definición: al crecer el NL, desplegar más riesgo
+por señal con **más contratos de $5** (mejor retorno por heat), no con wings anchos — salvo
+preferencia explícita de suavidad de cola (→ $20).
+
+**⚙ (d) Diagonales / calendar (short adelante) — convexidad CONFIRMADA, familia REPROBADA
+como reemplazo.** La variante "calendar de venta" estricta (vender el vencimiento largo)
+queda descartada sin test: al vencer el front deja naked short (prohibido). Testeadas con
+short 45d delta-0.30 y long ~90d, un ciclo por señal sin rolls, salida al vencimiento del
+front con marks reales:
+
+| Variante | cnet | win% hold | avg$/señal | riesgo cte $500: total 8a | peor año |
+|---|---|---|---|---|---|
+| PCS $5 (ref) | +$0,93 | 93,9 | $60 | $8.532 | −$508 (2022) |
+| D1 diag K−5 ~90d | −$3,27 (débito) | 55,6 | $107 | $5.484 | −$455 (2019) |
+| D2 diag d0.10 ~90d | +$2,16 | 98,3 | $289 | $3.415 | **−$7 (2018)** |
+| D3 calendar mismo K | −$4,44 (débito) | 48,5 | $78 | $5.189 | **−$2.641 (2019)** |
+
+- **Convexidad real y medida:** el wing back-month retiene 47–58% de su costo al vencer el
+  front (mecánica √T) y es long vega vivo — los peores trades del PCS se transforman
+  (2022-09-12: PCS −$385 vs D1 +$440, D3 +$548); 2020 y 2022 mejores que el PCS en todas
+  las variantes.
+- **El costo es estructural en NUESTRO entorno:** D1/D3 entran en débito (win ~50%) y
+  sangran en los grinds alcistas (2019, 2023) — ARMED tiene pinning *diario* pero drift
+  *acumulado* (~1-2%/mes): el spot se escapa de la carpa del calendar en los 45 días del
+  ciclo. D3 violaría C3 por paliza. La familia débito está desalineada con el entorno medido.
+- **D2 registrada como hipótesis defensiva** (única variante crédito): ningún año perdedor
+  a riesgo constante en los 8 OOS, 40% del total del PCS; su max loss nominal ($4.635)
+  exagera el riesgo real (el wing a 45d del vencimiento nunca vale cero) — misma salvedad
+  que la CSP, en dirección conservadora. No-dominada junto al PCS $20.
+
+**⚙ (e) Put Broken Wing Butterfly — aplicable pero DOMINADA; la carpa tiene un agujero.**
+Estructura: long K3=K2+5 / short 2× K2 (delta 0.30 de la ref) / long K1=K2−W, misma
+expiración, W ∈ {10,15,20}, crédito neto exigido >0, fricción $12,60 (4 legs).
+Descomposición: PCS ancho (K2/K1) + put debit spread (K3/K2). Predicción pre-declarada
+(confirmada): menos retorno por unidad de riesgo que el PCS (el debit spread compra la
+prima más sobrepreciada de la curva); peores-años mejores.
+
+| Riesgo cte $500, gestión B | total 8a | peor año |
+|---|---|---|
+| PCS $5 (ref) | $5.034 | −$541 |
+| PCS $20 | $3.687 | −$98 |
+| D2 diagonal (d) | $3.415 | −$7 |
+| BWB +5/−15 | $2.904 | −$10 |
+| BWB +5/−20 | $2.646 | **+$18 (ningún año perdedor)** |
+
+- **La suavidad es real y extrema:** la zona de max loss (bajo el ala rota) no se tocó NI
+  UNA VEZ en 8 años (ninguna W); la carpa cobra en los peores trades del PCS (2022-09-12:
+  −$385 → +$54/+$124; 2024-06: −$400 → +$85/+$134). Carpa alcanzada en 12–14% de las
+  señales, avg ~$160.
+- **El agujero de la carpa (el hallazgo del test):** la protección es *localizada* — el
+  2018-09-18 aterrizó en la parte baja de la carpa y la BWB-15/-20 perdió −$809/−$791,
+  **casi 2× el PCS (−$429)**: el peor trade individual de todo el set comparado es de una
+  BWB. La estructura no elimina la cola, la redistribuye — protege el selloff moderado y
+  castiga el que cae un escalón más profundo. PCS $20 (pérdida gradual) y D2 (vega viva)
+  no tienen este perfil.
+- Artefacto declarado: la BWB-10 salió a débito en 15 señales (excluidas), concentradas en
+  skew empinado (incl. 2018) — auto-filtro accidental de skew que rompe comparabilidad.
+- Matiz de gestión: la regla B (50% del crédito neto) dispara TPs muy tempranos en la BWB
+  (crédito chico); la gestión natural de una BWB (% de la carpa) sería otro grado de
+  libertad — quedó congelado deliberadamente.
+- **Veredicto: dominada por D2 y PCS $20 en la frontera retorno/suavidad** (y los números
+  de D2 estaban subestimados mientras el max loss de la BWB es real y alcanzable).
+  Hipótesis cerrada, mecanismo registrado.
+
+**Conclusión transversal del ciclo:** ninguna estructura supera al PCS $5 en retorno por
+unidad de riesgo dentro del entorno medido; las alternativas intercambian retorno por
+suavidad de cola (frontera: PCS $20 → D2; la BWB queda tercera y cerrada). Las palancas
+reales de rentabilidad quedaron identificadas:
+**(i) libro combinado L2-long + overlay PCS** (usa el 65% del capital ocioso sin romper
+reglas) y **(ii) escala lineal en contratos** (la respuesta de BT-7). "Más trades" no sale
+de cambiar la estructura — consume el mismo flujo de señales.
+
+**Caveats del ciclo:** ventana agotada + señales fijas (sin re-gateo por estructura); sin
+dividendos en las patas de stock (subestima wheel y libro combinado ~0,7–1,3%/año);
+fricción estimada ($6,30 spread / $3,15 single-leg / $5 asignación; bid-ask del back-month
+algo mayor en la realidad); normalización por max loss conservadora para CSP y D2; B-análogo
+de las diagonales (TP al 50% de la prima del short) distinto de la regla B del PCS; n
+variable (D1/D3 n=99 por strikes faltantes en el back-month; PCS $20 n=96); P&L del overlay
+del libro combinado atribuido al día de salida (Sharpe aproximado).
+
 ## 3-bis. Test de muros como restricción (2026-07-09) — Capa 2 redefinida con datos
 
 Put wall diario reconstruido 13 años × 2 símbolos (strike con máx gamma×OI de puts, DTE<90 —

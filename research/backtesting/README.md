@@ -1,7 +1,7 @@
-# Research / Backtesting — scripts del ciclo BT-10…BT-12 (jul-2026)
+# Research / Backtesting — scripts de los ciclos BT-10…BT-13 (jul-2026)
 
 Scripts de análisis que produjeron los veredictos documentados en
-`docs/galecore-backtesting-pendientes.md` (§BT-10, BT-10b, BT-10c, BT-11, BT-12).
+`docs/galecore-backtesting-pendientes.md` (§BT-10, BT-10b, BT-10c, BT-11, BT-12, BT-13).
 Se persisten acá para que sesiones futuras no tengan que reconstruir la maquinaria
 (lección aprendida: los scripts de BT-0…BT-9b vivieron en un scratchpad efímero y se perdieron).
 
@@ -28,6 +28,11 @@ Se persisten acá para que sesiones futuras no tengan que reconstruir la maquina
 | `bt11_build_caches.py` | Construye `pop_obs_calls_{sym}.parquet` y `{sym}_structinputs_daily.parquet` (gex_skew, call_wall, zscore, trend) | BT-11 |
 | `bt11_run.py` | Test del motor de estructuras (IC/PCS/CCS, reglas 1/6/7/8 sin flow) con config H3 | BT-11 |
 | `bt12_delta_grid.py` | Grilla de deltas 0.15–0.35, test de meseta/monotonía | BT-12 |
+| `explore_armed_spy_long.py` | Long SPY (stock) condicionado a ARMED + escalera de gates como filtro direccional | BT-13 (a) |
+| `explore_wheel_csp.py` | CSP vs PCS, the wheel (clásica y env-aware), libro combinado L2-long + overlay PCS-B | BT-13 (b) |
+| `explore_wing_width.py` | Ancho del wing $5/$10/$20/delta-0.10/CSP a riesgo constante | BT-13 (c) |
+| `explore_diagonal.py` | Diagonales y calendar put con short adelante (D1/D2/D3, un ciclo por señal) | BT-13 (d) |
+| `explore_bwb.py` | Put broken wing butterfly +5/−W (W 10/15/20) vs PCS a riesgo constante | BT-13 (e) |
 
 ## Reglas de uso (disciplina post-BT-9)
 
