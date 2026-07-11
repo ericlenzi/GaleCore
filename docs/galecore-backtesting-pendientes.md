@@ -995,6 +995,43 @@ negocio de H2/H3 (capital ocioso 65%, régimen-cero).
   documentada y el sistema sigue PCS-only. **Una corrida por variante, sin retoques
   post-resultado.**
 
+**⚙ RESULTADO BT-14 (2026-07-11, corrido una vez): VEREDICTO REPROBADO — el realismo
+pre-declarado desarma el hallazgo exploratorio.** Script: `research/backtesting/bt14_run.py`.
+
+| SPY 2018–2025 (total return neto) | CAGR | Sharpe | maxDD | C1 |
+|---|---|---|---|---|
+| B&H | 14,21% | 0,78 | −33,7% | — |
+| V1 cierre-mismo-día (=BT-13a) | 12,73% | 1,28 | −15,3% | ✅ pasa |
+| V2 apertura siguiente | 12,25% | 1,24 | −16,2% | ❌ (gap −1,96pp) |
+| V3 histéresis+cierre | 7,03% | 0,87 | −18,9% | ❌ |
+| **V4 histéresis+apertura (veredicto)** | **8,18%** | 0,99 | −18,8% | ❌ (gap −6,0pp) |
+
+C1 ❌ · C2 ❌ (el veredicto flipea: solo V1 pasa) · **C3 ✅** (sin el mejor episodio evitado
+—abr/may-2022, B&H −12,5%— el maxDD V4 queda en 57% del B&H: el valor no era solo COVID) ·
+C4 ❌ (QQQ falla en las CUATRO variantes; V1 QQQ: maxDD 67% del B&H, gap −4,3pp; C3-QQQ 109%
+— peor que B&H sin su mejor episodio) · C5 ❌ (overlay 1 contrato: Sharpe del libro no mejora;
+SPY −$39 en esta corrida secuencial).
+
+1. **El mecanismo de la falla — la histéresis N=3 del propio diseño mata el libro:** el
+   filtro crudo (V1) es excelente y pasa C1, pero "volver lento" cuesta ~4,5pp de CAGR/año
+   (exposición 57%→42%): los días perdidos son exactamente los rebotes fuertes post-salida
+   (la versión sistematizada del problema 2019 que la spec obligó a medir). La asimetría
+   "salir rápido, volver lento" es correcta para vender prima (re-entrar tarde cuesta unas
+   señales) e incompatible con un libro de stock (re-entrar tarde cuesta los mejores días).
+2. **QQQ no replica ni en la variante ideal** — consistente con la debilidad conocida del
+   engine (BT-0: los grinds se detectan tarde; el bear 2022 de QQQ fue un grind profundo).
+   El hallazgo direccional de BT-13(a) era en buena parte idiosincrasia de SPY + ejecución
+   idealizada.
+3. Nota de varianza declarada: el overlay secuencial SPY dio −$39 acá vs +$572 en BT-13(b)
+   — las carteras de 1 posición (~37 trades de 115 señales) tienen enorme varianza de
+   selección; a 1 contrato el overlay SPY no mueve la aguja en ninguna dirección.
+4. **Consecuencia (conforme al compromiso):** el libro combinado queda como curiosidad
+   documentada; producción sigue **PCS-only con la config H3 intacta**. Revivir la idea
+   exigiría ciclo nuevo pre-declarado con hipótesis distinta (p.ej. re-entrada del stock
+   con N=1 como parámetro del libro, no del regime engine) — no un ajuste de este.
+5. Mismo patrón que BT-9: lo que brilla idealizado se degrada al ponerle las condiciones
+   reales pre-declaradas. La disciplina volvió a pagar.
+
 ## 3-bis. Test de muros como restricción (2026-07-09) — Capa 2 redefinida con datos
 
 Put wall diario reconstruido 13 años × 2 símbolos (strike con máx gamma×OI de puts, DTE<90 —

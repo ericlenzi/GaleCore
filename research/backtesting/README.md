@@ -33,6 +33,7 @@ Se persisten acá para que sesiones futuras no tengan que reconstruir la maquina
 | `explore_wing_width.py` | Ancho del wing $5/$10/$20/delta-0.10/CSP a riesgo constante | BT-13 (c) |
 | `explore_diagonal.py` | Diagonales y calendar put con short adelante (D1/D2/D3, un ciclo por señal) | BT-13 (d) |
 | `explore_bwb.py` | Put broken wing butterfly +5/−W (W 10/15/20) vs PCS a riesgo constante | BT-13 (e) |
+| `bt14_run.py` | Libro combinado L2-long + overlay PCS-B: variantes V1–V4, criterios C1–C5 — la corrida única del veredicto | BT-14 |
 
 ## Reglas de uso (disciplina post-BT-9)
 
