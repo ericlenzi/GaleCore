@@ -6,7 +6,7 @@
 > se listan en §10 y entran `enabled:false` hasta su backtest).
 >
 > **Documentos relacionados:**
-> - `galecore-backtesting-pendientes.md` — validaciones empíricas pendientes (BT-1…BT-8)
+> - `galecore-research-backtesting.md` — validaciones empíricas pendientes (BT-1…BT-8)
 > - `GaleCore-Estrategia-Resumen.docx` — one-pager en lenguaje natural (pre-feedback; §4 corrige su prosa del edge)
 > - Feedback externo incorporado: `feedback-mejora-edge-estados.md` (ronda 1) y `feedback.md`
 >   (ronda 2, consolidado Perplexity/ChatGPT/Gemini — origina BT-0, la histéresis del régimen

@@ -34,5 +34,10 @@ publish/
 # Claude Code local artifacts
 .claude/
 
-# Backtesting datasets (locales, re-descargables)
-research/data/
+# Backtesting datasets — se versiona research/data/ (derived/ + vvix) EXCEPTO
+# las carpetas de cadenas crudas, pesadas y re-descargables:
+research/data/iwm_options/
+research/data/qqq_options/
+research/data/spy_eod/
+research/data/spy_options/
+research/data/*.zip

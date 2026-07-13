@@ -1,7 +1,7 @@
 # Research / Backtesting — scripts de los ciclos BT-10…BT-13 (jul-2026)
 
 Scripts de análisis que produjeron los veredictos documentados en
-`docs/galecore-backtesting-pendientes.md` (§BT-10, BT-10b, BT-10c, BT-11, BT-12, BT-13).
+`docs/galecore-research-backtesting.md` (§BT-10, BT-10b, BT-10c, BT-11, BT-12, BT-13).
 Se persisten acá para que sesiones futuras no tengan que reconstruir la maquinaria
 (lección aprendida: los scripts de BT-0…BT-9b vivieron en un scratchpad efímero y se perdieron).
 
