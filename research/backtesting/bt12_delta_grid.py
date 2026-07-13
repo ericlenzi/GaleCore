@@ -2,7 +2,7 @@
 SPY+QQQ OOS 2018-2025. UNA corrida. La config queda en 0.30 sea cual sea el resultado."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 COLS = ["date","expiration","strike","type","mark","delta"]
 TARGETS = [0.15, 0.20, 0.25, 0.28, 0.30, 0.32, 0.35]
 BARS = {"low_vol":1.10,"normal":1.05,"elevated":1.10,"caution":1.20}

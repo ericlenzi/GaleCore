@@ -12,7 +12,7 @@ Sin dividendos en fases de stock (subestima la wheel ~1.3%/año prorrateado — 
 Genera hipotesis; NO habilita nada (ventana agotada)."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 COLS = ["date", "expiration", "strike", "type", "mark", "delta"]
 TGT = 0.30
 FR_SPREAD, FR_LEG, FR_ASSIGN = 6.30, 3.15, 5.0

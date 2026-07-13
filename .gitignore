@@ -35,4 +35,4 @@ publish/
 .claude/
 
 # Backtesting datasets (locales, re-descargables)
-data/
+research/data/

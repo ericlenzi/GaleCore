@@ -2,7 +2,7 @@
 detalle anual, C2, sensibilidad de barras, rol del tail_score, factor de calibracion."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 COLS = ["date","expiration","strike","type","mark","delta"]
 und = pd.read_parquet(f"{BASE}/spy_options/spy_underlying_prices.parquet")[["date","close"]]
 und["date"]=pd.to_datetime(und["date"]); und=und.sort_values("date")

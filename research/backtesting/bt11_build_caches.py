@@ -4,7 +4,7 @@ DTE 30-50, bucket 0.05, itm = exp_close > strike); (2) {sym}_structinputs_daily
 zscore (ret5d_log/(atm_iv/sqrt252)), trend EMA20/50 (neutral <0.2%)."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 
 for sym in ["spy", "qqq"]:
     und = pd.read_parquet(f"{BASE}/{sym}_options/{sym}_underlying_prices.parquet")[["date","close","dividend_amount"]]

@@ -5,7 +5,7 @@ al valor observado; si nunca, hold a vencimiento. Friccion $6.30 (igual que hold
 BT-4 ya noto que hold worthless paga menos cierre -> A levemente subestimada)."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 COLS = ["date","expiration","strike","type","mark","delta"]
 TGT = 0.30
 

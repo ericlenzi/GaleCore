@@ -11,7 +11,7 @@ Friccion $12.60 (4 legs). Max loss = (W - 5 - cnet)*100. Vara: riesgo cte $500.
 Genera hipotesis; NO habilita nada (ventana agotada)."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 COLS = ["date", "expiration", "strike", "type", "mark", "delta"]
 TGT = 0.30
 FR_BWB, FR_SPREAD = 12.60, 6.30

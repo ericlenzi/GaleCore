@@ -11,7 +11,7 @@ Max loss nominal: (ancho - credito_neto)x100 para D1/D2; debito x100 para D3.
 Friccion $6.30 (2 legs). Genera hipotesis; NO habilita nada (ventana agotada)."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 COLS = ["date", "expiration", "strike", "type", "mark", "delta"]
 TGT, WING_D = 0.30, 0.10
 FR = 6.30

@@ -4,7 +4,7 @@ RV cayendo y distancia al muro separan ganadores de los clusters 2018/2020.
 EXPLORATORIO: genera hipotesis; la confirmacion exige pre-declaracion + walk-forward."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 t = pd.read_parquet(f"{BASE}/derived/bt3_trades_spy.parquet")
 obs = pd.read_parquet(f"{BASE}/derived/pop_obs_puts_spy.parquet")
 gexd = pd.read_parquet(f"{BASE}/derived/spy_gex_daily.parquet")  # date, gex_gamma_oi, spot, gex_b

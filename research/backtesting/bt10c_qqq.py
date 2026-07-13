@@ -5,7 +5,7 @@ Criterios: C1 avg>0 & win>=90 | C2 sel>rech | C3 sin anio < -700 | C4 saltos fac
 robustez barras +-0.05 sobre C3."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 COLS = ["date","expiration","strike","type","mark","delta"]
 TGT = 0.30
 

@@ -2,7 +2,7 @@
 Y: cuanto edge le falta a los dias que solo mueren por el edge gate."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 t = pd.read_parquet(f"{BASE}/derived/bt3_trades_spy.parquet")
 obs = pd.read_parquet(f"{BASE}/derived/pop_obs_puts_spy.parquet")
 gex = pd.read_parquet(f"{BASE}/derived/spy_gex_daily.parquet")[["date", "gex_b"]]

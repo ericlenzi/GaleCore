@@ -5,7 +5,7 @@ friccion $12.60 (spreads $6.30); gates H3; gestion B path-level sobre credito to
 UNA corrida. Criterios C1-C4 + robustez barras + comparacion vs baseline PCS-only H3+B."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 COLS = ["date","expiration","strike","type","mark","delta"]
 BARS = {"low_vol":1.10,"normal":1.05,"elevated":1.10,"caution":1.20}
 

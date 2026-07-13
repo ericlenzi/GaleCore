@@ -3,7 +3,7 @@ DTE 35-50, OOS 2018-2025, mismo pipeline H2 (gates + trailing por ventana + shri
 Pregunta: el edge shrunk cruza la barra mas seguido en deltas mayores? A que costo?"""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 TARGETS = [0.20, 0.25, 0.30]
 COLS = ["date","expiration","strike","type","mark","delta"]
 

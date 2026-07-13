@@ -8,11 +8,11 @@ Se persisten acá para que sesiones futuras no tengan que reconstruir la maquina
 ## Prerrequisitos
 
 - Python 3.10+ con `pandas` y `pyarrow`
-- Datos (no versionados, `data/` está en .gitignore):
-  - `data/{spy,qqq,iwm}_options/*.parquet` — cadenas EOD 2013–2025 + underlying prices
-  - `data/derived/*.parquet` — caches (calibraciones POP, GEX diario, walls, skew25, bt3_trades)
-  - `data/vvix_history.csv` — bajado de CBOE (`https://cdn.cboe.com/api/global/us_indices/daily_prices/VVIX_History.csv`)
-- Los paths están hardcodeados a `C:/Eric/App/Claude/Projects/GaleCore/data` (variable `BASE`).
+- Datos (no versionados, `research/data/` está en .gitignore):
+  - `research/data/{spy,qqq,iwm}_options/*.parquet` — cadenas EOD 2013–2025 + underlying prices
+  - `research/data/derived/*.parquet` — caches (calibraciones POP, GEX diario, walls, skew25, bt3_trades)
+  - `research/data/vvix_history.csv` — bajado de CBOE (`https://cdn.cboe.com/api/global/us_indices/daily_prices/VVIX_History.csv`)
+- Los paths están hardcodeados a `C:/Eric/App/Claude/Projects/GaleCore/research/data` (variable `BASE`).
 - En consola Windows correr con `PYTHONIOENCODING=utf-8`.
 
 ## Scripts (en orden del ciclo)

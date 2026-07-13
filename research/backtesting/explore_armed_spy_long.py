@@ -10,7 +10,7 @@ Regimen/VRP: ffill max 5 dias sobre huecos del cache (entorno lento); resto = OF
 Genera hipotesis; NO habilita nada (ventana 2018-2025 agotada, resto in-sample)."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 
 # --- serie diaria completa ---
 g = pd.read_parquet(f"{BASE}/derived/spy_gex_daily.parquet")[["date", "spot", "gex_b"]]

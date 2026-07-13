@@ -8,7 +8,7 @@ Overlay: señales H3 (SPY con GEX / QQQ sin GEX) + gestion B, cartera secuencial
 Sin retoques post-resultado."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 COLS = ["date", "expiration", "strike", "type", "mark", "delta"]
 TGT = 0.30
 SLIP = 0.0002          # 2bp por via

@@ -8,7 +8,7 @@ la comparacion que respeta heat/sizing de la estrategia.
 Genera hipotesis; NO habilita nada (ventana agotada)."""
 import pandas as pd, numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 COLS = ["date", "expiration", "strike", "type", "mark", "delta"]
 TGT, WING_D = 0.30, 0.10
 FR_SPREAD, FR_LEG = 6.30, 3.15

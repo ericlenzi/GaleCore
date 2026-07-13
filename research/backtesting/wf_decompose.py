@@ -14,7 +14,7 @@ barras min_edge congeladas (1.05 normal / 1.10 low_vol y elevated / 1.20 caution
 import pandas as pd
 import numpy as np
 
-BASE = "C:/Eric/App/Claude/Projects/GaleCore/data"
+BASE = "C:/Eric/App/Claude/Projects/GaleCore/research/data"
 OOS_YEARS = range(2018, 2026)
 MIN_EDGE = {"low_vol": 1.10, "normal": 1.05, "elevated": 1.10, "caution": 1.20}
 
