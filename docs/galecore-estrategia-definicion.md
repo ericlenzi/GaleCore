@@ -1,413 +1,67 @@
-# GaleCore — Definición de la estrategia (disparo por prima real)
+# GaleCore — Definición de la estrategia (v1.4.0, PCS-only)
 
-> **Propósito:** consolidación de la definición cerrada de la nueva estrategia de disparo
-> autónomo por edge, resultado de las sesiones de diseño. Este documento es la referencia
-> conceptual; la fuente de verdad operativa sigue siendo el JSON de reglas (los nodos nuevos
-> se listan en §10 y entran `enabled:false` hasta su backtest).
+> **Propósito:** referencia conceptual de la estrategia vigente. La **fuente de verdad operativa**
+> es el JSON de reglas (`../source/galecore-datafeed/DataFeed.Api/Files/galecore_rules_core.json`);
+> el **porqué** de cada parámetro vive en [`galecore-rules-reference.md`](galecore-rules-reference.md);
+> las **validaciones empíricas** en [`galecore-research-backtesting.md`](galecore-research-backtesting.md).
 >
-> **Documentos relacionados:**
-> - `galecore-research-backtesting.md` — validaciones empíricas pendientes (BT-1…BT-8)
-> - `GaleCore-Estrategia-Resumen.docx` — one-pager en lenguaje natural (pre-feedback; §4 corrige su prosa del edge)
-> - Feedback externo incorporado: `feedback-mejora-edge-estados.md` (ronda 1) y `feedback.md`
->   (ronda 2, consolidado Perplexity/ChatGPT/Gemini — origina BT-0, la histéresis del régimen
->   y la tabla de adecuación de capital de §7.4)
-
-**Fecha de consolidación:** 2026-07-06
-**Base de reglas:** v2.1.5 (regime engine de 8 regímenes) — decisión fijada.
-**Estado:** definición conceptual cerrada; formalizaciones pendientes en §13.
+> **Estado:** `paper_only` — `enabled_for_live: false`. La ventana OOS 2018–2025 está agotada; la
+> operación real exige validación en paper + capital en zona operable.
+>
+> **Historia:** la línea previa v2.x (clasificador multi-factor, 8 regímenes, IC/CCS) fue
+> **invalidada** por BT-11 y está archivada en [`archive/`](archive/).
 
 ---
 
-## 1. Principios de diseño (invariantes de todo el sistema)
+## 1. Qué es
 
-1. **Safety-first.** La jerarquía de autoridad es: veto de cola > GEX/régimen > edge.
-   El objetivo diferencial no es operar más — es que cada trade sea lo más seguro posible.
-2. **Gates vs. triggers.** Toda condición es O BIEN seguridad (gate binario, no-compensable)
-   O BIEN oportunidad (trigger continuo). Nunca ambas. Ningún proxy de oportunidad dentro
-   del gate de seguridad (el error del modelo viejo: la banda de IVR en el AND).
-3. **Sin compensación cruzada.** Un gate no rescata a otro. VRP alto no compra edge bajo,
-   geometría linda no compra vol barata, "posición chiquita" no compra correlación.
-4. **Podar, no sumar.** No se agregan protecciones sin que la escalera de atribución (BT-5)
-   demuestre que pagan. El riesgo actual no es que falte una capa — es sumar sin validar.
-5. **JSON-first.** Todo cambio de lógica o parámetro se declara primero en el JSON de reglas,
-   después en backend/frontend. Nodos nuevos nacen `enabled:false` hasta su backtest.
-6. **El sistema sugiere, no ejecuta.** Ninguna orden se envía jamás sin aprobación manual.
-   Los trades de banda alto-riesgo, bajo ninguna circunstancia (§7).
+Venta sistemática de prima con **riesgo definido**, capturando el decay temporal (theta) de opciones
+OTM sobre índices líquidos (SPY, QQQ) cuando la estructura de gamma del mercado da soporte y la
+volatilidad paga. Una sola estructura en producción: **Put Credit Spread (PCS)**.
 
----
+**Prohibido:** naked shorts, ratio spreads, long direccional. Iron Condor y Call Credit Spread quedaron
+`enabled:false` — BT-11 mostró que no disparan señal a probabilidades honestas (el delta subestima el
+riesgo call ~1,5×). Revivirlos exige un ciclo de research nuevo.
 
-## 2. Modelo conceptual
+## 2. Principios (invariantes)
 
-Venta sistemática de prima con riesgo definido (IC / PCS / CCS) sobre SPY y QQQ,
-capturando theta y el Variance Risk Premium en entornos donde la estructura de gamma
-del mercado amortigua el movimiento.
+1. **Safety-first.** Jerarquía de autoridad: veto de cola > GEX/régimen > edge. El objetivo no es
+   operar más, sino que cada trade sea lo más seguro posible.
+2. **Cash es una posición.** ~3% anual en T-bills es parte del retorno, no capital ocioso.
+3. **Riesgo definido siempre.** Ninguna pérdida es abierta.
+4. **Calidad de ejecución sobre frecuencia.** ~14 trades/año sobrevivientes es la feature, no el bug.
 
-**El problema del modelo anterior:** la cascada de 4 capas en AND incluía un proxy de
-oportunidad independiente (banda de IV Rank) dentro del gate de seguridad. Los gates de
-seguridad correlacionados no multiplican las ocurrencias hacia abajo; un proxy independiente
-sí — mataba ocurrencias sin comprar seguridad.
+## 3. El embudo de decisión (gates cortocircuitantes)
 
-**La mejora central:** separar la decisión en dos ejes:
-- **Entorno habilitado** (seguridad, binario, lento): ¿se puede operar sin peligro estructural?
-- **Trigger de oportunidad** (continuo, rápido): ¿la prima que se está pagando AHORA tiene
-  expectativa positiva real?
+Se evalúa en cascada; si un gate falla, no se abre nada. Embudo medido (SPY, ~206 días operables/año):
 
-Arquitectura invertida: el backend corre el loop (Tier A lento arma/desarma; Tier B rápido
-vigila el edge y dispara) y empuja `TradeSuggestion` vía SignalR. El frontend
-(PositionBuilder) pasa de ser el loop a ser el tablero de diagnóstico del loop.
-
----
-
-## 3. El trigger — dos condiciones ortogonales en AND
-
-```
-TRIGGER  ⟺  alpha_gate  AND  edge_gate      (escalonado: arma → dispara)
-```
-
-### 3.1 alpha_gate — ¿de dónde sale la plata? (nivel entorno, Tier A)
-
-```
-VRP = IV30 / RV30  ≥  vrp_min(régimen)
-```
-
-La prima económicamente cara: implícita por encima de realizada. Sin esto, se vende seguro
-subvaluado por más linda que sea la estructura.
-
-- **RV30 trailing NO es la fuente de alfa** — es el estimador observable (laggeado) de la RV
-  futura, bajo supuesto de persistencia. Es sistemáticamente ciego en las transiciones
-  calma→tormenta (falso positivo que liquida). Ese punto ciego lo cubren los gates
-  independientes del entorno (iv_momentum, tail_score, GEX) — por eso el VRP nunca es
-  load-bearing solo.
-- Upgrade reservado (si BT-2 lo pide): RV forward (EWMA/GARCH) o estimador range-based
-  (Yang-Zhang). Afinar el estimador, no agregar gates.
-
-### 3.2 edge_gate — ¿el spread captura bien esa prima? (nivel spread, Tier B)
-
-```
-edge = (crédito / ancho) / p_pérdida        con p_pérdida = POP_empírica(lado, |delta_short|)
-edge > 1  ⟺  EV > 0        (identidad: EV = crédito − p_pérdida·ancho)
-disparo:  edge ≥ min_edge(régimen)
-```
-
-**POP empírico (decisión 2026-07-08, BT-1/BT-3):** `1 − |delta|` quedó refutado como proxy de
-POP por lado — el delta sobrestima el riesgo put ~2× (factor ITM-real/delta 0,34–0,69) y
-subestima el call ~1,5× (1,27–1,59). La probabilidad de pérdida sale de la **tabla de
-calibración empírica** (por lado y bucket de delta, interpolada; SPY 2013–2025, DTE 30–50 —
-`data/derived/pop_calibration_spy.parquet`, futuro nodo `definitions.pop_calibration`).
-Con esto el edge recupera su semántica absoluta y absorbe la asimetría put/call. Caveats: es
-calibración in-sample y dependiente del drift del período — validación walk-forward pendiente;
-el colchón por régimen de `min_edge` sigue cubriendo el error residual.
-
-- **Corrección de prosa (feedback §4):** el denominador `(1−POP)×ancho` es *probabilidad de
-  pérdida × ancho*, NO "la pérdida promedio" (esa es `p·(ancho−crédito)`).
-- **El edge mide geometría, no alfa.** POP y crédito salen de la misma superficie implícita:
-  el edge compara el spread contra lo que el mercado ya priceó, nunca contra la realidad.
-  Un edge alto con IV barata es un trade lindo sin ventaja → por eso el AND con alpha_gate.
-- Se eligió AND de dos pisos (no una métrica fusionada edge×VRP) por el principio 3:
-  el producto permitiría que una dimensión compre a la otra.
-
----
-
-## 4. Métricas y roles (resolución del choque con priorityScore)
-
-| Métrica | Naturaleza | Pregunta que responde | Cuándo actúa |
-|---|---|---|---|
-| `creditRatio` (regla 1/3) | absoluta, con target ≥ 33.3% | ¿el spread paga suficiente? | **piso** — mata los pennies antes que el edge los vea |
-| `edge` | absoluta, con umbral | ¿disparo o no? ¿qué strike? | **gate + selector** dentro del símbolo |
-| `priorityScore` | relativa, ordinal | ¿cuál primero entre elegibles? | **desempate** solo si 2 símbolos cruzan edge a la vez con 1 cupo |
-
-- edge y priorityScore usan los mismos insumos (credit/width, POP) pero los combinan distinto
-  para propósitos distintos: ratio con breakeven (disparar) vs. blend ponderado sin corte
-  natural (ordenar). No compiten: actúan en momentos distintos del pipeline.
-- Con un solo símbolo operable, priorityScore queda dormido; el motor real es
-  **creditRatio (piso) + edge (selector + gate)**.
-- Composición virtuosa multi-símbolo: edge garantiza EV>0; priorityScore (POP al 60%) elige
-  el más seguro entre los rentables.
-
-**Selección de strikes dentro del símbolo:**
-
-```
-candidatos por delta objetivo (~0.20)
-           → restricción de sanidad: short_strike ≤ put_wall   (casi nunca muerde; filtra
-             configuraciones tóxicas — test de muros 2026-07-09)
-           → piso anti-pennies (credit_ratio ≥ 10% + credit_min)
-           → elegir el de MAYOR edge entre los que pasan
-           → disparar solo si edge ≥ min_edge(régimen)
-```
-
-**Capa 2 redefinida con datos (test de muros):** el anclaje a muros como método de selección
-queda retirado (créditos de centavos); el muro se conserva solo como restricción de sanidad
-(muerde <1% de los días; donde muerde, los trades promediaban −$73/−$152). El muro NO es
-protección anti-crash — las 13 pérdidas grandes históricas entraron "protegidas" y el crash
-atravesó igual; esa protección la dan el régimen y el gamma agregado.
-
-**Fricción sin doble descuento (feedback ronda 2):** el piso 1/3 se evalúa sobre el crédito
-**bruto** (es un piso estructural de calidad); la fricción se descuenta **una sola vez**, en el
-piso del edge (§6: `min_edge ≥ 1 + fricción/crédito`). Exigir 1/3 *neto* contaría el costo dos
-veces. Consecuencia deliberada del piso: los strikes del modelo quedan **más cerca del dinero
-que los muros GEX** (POP ~70–80% en vez de ~85+) — el anclaje puro a muros produce créditos de
-centavos (caso vivo 2026-07-06: crédito 8,7% del ancho, edge 0,53) que el piso 1/3 rechaza por
-diseño. "Strikes lejanos sin ejecución" no es un defecto: es el filtro funcionando.
-
----
-
-## 5. Flujo de entrada completo
-
-```
-TIER A — LENTO (entorno / armado)
- 1. data quality        quotes frescos, sin crossed market        (hard_gates)
- 2. régimen seguro      GEX+ ∧ spot>ZGL · VIX/régimen ok ·
-                        tail_score < block · iv_momentum no-crisis
- 3. alpha_gate          VRP ≥ vrp_min(régimen)
-        └── todo pasa → ARMED   (falla → DORMANT / VETOED)
-
-TIER B — RÁPIDO (oportunidad / disparo, solo si ARMED)
- 4. strike engine       estructura por gex_skew (IC/PCS/CCS)
- 5. piso 1/3            creditRatio ≥ 33.3%
- 6. edge selector       máx edge entre los que pasan el piso
- 7. edge gate           edge ≥ min_edge(régimen)
-
-SELECCIÓN / ASIGNACIÓN
- 8. veto correlación    mismo lado en el otro índice → bloqueado (§7)
- 9. cupo                heat ≤ 7% · 1 posición por símbolo · presupuesto de riesgo
-10. priorityScore       desempate si 2 elegibles simultáneos
-11. sizing              contratos = floor(presupuesto / pérdida_máx_por_contrato)
-        └── FIRE → TradeSuggestion (estado TRIGGERED)
-```
-
-**Lectura:** el entorno decide *si se puede*, el alfa decide *si vale la pena*, el edge decide
-*cuál y cuándo*, la asignación decide *cuánto y sin duplicar*.
-
----
-
-## 6. Barras dinámicas — vrp_min / min_edge por régimen
-
-**Estructura elegida: tabla por régimen, NO fórmula continua.** El dinamismo entra por una
-sola puerta (el régimen del regime engine); una curva f(VIX,...) duplicaría el clasificador,
-sería incalibrable e inauditable. Cada nodo `behavior` del régimen carga sus dos barras.
-
-**Racional del dinamismo:** cada barra sube exactamente cuando su propia debilidad es más
-peligrosa — `vrp_min` compensa la desconfianza en el estimador RV trailing; `min_edge`
-compensa que el delta subestima la probabilidad real de pérdida en regímenes tensos.
-
-**Invariantes (la calibración de BT-2/BT-3 debe respetarlos):**
-- **Monotonía:** barras no-decrecientes con el peligro del régimen.
-- **Piso duro:** `min_edge ≥ 1 + fricción/crédito` en todo régimen.
-- **Sin compensación cruzada** entre barras.
-
-**Valores calibrados con datos (BT-2/BT-3, 2026-07-08 — edge en escala POP-empírico; in-sample,
-pendiente walk-forward):**
-
-| Régimen | `vrp_min` | `min_edge` (emp) | Base empírica |
-|---|---|---|---|
-| low_vol (VIX<15) | 1.20 | **1.10** | prima fina, cola presente en toda barra; espejismo de denominador confirmado |
-| normal (VIX 15–25) | 1.20 | **1.05** | p5 positivo desde 1.0; ~14 señales/año, avg $53 |
-| elevated (VIX 25–30 sin stress) | 1.20 | **1.10** | sweet spot (98,9% win) pero n=11 → prudencia |
-| caution / dislocation | 1.30 | 1.20 | sin datos suficientes — provisorio conservador |
-| crisis / engine_out | — (bloqueado) | — | los flags rápidos vetan (BT-0) |
-
-Gate completo medido (operable ∧ VRP≥1.2 ∧ edge_emp≥1.05): **23 señales-día/año, win 97,4%,
-p5 +$48** — el complemento rechazado rinde 3× menos. `vrp_min = 1.2` validado directamente
-(avg $25,50 vs $9,55 en lo rechazado). Piso de calidad: el 33,3% queda retirado para spreads
-de un lado (inalcanzable a delta ≤0.25 — 0% de días en 13 años); guardia anti-pennies:
-`credit_ratio ≥ 10%` + `credit_min` $0,30.
-
-**Piso de fricción — CALCULADO (2026-07-06, datos reales; detalle en doc de backtesting §7):**
-fricción ≈ $6.30–9.30 por contrato (PCS 2 legs, round trip, cierre 50%). Para trades que
-cumplen la regla 1/3: **piso ≈ 1.02–1.06** según ancho → la tabla placeholder sobrevive con
-margen. El piso se expresa como función del crédito (`1 + fricción$/crédito$`), no constante.
-
-**Cooldown:** histéresis local sobre el edge — dispara al cruzar `min_edge`; no re-arma hasta
-que caiga bajo `min_edge − δ` y vuelva a cruzar. Anclado a prima, no a timer. δ pendiente (BT-8).
-
-**Transiciones e histéresis del régimen (formalización — feedback ronda 2):**
-
-- Las **variables** del clasificador ya están enumeradas en v2.1.5 (`price_of_volatility`,
-  `tail_risk`, `fragility_structure` + `tail_risk_score`); lo que se formaliza acá es la dinámica.
-- **Histéresis asimétrica — "salir rápido, volver lento":** toda degradación de régimen (hacia
-  más restrictivo) aplica en la **primera** recalculación; toda mejora (hacia más permisivo)
-  requiere **N recalculaciones consecutivas** confirmándola (placeholder N=3 — extiende el patrón
-  `confirm_consecutive_recalculations` que v2.1.5 ya usa para el override de cola). Las barras
-  `vrp_min`/`min_edge` heredan esta estabilidad: no parpadean con el régimen.
-- **La apuesta de diseño, explícita:** el sistema descarga los puntos ciegos de VRP-trailing
-  (miente en calma→tormenta) y de delta-POP (subestima con colas gordas) en la **detección
-  temprana del régimen** — ambos fallan en el mismo momento, y el régimen debe sacarte antes.
-  Esa apuesta se valida con **BT-0 (latencia de detección)**: si el lead time no es positivo en
-  los episodios históricos, se endurecen los inputs rápidos (iv_momentum, vix_term_structure)
-  antes de construir. El upgrade del estimador de RV (HAR-RV, extensión de BT-2) es *mitigación*
-  de este problema, no sustituto del regime engine.
-
----
-
-## 7. Allocation policy (cerrada 2026-07-06)
-
-### 7.1 Cuánto — riesgo por trade (base: Net Liq mínimo inicial $10k)
-
-La estructura del mercado impone la unidad mínima de riesgo: ancho $5 (realista mínimo
-disponible lejos del ATM) con crédito 1/3 = max loss $333 = 3.3% de $10k. Reglas por debajo
-de eso son inoperables por aritmética, no por apetito.
-
-| Banda | Riesgo/trade | Comportamiento |
+| Gate | Sobreviven/año | Qué mide |
 |---|---|---|
-| **Estándar** | ≤ 5% (target 3.5%) | sugerencia normal — cubre ancho $5 crédito 1/3 |
-| **Alto riesgo** | 5–8% | flag `high_risk`: solo régimen optimal/normal, única posición del libro, **aprobación manual explícita siempre** — cubre ancho $10 (6.7%) |
-| **Nunca** | > 8% | no se sugiere bajo ninguna circunstancia |
+| **macro_regime** | 146 | VIX<30, term structure normal, IV Rank 25–65, IV momentum ≤12% |
+| **tail_score** | 121 | VVIX + skew25 RoC — veto de cola *(load-bearing: sin él 2018 quiebra)* |
+| **gamma_support** (GEX≥0) | 84 | seguro de cola; flag configurable, solo SPY |
+| **volatility_risk_premium** (≥1.2) | 23 | el más restrictivo — ¿vender prima paga *ahora*? |
+| **muro + crédito + edge** | 14 | strikes sanos que paguen más que el riesgo real |
 
-- **Todo en % del Net Liq corriente** (no dólares fijos): el crecimiento de cuenta desbloquea
-  anchos automáticamente; la caída los restringe sola.
-- Sanity: 3.5–5% ≈ 1/10 de Kelly (POP 80%, payoff 1/3) — conservador si el POP es honesto (BT-1).
-  Peor racha de 5 pérdidas máximas ≈ 16% drawdown en banda estándar.
-- `size_factor` por régimen solo reduce la banda, nunca la amplía.
-- **Heat total del libro ≤ 7%** (dos estándar, o una high_risk sola).
-- Nota XSP: la premisa del feedback ("XSP ~1/10 del notional de SPY") es **incorrecta** —
-  XSP = SPX/10 ≈ mismo nivel que SPY. XSP no aporta granularidad; aporta settlement en
-  efectivo / sin asignación / tratamiento 1256. Decisión de incluirlo: opcional, no bloqueante.
+Detalle y racional de cada gate: ver `galecore-rules-reference.md` §`signal_gates`.
 
-### 7.2 Cuántas — una posición por símbolo, mutable
+## 4. Motor de strikes y gestión
 
-> **Máximo 1 posición por símbolo por vencimiento** (con DTE 35–45 colapsa a 1 por símbolo).
-> La posición puede **mutar de estructura** (PCS→IC, CCS→IC) como acción de gestión —
-> completar el lado opuesto suma crédito y REDUCE max loss sin buying power adicional.
-> Jamás apilar el mismo lado (misma apuesta con strikes promediados: doble fricción,
-> correlación 1.0, evasión de la contabilidad de riesgo). Confirma la regla existente
-> "≤1 posición por ticker" y le da el porqué.
+- **Delta short put ∈ [0.25, 0.30]** (meseta robusta, BT-12). **Ancho $5** (a riesgo constante domina
+  al $10; ensanchar es apalancamiento, no alpha).
+- **Gestión B:** cierre al **50% del crédito** — rota capital ~2× más rápido y arregla la cola.
+- **Cartera V2:** hasta **2 posiciones escalonadas** (vencimientos distintos) = +170% P&L vs 1 posición.
 
-Nuevo disparo sobre símbolo con posición abierta solo puede proponer: (a) completar lado
-opuesto → IC, o (b) roll/reemplazo. Nunca entrada adicional.
+## 5. Escala del negocio (realidad de capital)
 
-### 7.3 Correlación SPY/QQQ — veto duro al mismo lado
+Config C ≈ **6,4% anual sobre $10k** (3,4% estrategia + ~3% cash en T-bills). El objetivo de
+**$100–200/mes ≈ ~$32k** de capital al blended de hoy. **El sistema escala con capital, no con más
+gates** — bajar barras es la palanca más cargada de cola.
 
-> Con posición abierta en un índice, el otro solo puede entrar por el **lado opuesto**
-> (SPY PCS + QQQ CCS se compensan en crash; mismo lado se suma). IC bloquea ambos lados.
-> Cero parámetros.
+## 6. Decisiones abiertas del operador (no de research)
 
-- Se descartó el tope de heat combinado: a esta escala requeriría un parámetro inventado
-  (~5%) y es compensación dentro de un gate de seguridad (viola principio 3).
-- Regla puramente restrictiva → puede activarse en paper desde el día 1; BT-6 decide si queda.
-- **Nota (feedback ronda 2):** posiciones de lado opuesto (SPY PCS + QQQ CCS) **no son cobertura**
-  — ante un gap bajista el skew asimétrico hace que el lado testeado pierda más rápido de lo que
-  el opuesto compensa. Se sizean como **dos apuestas short-vol independientes y correlacionadas**
-  (cada una consume su presupuesto pleno de riesgo); el lado opuesto solo evita *duplicar* la
-  misma apuesta, no la neutraliza.
-
-### 7.4 Adecuación de capital — el acantilado de granularidad (feedback ronda 2)
-
-A capital chico, el sizing porcentual es nominal: todo trade estándar es exactamente **1 contrato
-de ancho $5** (max loss $333, fijo en dólares), de modo que el % por trade **sube solo cuando la
-cuenta cae** (dinámica inversa a la que el sizing porcentual promete) y los `size_factor` por
-régimen no pueden reducir nada por debajo de 1 contrato. El sistema se auto-bloquea —
-correctamente — antes de la ruina:
-
-| Net Liq | Estado del sistema |
-|---|---|
-| < $6.7k | **Lockout automático** — ninguna estructura entra en el tope de 5% |
-| $6.7k – $10k | Degradado: 1 contrato fijo, riesgo/trade deriva 3,5%→5%, `size_factor` inoperante |
-| $10k – $16.7k | Operable en banda estándar (3,3–5%), sin granularidad |
-| ≥ $16.7k | $333 ≤ 2% del NL — el sizing porcentual empieza a funcionar de verdad |
-| ≥ $33k | Ancho $10 entra en banda estándar; granularidad real (2+ contratos) |
-
-Aritmética de referencia: el lockout requiere ~33% de drawdown desde $10k (≈7–8 pérdidas máximas
-consecutivas al 3,5%) — no "dos pérdidas", como sugería el feedback; pero el punto de fondo
-(granularidad) es válido y queda declarado.
-
-**Declaración:** con Net Liq < ~$17k el sistema corre en **modo validación (paper)** de la
-lógica — coherente con la regla `enabled:false` hasta backtest, que hoy impide operar en real de
-todos modos. La operación real se habilita cuando se cumplen AMBAS: lógica validada por backtest
-Y capital en zona operable de esta tabla. (Ampliar universo NO resuelve la granularidad: XSP
-tiene el mismo notional que SPY — corrección registrada en §7.1.)
-
----
-
-## 8. Máquina de estados (por símbolo)
-
-Estados del diagrama de diseño + `IN_POSITION` (definido con §7.2):
-
-| Estado | Condición | Significado |
-|---|---|---|
-| `VETOED` | gates técnicos ok ∧ veto de cola activo | peligro activo (crisis) — nada se evalúa |
-| `DORMANT` | sin veto ∧ ¬(gamma ok ∧ prima cara) | sin peligro pero sin setup |
-| `ARMED` | entorno habilitado completo (Tier A pasa) | el edge se vigila como trigger |
-| `WAITING_CAPACITY` | ARMED ∧ estructura ok ∧ edge ≥ barra ∧ ¬cupo | trade bueno sin presupuesto/cupo |
-| `TRIGGERED` | ARMED ∧ estructura ok ∧ edge ≥ barra ∧ cupo ∧ ¬cooldown | se emite TradeSuggestion |
-| `COOLDOWN` | recién disparó | suprime re-disparo con la prima oscilando |
-| `IN_POSITION` | posición abierta en el símbolo | trigger de entrada apagado; solo gestión (completar-IC / roll) |
-
-**Refinamientos pendientes (no bloquean la definición):** confirmar partición VETOED/DORMANT
-y existencia de WAITING_CAPACITY como estados separados vs. atributos; alcance de la
-histéresis (régimen vs. por-estado); δ del cooldown (BT-8).
-
----
-
-## 9. Salidas y gestión de posiciones
-
-**La estrategia nueva ADOPTA la gestión existente sin cambios**, hasta que BT-4 diga otra cosa:
-
-- Profit target: cierre al **50% del crédito** — ✅ validado en BT-4 (win 99%, p5 positivo,
-  libera capital 2,6× más rápido que hold). **Sin salida forzada por DTE:** la regla 21-DTE de
-  Tastytrade quedó refutada para spreads OTM definidos (BT-4: cristaliza drawdowns recuperables,
-  win 97→75%) — aplica a strangles indefinidos, no a nuestra estructura.
-- `hard_defense`: delta short > 0.30 o pérdida ≥ 2× crédito → defensa/cierre.
-- `daily_kill_switch`: MTM diario −1% → freno del libro.
-- Rolls: solo spread OTM, por crédito neto, nueva expiración ≥ 21 DTE. ITM se cierra, no se rolla.
-- Riesgo ex-div SPY: sin CCS ≤ 3 días del ex-dividend (block), warn ≤ 7.
-- Gestión de estructura: completar lado untested → IC (§7.2).
-
-El feedback señaló correctamente que el doc de mejora omitía las salidas: **existen y quedan
-declaradas acá como parte de la definición.** Advertencia registrada: la evidencia Tastytrade
-del 50% es más fuerte en riesgo indefinido que en spreads definidos → BT-4 lo testea, no lo asume.
-
----
-
-## 10. Mapeo al JSON v2.1.5 (nombres fijados; nodos nuevos `enabled:false`)
-
-| Concepto | Nodo | Origen |
-|---|---|---|
-| alpha_gate | activar y promover el `iv_vs_rv` **que ya existe deshabilitado** en regime_engine.checks | reconciliado, no inventado |
-| barras dinámicas | `behavior.{vrp_min, min_edge}` por régimen | nodo nuevo |
-| definición del edge | `definitions.edge` (fórmula con POP empírico + refs) | nodo nuevo |
-| calibración POP | `definitions.pop_calibration` (tabla por lado × bucket de delta, interpolada; reemplaza `pop_proxy` en el edge) | nodo nuevo |
-| umbral GEX | `definitions.gex_threshold_by_symbol`: 25B → **0** (recalibrado BT-5: el 25B era inalcanzable bajo la fórmula del propio JSON; señal `GEX ≥ 0` validada 15/15 episodios) | recalibración |
-| fricción | `execution.friction` — **extiende** el modelo de slippage existente (comisiones + gestión) | extensión |
-| anti-correlación | `risk_limits.correlation_veto` (veto duro mismo lado) | nodo nuevo |
-| bandas de riesgo | `risk_limits.risk_bands` (estándar/high_risk/never + heat 7%) | nodo nuevo |
-| 1 posición por símbolo | regla existente confirmada (concentración por subyacente) | existente |
-| cooldown | `position_builder.cooldown` (histéresis sobre edge, δ) | nodo nuevo |
-| estados | capa de orquestación **encima** de las capas — cada estado se computa de outputs existentes + cooldown | presentación |
-| ranking | `position_builder.ranking` (priorityScore) **queda como está** — rol de desempate | existente |
-
----
-
-## 11. Restricciones operativas duras
-
-- Solo SPY y QQQ (XSP/otros requieren aprobación explícita).
-- Solo estructuras de crédito con riesgo definido: IC / PCS / CCS.
-- Prohibido: naked shorts, ratio spreads, long direccional.
-- El sistema **sugiere, nunca ejecuta**. Aprobación manual siempre; banda high_risk sin excepción.
-- Nodos nuevos `enabled:false` hasta backtest.
-
----
-
-## 12. Validación empírica en vivo (2026-07-06)
-
-Un solo día de datos reales demostró que el rediseño cambia decisiones concretas:
-
-- El trade que la cascada actual dispara (PCS SPY 710/700): **edge 0.53** (mitad del breakeven
-  de EV), creditRatio 8.7% — el sistema dice OPERAR porque su gate de crédito es absoluto
-  ($0.30) y los strikes anclados a muros no cobran casi nada.
-- **VRP del día:** SPY 0.99, QQQ 0.91 — IV bajo RV, sin alfa. Ningún vrp_min armaría el sistema.
-- **El trigger nuevo rechaza por ambos gates el trade que el sistema actual sugiere.**
-- Colateral: Layer 4 aprobó max loss $913 con límite de $83 (`heatOk:true`) — bug del sizing
-  actual a revisar aparte.
-
----
-
-## 13. Lo que queda abierto (no bloquea la definición)
-
-| Pendiente | Tipo |
-|---|---|
-| Contrato `TradeSuggestion` (payload, TTL, persistencia, campo state) | frontera diseño→implementación |
-| Refinamientos de la máquina de estados (§8) | formalización menor |
-| Latencia del régimen, calibración de barras, δ cooldown, N de histéresis, validación POP, escalera de atribución | backtests BT-0…BT-8 (doc aparte) |
-| Régimen-cero: qué hace el sistema cuando vender prima no paga por meses | límite estructural **nombrado, no feature** |
-| XSP como universo opcional (cash settlement, sin asignación) | decisión opcional del operador |
-| Merge de v2.1.5 + nodos nuevos al repo | implementación (JSON-first) |
+- **gamma_support flag:** default `true` (safety-first). Apagarlo suma ~2,3 trades/año cediendo
+  protección no testeada fuera de la ventana OOS.
+- **Brecha de heat:** a $10k, 2 posiciones a $5 (~8,2% de riesgo) exceden el cap 4,5% → el sistema
+  queda en 1 posición. Para V2 real: subir el tope explícito o NL ≥ ~$12k.
+- **Umbral hard_defense** (0.30 vs 0.40–0.45): conflicto de diseño menor, a redefinir en ciclo futuro.

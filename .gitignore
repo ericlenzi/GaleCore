@@ -35,8 +35,9 @@ obj/
 .vs/
 publish/
 
-# Claude Code local artifacts
-.claude/
+# Claude Code local artifacts — se ignora todo MENOS las skills compartidas del equipo
+.claude/*
+!.claude/commands/
 
 # Backtesting datasets — se versiona research/data/ (derived/ + vvix) EXCEPTO
 # las carpetas de cadenas crudas, pesadas y re-descargables:
