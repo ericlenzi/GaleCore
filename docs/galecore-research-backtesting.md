@@ -1032,6 +1032,247 @@ SPY −$39 en esta corrida secuencial).
 5. Mismo patrón que BT-9: lo que brilla idealizado se degrada al ponerle las condiciones
    reales pre-declaradas. La disciplina volvió a pagar.
 
+### BT-15 — Cartera secuencial SPY-only de la config de referencia: ESPECIFICACIÓN PRE-DECLARADA (2026-07-14, antes de correr)
+
+**Motivación (pregunta del operador):** el veredicto de viabilidad de negocio circula con los
+números de BT-7 (5,2 trades/año, ~1,2% anual), medidos sobre la config VIEJA (era delta 0.20,
+pre-walk-forward, solo SPY). La config de referencia vigente (PCS SPY delta 0.30 + trailing +
+tail_score + GEX≥0 + gestión B) nunca se midió como **cartera secuencial con ocupación real**
+— solo a nivel señal-día. Decisión de universo del operador (2026-07-14): **QQQ queda fuera
+del trading; SPY-only.** El veto de correlación §7.3 deja de ser palanca.
+
+**Advertencias de honestidad (declaradas antes de correr):**
+- Ventana OOS 2018–2025 **agotada** (scan BT-10b + BT-10c/11/12/13/14). Todo veredicto
+  habilita a lo sumo paper. Esta corrida es la medición de negocio de la config ya validada,
+  no una validación nueva.
+- BT-14 (nota 3) midió varianza enorme de selección en carteras de 1 posición (~37 trades de
+  115 señales): los totales de UNA secuencia tienen ruido de camino. Se reporta la secuencia
+  real única (sin cherry-pick de seeds ni reintentos).
+- V2 (escalonada) con 2 posiciones típicas delta-0.30 ancho $5 implica riesgo simultáneo
+  ~$810–860 ≈ **8,1–8,6% del NL $10k — EXCEDE el heat cap 7%** de §7.1. Se corre igual para
+  medir el valor de la palanca; si paga, la consecuencia operativa es base de capital ≥ ~$12k
+  o cap explícitamente revisado — decisión de diseño, NO se relaja el cap por resultado.
+
+**Pipeline congelado:**
+- Señales H3 SPY idénticas a BT-10c(a)/BT-12 (script `bt10_mgmtB.py`): PCS delta 0.30, DTE
+  [35,50] más cercano a 45, ancho $5, crédito >$0,30, tabla trailing puts anti-lookahead,
+  barras 1,05/1,10/1,20, VRP≥1.2, short ≤ put_wall, tail_score (VVIX 110/130 + skew25 RoC5d
+  5%/8%, huecos ≤2d), GEX≥0. Fricción $6,30. 1 contrato por posición, base $10k.
+- Cartera secuencial EOD: exits se procesan antes que entries (capacidad liberada el mismo
+  día es reutilizable). Entrada al cierre del día de señal. Gestión B path-level: cierre al
+  primer día con valor del spread ≤ 50% del crédito, si no, settlement a vencimiento.
+- **V1 — baseline:** máx 1 posición.
+- **V2 — escalonada:** máx 2 posiciones simultáneas, la 2ª solo con vencimiento distinto al
+  de la abierta.
+- **Cash ocioso a T-bill 3m** (serie mensual real 2018–2025, `research/data/tbill_3m_monthly.csv`):
+  devengo diario sobre `NL realizado − $500 × posiciones abiertas`. Se reporta por separado
+  (estrategia pura vs estrategia + cash) — el T-bill no entra en los criterios.
+- **Métricas:** trades/año tras compresión (sucesor del 5,2), win%, avg$, total y por año,
+  peor año, peor racha, maxDD sobre equity MTM diaria, espera entre entradas
+  (mediana/p90/máx — sucesor del 803), % días en posición, días con 2 posiciones y peor día
+  MTM conjunto (V2), retorno % anual sobre $10k con y sin T-bill.
+- **Criterios (inamovibles):**
+  - **C1 (V1):** win ≥ 90% ∧ ningún año calendario < −$700.
+  - **C2 (V2 paga):** V2 aumenta trades/año Y total neto vs V1.
+  - **C3 (V2 no concentra la cola):** peor año y maxDD de V2 no empeoran los de V1 en más
+    de $450 (≈1 max loss). Si falla → se queda 1 posición y V2 muere acá.
+- **Una corrida por variante, sin retoques post-resultado.**
+
+**⚙ RESULTADO BT-15 (2026-07-14, corrido una vez): C1+C2+C3 PASAN — la palanca escalonada
+paga; la escala del negocio a $10k queda medida y es chica.** Script: `bt15_portfolio.py`.
+
+| | trades/año | win% | avg$ | total 8a | peor año | maxDD MTM | espera med/p90/máx | % anual s/$10k (estrategia) | + T-bill |
+|---|---|---|---|---|---|---|---|---|---|
+| **V1 (1 pos)** | 4,9 | 92,3 | 14,7 | $572 | −$699 (2018) | −$814 (−8,1%) | 34/223/272 d | 0,72% | **3,32%** |
+| **V2 (2 pos)** | 7,4 | 94,9 | 26,0 | $1.535 | −$593 (2018) | −$827 (−8,3%) | 16/155/272 d | 1,93% | **4,67%** |
+
+1. **C1 PASA (justo):** 2018 V1 = −$699 contra el límite −$700. C2 PASA: V2 sube trades/año
+   (4,9→7,4) y total (2,7×). **C3 PASA y sorprende:** V2 MEJORA el peor año (−$699→−$593) y
+   el win% — la 2ª posición entra en clusters buenos y diluye; el peor día MTM con 2 abiertas
+   fue −$401 (2018-02-05), un solo max-loss-equivalente, no el doble golpe temido.
+2. **La varianza de selección de BT-14 (nota 3), confirmada y cuantificada:** V1 toma 39 de
+   115 señales y su avg cae a $14,7 vs $35,5 del nivel señal-día — la cartera de 1 posición
+   entra al primer disparo de cada cluster (el peor: recién armado el entorno) y deja pasar
+   los mejores. V2 recupera parte ($26,0). El P&L de cartera NO se extrapola multiplicando
+   señales × avg señal-día.
+3. **Corrección del número de negocio circulante:** el "5,2 trades/año / 1,2% anual" de BT-7
+   (config vieja) pasa a **7,4 trades/año / ~1,9% anual de estrategia + ~2,7% del cash a
+   T-bill = ~4,7% total** con V2, $10k, 1 contrato. El sucesor del 803: espera máxima 272
+   días, p90 155 — el régimen-cero se acortó pero sigue siendo estructural (2022: un solo
+   trade, perdedor).
+4. **🔴 Hallazgo de riesgo (nuevo, a resolver en diseño):** maxDD de equity MTM = −8,1/−8,3%
+   del NL $10k en ambas variantes — **excede el tope de 5% de la definición**. BT-7 reportó
+   4,5% con la config vieja; el delta 0.30 con crédito mayor tiene max loss ~$410/trade y
+   2018 encadena MTM adverso. A 1 contrato no hay dial de sizing que lo baje: es otro
+   argumento de base de capital ≥ ~$16k, no de config.
+5. **Decisión que abre (no se toma acá):** adoptar V2 exige NL ≥ ~$12k por heat cap 7%
+   (riesgo simultáneo medido ~$820) o revisión explícita del cap. Con la advertencia de
+   ventana agotada: habilita a lo sumo paper.
+
+### BT-16 — Denominador del VRP: RV30 trailing → pronóstico HAR-RV: ESPECIFICACIÓN PRE-DECLARADA (2026-07-14, antes de correr)
+
+**Motivación:** es la extensión opcional de BT-2 (línea "Comparar RV30 trailing vs. HAR-RV…"),
+nunca corrida. El gate VRP es el asesino del embudo (mata ~62 días/año de los 84 que llegan
+vivos) y sus dos modos de falla están MEDIDOS: (a) lag post-shock — bloquea los días de
+"resaca" que BT-10b midió como los mejores del sistema (100% win, avg $51, cero cluster
+2018/2020); (b) espejismo de denominador en calma (VRP >1,55 = peor cuartil). Hipótesis con
+pagador económico: `VRP = IV / RV_esperada_futura` responde la pregunta correcta ("¿el seguro
+está caro respecto de lo que VIENE?"); el trailing responde por lo que YA pasó.
+
+**Advertencias de honestidad:**
+- Ventana OOS agotada (enésima reutilización) → habilita a lo sumo paper.
+- Riesgo simétrico declarado: HAR también aprende del pasado — en transiciones puede
+  sub-pronosticar y abrir días que el trailing (paranoico) cerraba. Mitigantes: fit desde
+  2001 (incluye dot-com y 2008, no solo calma), y las capas régimen/tail/GEX siguen cerrando
+  transiciones violentas. Si 2018/2020 se ensucian, C1/C3 lo capturan y se archiva.
+- Expectativa pre-registrada del operador de research: ~55% pasa y sube a ~10–12 trades/año
+  de cartera; ~25% neutro; ~20% falla por lag en transición.
+
+**Pipeline congelado:**
+- **Denominador nuevo:** pronóstico HAR del MISMO objeto que mide `rv30` (std de retornos
+  log c2c de los próximos 30 días hábiles, anualizada ×√252, en %). Numerador `atm_iv`
+  intacto (cache bt3). Verificado: `vrp_cache = atm_iv×100/rv30` exacto y `rv30` = rolling
+  30d hábiles (corr 1,000).
+- **HAR (Corsi 2009, log-log, 4 coeficientes):** `log(RV_fwd30) ~ log(pk_d) + log(pk_w) +
+  log(pk_m)` donde pk = vol Parkinson diaria (`ln(H/L)²/(4·ln2)`, OHLC del parquet),
+  promediada en varianza a 1/5/22 días. Predicción con corrección smearing
+  (`exp(pred + s²/2)`).
+- **Anti-lookahead:** ventana expansiva desde 2001, refit anual; para operar el año Y el fit
+  usa solo observaciones cuyo target (30 días hábiles adelante) se completó antes del
+  1-ene-Y.
+- **Gate:** `vrp_har = atm_iv×100 / har_fcst ≥ 1.2` — umbral CONGELADO (un solo cambio por
+  vez; si la distribución del VRP nuevo queda desplazada, se reporta, no se re-tunea).
+  TODO lo demás idéntico a BT-15 (señales H3, gestión B, cartera V2).
+- **Criterios (inamovibles):**
+  - **C1 (seguridad, señal-día bajo B):** win ≥ 90% ∧ ningún año < −$700.
+  - **C2 (la tesis):** señales/año > 14,4 (el HAR debe SUBIR ocurrencia, no solo reclasificar).
+  - **C3 (cartera V2):** total ≥ BT-15 V2 ($1.535) ∧ peor año y maxDD no empeoran > $450.
+  - **C4 (calidad del desbloqueo):** las señales NUEVAS (abre HAR ∧ cerraba trailing) tienen
+    win B ≥ 90% ∧ avg > 0 — el test directo de la premisa de la resaca.
+- **Diagnósticos a reportar:** P&L contrafactual de los días que HAR cierra y trailing abría
+  (esperado: peores); distribución vrp_har vs vrp_trailing; R² OOS del HAR por año.
+- **Una corrida, sin retoques post-resultado.**
+
+**⚙ RESULTADO BT-16 (2026-07-14, corrido una vez): VEREDICTO REPROBADO — el escenario de
+falla pre-registrado (~20%: lag de HAR en transiciones) es el que ocurrió.** Script:
+`bt16_har_vrp.py`.
+
+| Criterio | Resultado |
+|---|---|
+| C1 (señal-día B: win≥90% ∧ ningún año <−$700) | ❌ **2022 = −$1.077** (win 95,9% pasa) |
+| C2 (ocurrencia >14,4/año) | ✅ 15,4/año (marginal) |
+| C3 (cartera V2 ≥ $1.535, cola ≤ +$450) | ❌ total $1.460; peor año −$701 (2022) |
+| C4 (señales nuevas win≥90% ∧ avg>0) | ✅ 97,1% / $36,6 — pero con 2022 −$692 adentro |
+
+1. **El mecanismo de la falla, medido:** en 2022 (bear grind) el RV30 trailing quedaba alto
+   y bloqueaba el año casi entero (1 señal — correcto); el pronóstico HAR decae más rápido
+   → VRP_har ≥1.2 reabrió días del oso → las señales nuevas de 2022 perdieron −$692 y el
+   año señal-día quedó en −$1.077. La paranoia del trailing en transiciones ERA la feature,
+   no el bug.
+2. **El doble filo, también del otro lado:** los 60 días que HAR cerró y trailing abría eran
+   BUENOS (win 98,3%, avg $40,2 contrafactual) — HAR no solo abrió días malos, cerró buenos.
+   El neto reclasificó ~mitad de las señales (55 comunes / 68 nuevas / 60 perdidas) sin
+   mejorar nada: mismo total (~$4.1k) con peor cola.
+3. **El modelo en sí era débil OOS:** R² (log) negativo en 7 de 8 años. Sin RV intradía
+   (5-min), el HAR sobre Parkinson diario de SPY no pronostica mejor que la media — la
+   versión "pro" del estimador necesita datos que no tenemos. Limitación registrada; NO es
+   invitación a iterar variantes hasta que pase.
+4. **La premisa de la resaca sigue viva pero no así:** C4 técnicamente pasa (las nuevas
+   ganan 97% de las veces) — el problema es QUÉ años abre. Un desbloqueo de resaca que no
+   sepa distinguir "post-shock en recuperación" de "bear en curso" importa la cola de 2022.
+   Si se retoma, la hipótesis debería condicionar por régimen/tendencia, como ciclo nuevo.
+5. **Consecuencia (conforme al compromiso):** el gate VRP queda con RV30 trailing. La config
+   de referencia sigue: PCS SPY delta 0.30 + trailing + tail_score + GEX≥0 + gestión B, con
+   BT-15 V2 (2 posiciones escalonadas) como candidata de cartera. Costo del test: un script
+   y una corrida; el diagnóstico salvó de desplegar un gate peor.
+
+### BT-17 — Descomposición de clavijas de ocurrencia/renta: ESPECIFICACIÓN PRE-DECLARADA (2026-07-14, antes de correr)
+
+**Motivación (decisión de negocio explícita del operador):** el operador declara que su
+objetivo cambió — quiere **más ocurrencia y más renta absoluta cediendo algo de POP**,
+manteniendo régimen y tail intactos. Esto NO es un hallazgo de datos que justifique migrar
+parámetros; es un cambio de función objetivo del producto, y se declara como tal. BT-12 dejó
+el delta congelado en 0.30 por disciplina anti-data-mining; acá se re-abre SOLO porque el
+objetivo de negocio cambió, no porque una tabla se vea mejor.
+
+**Las clavijas (se testean aisladas y combinadas, para ver qué compra cada una):**
+- **P1 — quitar el gate GEX≥0** (BT-6 lo dejó como "primera candidata a podar"; evitó 1
+  pérdida en 13 años a costa de la mitad de las señales; nunca testeado con delta 0.30 + B).
+- **P2 — delta objetivo 0.30 → 0.25** (BT-12 midió a 0.25: 17,6 señ/año, win B 97,9%, peor
+  año −$91 — meseta robusta, no pico).
+- **P3 — ancho $5 → $10** (BT-13c: ~2× crédito/trade, ~2× max loss; palanca de monto, no de
+  frecuencia).
+
+**Variantes (todas OOS 2018–2025, gestión B, cartera V2 = 2 posiciones escalonadas):**
+- A = baseline BT-15 V2 (delta 0.30, ancho $5, con GEX)
+- B = A sin GEX (P1)
+- C = B + delta 0.25 (P1+P2)
+- D = C + ancho $10 (P1+P2+P3) — la config candidata del objetivo nuevo
+
+**Advertencias de honestidad:**
+- Ventana OOS agotada (enésima). Habilita a lo sumo paper.
+- P2 se re-abre por cambio de objetivo declarado, NO por rendimiento observado — el número
+  0.25 se fija ANTES de ver esta corrida (viene de la meseta BT-12), no se elige el mejor de
+  una grilla nueva. Sin grilla nueva de delta.
+- **Riesgo por trade cambia con la clavija:** ancho $10 → max loss ~$935 (vs ~$460 a $5).
+  Los criterios de cola se evalúan **normalizados por riesgo** además de en dólares brutos,
+  para no confundir "más P&L" con "más apalancamiento".
+- Heat: ancho $10 × 2 posiciones = ~$1.870 de riesgo simultáneo = 18,7% del NL $10k — MUY por
+  encima del cap 7%. La variante D es medición, no config desplegable a $10k; su consecuencia
+  operativa (si paga) es capital ≥ ~$27k o ancho $5 con más contratos. Declarado antes de correr.
+
+**Criterios (inamovibles):**
+- **C1 (seguridad preservada):** cada variante mantiene win B ≥ 90% Y ningún año < −1,5 max
+  loss de esa variante (−$700 a ancho $5; −$1.400 a ancho $10).
+- **C2 (la clavija paga ocurrencia):** trades/año de cartera V2 sube monótono A→B→C.
+- **C3 (renta absoluta):** total 8a de la variante candidata (D) supera a A; se reporta también
+  retorno normalizado por riesgo (total / max-loss-por-trade) para separar renta de apalancamiento.
+- **Diagnóstico obligatorio:** cuánto de la ganancia de D es alpha genuino (más señales de
+  calidad) vs apalancamiento (mismo trade, más tamaño) — vía la métrica normalizada.
+- **Una corrida, sin retoques.**
+
+**⚙ RESULTADO BT-17 (2026-07-14, corrido una vez): C1+C2+C3 PASAN. Ganador = variante C
+(sin GEX + delta 0.25, ancho $5). D queda REFUTADA como mejora (es apalancamiento, no
+alpha). Con una advertencia de ventana crítica sobre P1.** Script: `bt17_levers.py`.
+
+Cartera V2 (2 posiciones escalonadas), gestión B, OOS 2018–2025:
+
+| Variante | señ | trades/año | win% | total 8a | peor año | maxDD | total norm. a riesgo $5 | % anual + T-bill |
+|---|---|---|---|---|---|---|---|---|
+| A baseline (d0.30 $5 +GEX) | 115 | 7,4 | 94,9 | $1.535 | −$593 | −8,3% | $1.535 | 4,67% |
+| B sin GEX (d0.30 $5) | 189 | 9,9 | 94,9 | $2.008 | −$516 | −8,3% | $2.008 | 5,34% |
+| **C +delta (d0.25 $5)** | **222** | **10,6** | **97,6** | **$2.723** | **−$140** | −8,4% | **$2.723** | **6,41%** |
+| D +ancho (d0.25 $10) | 90 | 5,5 | 97,7 | $2.653 | −$283 | −13,8% | $1.326 | 6,37% |
+
+1. **C domina todo:** más trades (10,6/año), MEJOR win (97,6% vs 94,9%), MEJOR peor año
+   (−$140 vs −$593) y más renta ($2.723). No es un trade-off de POP por frecuencia — en esta
+   ventana las tres cosas mejoran juntas. Delta 0.25 aporta lo grueso (crédito más rico cerca
+   del dinero + más señales que cruzan la barra).
+2. **D es apalancamiento disfrazado de mejora:** ancho $10 da casi el mismo total que C
+   ($2.653) pero con la MITAD de trades, el DOBLE de max loss por trade y maxDD −13,8%. La
+   columna normalizada por riesgo lo desenmascara: D vale $1.326 contra $2.723 de C. **Ancho
+   $10 se rechaza** — coherente con BT-13c (a riesgo constante gana el $5).
+3. **🔴 ADVERTENCIA CRÍTICA sobre P1 (quitar GEX):** el gate GEX protegió UNA sola vez en 13
+   años — **agosto 2015** (BT-5/BT-6), que está **FUERA de la ventana OOS 2018–2025**. Que
+   quitarlo salga "gratis" acá es en parte porque esta ventana NO CONTIENE el episodio contra
+   el que GEX protege. No es evidencia de que sea inocuo — es ausencia del test. La capa
+   gamma es el seguro anti-crash-de-gamma-negativo (BT-0: los 15 episodios tenían GEX<0 en
+   D0). Quitarla sube la ocurrencia hoy y expone la cola mañana. **Decisión honesta: P1 es
+   una cesión de seguridad real, no un almuerzo gratis** — debe tomarse como tal, no como
+   hallazgo.
+4. **Delta 0.25 (P2) es la clavija limpia:** su ganancia es genuina (BT-12 ya lo validó en
+   meseta, sin re-tuning), no cede cola medida (2018 mejora), y no toca ninguna capa de
+   entorno. Es la única de las tres que se adopta sin asterisco.
+5. **La cuenta de negocio, honesta:** C = 3,43% de estrategia + ~3% T-bill = **6,4% anual
+   sobre $10k, ~$340/año de estrategia con 1 contrato**. Para el objetivo del operador
+   (~$200/mes = $2.400/año) hace falta escala: ~$32k al blended 7,4% (tasas de hoy), o ~$70k
+   si se cuenta solo la pata estrategia. Ninguna clavija de señal cierra esa brecha sola —
+   la cierra el capital.
+6. **Consecuencia:** config candidata pasa a **C = delta 0.25 + ancho $5 + gestión B +
+   cartera V2**, con GEX como decisión explícita pendiente (mantener = seguro de cola 2015;
+   quitar = +2,3 trades/año a cambio de exposición no testeada). El operador decide P1 con la
+   advertencia sobre la mesa. Ventana agotada → paper.
+
 ## 3-bis. Test de muros como restricción (2026-07-09) — Capa 2 redefinida con datos
 
 Put wall diario reconstruido 13 años × 2 símbolos (strike con máx gamma×OI de puts, DTE<90 —

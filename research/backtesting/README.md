@@ -34,6 +34,9 @@ Se persisten acá para que sesiones futuras no tengan que reconstruir la maquina
 | `explore_diagonal.py` | Diagonales y calendar put con short adelante (D1/D2/D3, un ciclo por señal) | BT-13 (d) |
 | `explore_bwb.py` | Put broken wing butterfly +5/−W (W 10/15/20) vs PCS a riesgo constante | BT-13 (e) |
 | `bt14_run.py` | Libro combinado L2-long + overlay PCS-B: variantes V1–V4, criterios C1–C5 — la corrida única del veredicto | BT-14 |
+| `bt15_portfolio.py` | Cartera secuencial SPY-only H3+B: V1 (1 pos) vs V2 (2 pos escalonadas), MTM diario, cash a T-bill 3m real (`data/tbill_3m_monthly.csv`) | BT-15 |
+| `bt16_har_vrp.py` | VRP con denominador HAR-RV (Corsi log-log, Parkinson, walk-forward desde 2001) vs RV30 trailing — REPROBADO (reabre el bear 2022) | BT-16 |
+| `bt17_levers.py` | Descomposición de clavijas: P1 quitar GEX, P2 delta 0.25, P3 ancho $10; variantes A/B/C/D, cartera V2, normalizado por riesgo — ganador C (d0.25 $5) | BT-17 |
 
 ## Reglas de uso (disciplina post-BT-9)
 
