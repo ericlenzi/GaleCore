@@ -28,11 +28,12 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   * SPY — S&P 500 ETF
   * QQQ — Nasdaq 100 ETF
 
-  Tres estructuras permitidas, todas de crédito con riesgo definido:
-  * Iron Condor — estructura por defecto, vende prima por arriba y por abajo
-  * Put Credit Spread — solo vende prima por abajo (cuando la asimetría de muros favorece ese lado)
-  * Call Credit Spread — solo vende prima por arriba (idem inverso)
+  Estructura en producción (reglas v1.4.0): **Put Credit Spread (PCS) únicamente.**
+  * Put Credit Spread — vende prima por abajo. Única estructura activa.
+  * Iron Condor / Call Credit Spread — `enabled:false`. BT-11 mostró que no dan edge honesto
+    (el delta subestima el riesgo call ~1,5×); revivirlos exige un ciclo de research nuevo.
   Observación: Prohibido terminantemente: naked shorts de cualquier tipo, ratio spreads, y cualquier posición long direccional.
+  Detalle conceptual: `docs/galecore-estrategia-definicion.md`; racional por nodo: `docs/galecore-rules-reference.md`.
 
   Operación de la estrategia: 
   La señal pasa por 4 capas de validación en cascada. Si cualquier capa falla, no se abre nada. La cascada es cortocircuitante, si la Capa 1 falla, las demás ni se evalúan.
@@ -76,6 +77,13 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   * WebSockets
   * Tastytrade API
   * dxFeed
+
+- Testing y CI
+  * `DataFeed.Tests` (xUnit, net8.0) — `RulesJsonTests.cs` congela los invariantes de la estrategia
+    v1.4.0 (PCS-only, paper_only, gates presentes) y valida que los overlays `live`/`paper` solo
+    overrideen paths que existen en el core (espejo del DeepMerge de `AppController`; un override en
+    un path inexistente es un bug silencioso). Correr: `dotnet test DataFeed.Tests/DataFeed.Tests.csproj`.
+  * CI: `.github/workflows/ci.yml` corre restore + build (Release) + test en cada push/PR a master.
 
 - Origen de datos
   El principal origen de datos actualmente es la api de Tastytrade, cuya documentación esta disponible en https://developer.tastytrade.com/
