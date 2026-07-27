@@ -8,6 +8,7 @@ import { Home } from './pages/Home';
 import { PortfolioManager } from './pages/PortfolioManager';
 import { Monitor } from './pages/Monitor';
 import { Strategy } from './pages/Strategy';
+import { StrategyLive } from './pages/StrategyLive';
 import { useMarketSocket, ConnectionStatus } from './socket/useMarketSocket';
 import { useRulesStore } from './store/useRulesStore';
 import { useAccountStore } from './store/useAccountStore';
@@ -62,6 +63,9 @@ function Dashboard({ onLogout }: DashboardProps) {
           <div style={{ display: tab === 'portfolio' ? 'block' : 'none', height: '100%', overflow: 'auto' }}><PortfolioManager subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} /></div>
           <div style={{ display: tab === 'monitor' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
             <Monitor subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} />
+          </div>
+          <div style={{ display: tab === 'estrategia-live' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
+            <StrategyLive subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} />
           </div>
           {tab === 'estrategia' && <Strategy />}
         </main>

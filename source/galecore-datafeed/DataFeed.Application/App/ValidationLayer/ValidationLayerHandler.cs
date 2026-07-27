@@ -122,11 +122,55 @@ namespace DataFeed.Application.App.ValidationLayer
                 return response;
             }
 
-            // Todas las capas pasaron
+            // === SIGNAL GATES: embudo validado por research (VRP, tail_score, edge, credit, wall) ===
+            var signalGates = EvaluateSignalGates(rules, symbol, iv, strikeEngine, microstructure, request.PopCalibrationJson);
+            response.PositionBuilder.SignalGates = signalGates;
+
+            if (!signalGates.AllPass)
+            {
+                response.PositionBuilder.Signal = "NO_OPERAR";
+                response.OverallSignal = "NO_OPERAR";
+                response.FailedAtLayer = 2; // los gates son parte del strike-engine funnel
+                return response;
+            }
+
+            // Todas las capas + gates pasaron
             response.PositionBuilder.Signal = "OPERAR";
             response.OverallSignal = macroRegime.Signal;
             response.FailedAtLayer = null;
             return response;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // SIGNAL GATES (embudo v1.4.0) — lee de rules["signal_gates"]
+        // ═══════════════════════════════════════════════════════════════════════
+
+        private static SignalGates.SignalGatesResult EvaluateSignalGates(
+            JsonObject rules, string symbol, ImpliedVolatilityResponse iv,
+            StrikeEngineResult strikeEngine, MicrostructureResult microstructure, string? popJson)
+        {
+            var pop = string.IsNullOrWhiteSpace(popJson) ? null : SignalGates.PopCalibrationTable.Parse(popJson!);
+
+            double? width = strikeEngine.ShortPutStrike.HasValue && strikeEngine.LongPutStrike.HasValue
+                ? Math.Abs(strikeEngine.ShortPutStrike.Value - strikeEngine.LongPutStrike.Value)
+                : (double?)null;
+
+            var inputs = new SignalGates.SignalGatesInputs
+            {
+                Symbol = symbol,
+                AtmIv30 = iv.IV30_30d,
+                RealizedVol30 = strikeEngine.Rv30d,
+                Vvix = null,             // pendiente de feed CBOE VVIX -> tail_score degrada a no_data
+                Skew25Roc5d = null,      // pendiente de historia de skew25 -> tail_score degrada a no_data
+                ShortPutStrike = strikeEngine.ShortPutStrike,
+                PutWall = strikeEngine.PutWall,
+                Credit = microstructure.CreditMinimum?.MidCredit,
+                SpreadWidth = width ?? 0,
+                ShortPutDeltaAbs = strikeEngine.ShortPutDelta.HasValue ? Math.Abs(strikeEngine.ShortPutDelta.Value) : null,
+                Regime = "normal",       // clasificador de régimen por declarar en el JSON (edge.bars_by_regime)
+            };
+
+            return SignalGates.SignalGatesEvaluator.Evaluate(rules["signal_gates"], inputs, pop);
         }
 
         // ═══════════════════════════════════════════════════════════════════════
@@ -275,8 +319,8 @@ namespace DataFeed.Application.App.ValidationLayer
             var (ema20, ema50, trendSignal) = ComputeTrend(candles);
             var (rv10d, rv30d, realizedVolSignal) = ComputeRealizedVol(candles);
 
-            // --- Evaluación de reglas de estructura (sequential first-match) ---
-            var (selectedStructure, ruleId, ruleName, ruleLabel) = EvaluateStructureRules(
+            // --- Resolución de estructura (PCS-only enforcement; motor multi_factor dormido) ---
+            var (selectedStructure, ruleId, ruleName, ruleLabel) = ResolveStructure(
                 structureConfig, priceZScore, gexSkew, trendSignal, neutralZ, extremeZ);
 
             // Si ninguna regla matcheó (no_trade), Layer 2 falla
@@ -310,9 +354,12 @@ namespace DataFeed.Application.App.ValidationLayer
             double? callWall = gex.CallWall;
             double? putWall = gex.PutWall;
 
-            // Delta max y spread width desde position_builder config
+            // Banda de delta objetivo (research Config C: delta 0.25) desde config.delta_target.
+            // El expected move quedó retirado de la definición (research §3-bis): la selección es por delta.
+            var deltaTarget = config?["delta_target"];
+            double putDeltaMin = deltaTarget?["put_short_min"]?.GetValue<double>() ?? 0.25;
+            double putDeltaMax = deltaTarget?["put_short_max"]?.GetValue<double>() ?? 0.30;
             var strikeChecks = layer2Node?["checks"]?.AsArray();
-            double maxPutDelta = GetCheckThresholdValue(strikeChecks, "put_strike_delta") ?? 0.30;
             double maxCallDelta = GetCheckThresholdValue(strikeChecks, "call_strike_delta") ?? 0.25;
 
             int spreadWidth = 10; // default
@@ -325,16 +372,19 @@ namespace DataFeed.Application.App.ValidationLayer
             double? longPutStrike = null, longCallStrike = null;
             bool strikesInsideWalls = false;
 
-            if (expectedMove > 0 && gex.Strikes.Count > 0)
+            if (gex.Strikes.Count > 0)
             {
-                double targetPut = spot - expectedMove;
-                double targetCall = spot + expectedMove;
-
                 if (selectedStructure == "iron_condor" || selectedStructure == "put_credit_spread")
                 {
+                    // Put dentro de la banda [put_short_min, put_short_max], el más cercano al objetivo
+                    // (put_short_min = 0.25). Fallback: el mayor |delta| bajo el techo si nada cae en banda.
                     var putCandidate = gex.Strikes
-                        .Where(s => s.Strike <= targetPut && Math.Abs(s.PutDelta) <= maxPutDelta && Math.Abs(s.PutDelta) > 0)
-                        .OrderByDescending(s => s.Strike)
+                        .Where(s => Math.Abs(s.PutDelta) >= putDeltaMin && Math.Abs(s.PutDelta) <= putDeltaMax)
+                        .OrderBy(s => Math.Abs(Math.Abs(s.PutDelta) - putDeltaMin))
+                        .FirstOrDefault()
+                        ?? gex.Strikes
+                        .Where(s => Math.Abs(s.PutDelta) > 0 && Math.Abs(s.PutDelta) <= putDeltaMax)
+                        .OrderByDescending(s => Math.Abs(s.PutDelta))
                         .FirstOrDefault();
 
                     if (putCandidate != null)
@@ -348,6 +398,7 @@ namespace DataFeed.Application.App.ValidationLayer
 
                 if (selectedStructure == "iron_condor" || selectedStructure == "call_credit_spread")
                 {
+                    double targetCall = spot + expectedMove; // rama dormida (CCS REPROBADO); se mantiene por compat.
                     var callCandidate = gex.Strikes
                         .Where(s => s.Strike >= targetCall && Math.Abs(s.CallDelta) <= maxCallDelta && Math.Abs(s.CallDelta) > 0)
                         .OrderBy(s => s.Strike)
@@ -798,6 +849,28 @@ namespace DataFeed.Application.App.ValidationLayer
             double stddev = Math.Sqrt(variance);
 
             return stddev * Math.Sqrt(252) * 100;
+        }
+
+        /// <summary>
+        /// Resuelve la estructura a operar respetando el enforcement PCS-only del JSON v1.4.0.
+        /// Si structure_selection.enabled == false, el motor multi_factor está apagado y se fuerza
+        /// forced_structure_while_disabled ("put_credit_spread"). Solo si está habilitado se corre el
+        /// motor multi_factor (EvaluateStructureRules) — hoy REPROBADO por BT-11, queda dormido.
+        /// Compartido por ValidationLayerHandler y PositionBuilderHandler.
+        /// </summary>
+        internal static (string structure, int? ruleId, string? ruleName, string? ruleLabel) ResolveStructure(
+            JsonNode? structureConfig, double priceZScore, string gexSkew, string trendSignal,
+            double neutralZ, double extremeZ)
+        {
+            bool enabled = structureConfig?["enabled"]?.GetValue<bool>() ?? true;
+            if (!enabled)
+            {
+                string forced = structureConfig?["forced_structure_while_disabled"]?.GetValue<string>()
+                    ?? "put_credit_spread";
+                return (forced, null, "forced_pcs_only", "PCS-only (motor multi_factor desactivado)");
+            }
+
+            return EvaluateStructureRules(structureConfig, priceZScore, gexSkew, trendSignal, neutralZ, extremeZ);
         }
 
         /// <summary>

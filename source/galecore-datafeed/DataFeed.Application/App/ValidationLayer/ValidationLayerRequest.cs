@@ -11,5 +11,9 @@ namespace DataFeed.Application.App.ValidationLayer
 
         [JsonIgnore]
         public string? RulesJson { get; set; }
+
+        /// <summary>Contenido de Files/pop_calibration.json (tabla POP empírica del gate edge). Inyectado por AppController.</summary>
+        [JsonIgnore]
+        public string? PopCalibrationJson { get; set; }
     }
 }

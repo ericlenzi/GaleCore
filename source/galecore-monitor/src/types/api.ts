@@ -257,6 +257,29 @@ export interface PositionBuilderResult {
   strikeEngine: StrikeEngineResult | null;
   microstructure: MicrostructureResult | null;
   riskAndSizing: RiskAndSizingResult | null;
+  /** Embudo signal_gates v1.4.0 (VRP, tail_score, edge, credit_minimum, short≤put_wall). */
+  signalGates: SignalGatesResult | null;
+}
+
+// ─── Signal Gates (embudo v1.4.0) ─────────────────────────────────────────────
+
+export interface GateResult {
+  id: string;
+  label: string;
+  enabled: boolean;
+  pass: boolean;
+  /** pass | fail | skipped | no_data */
+  status: 'pass' | 'fail' | 'skipped' | 'no_data';
+  value: number | null;
+  threshold: number | null;
+  detail: string | null;
+  onFail: string | null;
+}
+
+export interface SignalGatesResult {
+  allPass: boolean;
+  failedGate: string | null;
+  gates: GateResult[];
 }
 
 export interface LegSymbols {

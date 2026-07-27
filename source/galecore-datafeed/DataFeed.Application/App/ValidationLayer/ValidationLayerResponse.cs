@@ -96,6 +96,9 @@ namespace DataFeed.Application.App.ValidationLayer
         public StrikeEngineResult? StrikeEngine { get; set; }
         public MicrostructureResult? Microstructure { get; set; }
         public RiskAndSizingResult? RiskAndSizing { get; set; }
+
+        /// <summary>Embudo signal_gates v1.4.0 (VRP, tail_score, edge, credit_minimum, short≤put_wall). Fuente: signal_gates.</summary>
+        public SignalGates.SignalGatesResult? SignalGates { get; set; }
     }
 
     // --- Strike Engine (Layer 2) ---

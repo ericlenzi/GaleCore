@@ -1,7 +1,7 @@
 import React from 'react';
-import { LayoutDashboard, BarChart2, Activity, BookOpen, LogOut } from 'lucide-react';
+import { LayoutDashboard, BarChart2, Activity, BookOpen, Target, LogOut } from 'lucide-react';
 
-export type Tab = 'inicio' | 'portfolio' | 'monitor' | 'estrategia';
+export type Tab = 'inicio' | 'portfolio' | 'monitor' | 'estrategia' | 'estrategia-live';
 
 interface Props {
   active: Tab;
@@ -10,10 +10,11 @@ interface Props {
 }
 
 const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
-  { id: 'inicio',     label: 'Main',              Icon: LayoutDashboard },
-  { id: 'portfolio',  label: 'Portfolio Manager',  Icon: BarChart2       },
-  { id: 'monitor',    label: 'Monitor',            Icon: Activity        },
-  { id: 'estrategia', label: 'Strategy',           Icon: BookOpen        },
+  { id: 'inicio',          label: 'Main',              Icon: LayoutDashboard },
+  { id: 'portfolio',       label: 'Portfolio Manager', Icon: BarChart2       },
+  { id: 'monitor',         label: 'Monitor',           Icon: Activity        },
+  { id: 'estrategia-live', label: 'Strategy v1.4',     Icon: Target          },
+  { id: 'estrategia',      label: 'Strategy',          Icon: BookOpen        },
 ];
 
 export function TabNav({ active, onChange, onLogout }: Props) {

@@ -80,8 +80,8 @@ namespace DataFeed.Application.App.PositionBuilder
             if (candles.Count >= 6 && candles[^6].Close > 0)
                 ret5d = Math.Log(candles[^1].Close / candles[^6].Close);
 
-            // === STRUCTURE SELECTION ===
-            var (selectedStructure, ruleId, ruleName, ruleLabel) = VLH.EvaluateStructureRules(
+            // === STRUCTURE SELECTION (PCS-only enforcement; motor multi_factor dormido) ===
+            var (selectedStructure, ruleId, ruleName, ruleLabel) = VLH.ResolveStructure(
                 structureConfig, priceZScore, gexSkew, trendSignal, neutralZ, extremeZ);
 
             // === BUILD STRUCTURE INPUTS ===
@@ -182,8 +182,11 @@ namespace DataFeed.Application.App.PositionBuilder
             }
 
             // === STRIKE ENGINE (Layer 2) ===
+            // Banda de delta objetivo (Config C: 0.25) desde config.delta_target; expected move retirado.
+            var deltaTarget = config?["delta_target"];
+            double putDeltaMin = deltaTarget?["put_short_min"]?.GetValue<double>() ?? 0.25;
+            double putDeltaMax = deltaTarget?["put_short_max"]?.GetValue<double>() ?? 0.30;
             var strikeChecks = layer2Node?["checks"]?.AsArray();
-            double maxPutDelta = VLH.GetCheckThresholdValue(strikeChecks, "put_strike_delta") ?? 0.30;
             double maxCallDelta = VLH.GetCheckThresholdValue(strikeChecks, "call_strike_delta") ?? 0.25;
 
             int spreadWidth = 10;
@@ -202,19 +205,17 @@ namespace DataFeed.Application.App.PositionBuilder
             List<GammaExposureStrike> putCandidates = new();
             List<GammaExposureStrike> callCandidates = new();
 
-            if (expectedMove > 0 && gex.Strikes.Count > 0)
+            if (gex.Strikes.Count > 0)
             {
-                double targetPut = spot - expectedMove;
-                double targetCall = spot + expectedMove;
-
                 if (selectedStructure == "iron_condor" || selectedStructure == "put_credit_spread")
                 {
+                    // Puts en la banda [put_short_min, put_short_max] bajo el put wall, ordenados por
+                    // cercanía al objetivo (0.25). Top-3 candidatos para el ranking.
                     putCandidates = gex.Strikes
-                        .Where(s => s.Strike <= targetPut
-                                 && Math.Abs(s.PutDelta) <= maxPutDelta
-                                 && Math.Abs(s.PutDelta) > 0
+                        .Where(s => Math.Abs(s.PutDelta) >= putDeltaMin
+                                 && Math.Abs(s.PutDelta) <= putDeltaMax
                                  && (!gex.PutWall.HasValue || s.Strike < gex.PutWall.Value))
-                        .OrderByDescending(s => s.Strike)
+                        .OrderBy(s => Math.Abs(Math.Abs(s.PutDelta) - putDeltaMin))
                         .Take(3)
                         .ToList();
 
@@ -229,6 +230,7 @@ namespace DataFeed.Application.App.PositionBuilder
 
                 if (selectedStructure == "iron_condor" || selectedStructure == "call_credit_spread")
                 {
+                    double targetCall = spot + expectedMove; // rama dormida (CCS REPROBADO); compat.
                     callCandidates = gex.Strikes
                         .Where(s => s.Strike >= targetCall
                                  && Math.Abs(s.CallDelta) <= maxCallDelta

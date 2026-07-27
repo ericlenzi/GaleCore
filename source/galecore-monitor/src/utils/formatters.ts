@@ -89,7 +89,7 @@ export function getMarketStatus(): 'PRE-MARKET' | 'ABIERTO' | 'CERRADO' {
 }
 
 export function signalColor(signal: string): string {
-  if (signal === 'OPERAR') return '#00c896';
+  if (signal === 'OPERAR' || signal === 'OPERAR_PCS') return '#00c896';
   if (signal === 'ESPERAR') return '#f59e0b';
   return '#ef4444';
 }

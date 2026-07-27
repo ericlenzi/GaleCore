@@ -8,6 +8,7 @@ using DataFeed.Application.App.ImpliedVolatility;
 using DataFeed.Application.App.IVRank;
 using DataFeed.Application.App.ValidationLayer;
 using DataFeed.Application.App.PositionBuilder;
+using DataFeed.Application.App.PutSkew;
 
 namespace DataFeed.Controllers
 {
@@ -37,6 +38,10 @@ namespace DataFeed.Controllers
         [HttpGet("/App.Analytics/ImpliedVolatility")]
         public async Task<IActionResult> ImpliedVolatilityAsync([FromQuery] ImpliedVolatilityRequest request) => await Handle(request);
 
+        [Tags("App.Analytics")]
+        [HttpGet("/App.Analytics/PutSkew")]
+        public async Task<IActionResult> PutSkewAsync([FromQuery] PutSkewRequest request) => await Handle(request);
+
         #endregion
 
         #region GaleCore
@@ -61,6 +66,7 @@ namespace DataFeed.Controllers
         public async Task<IActionResult> ValidationLayerAsync([FromQuery] ValidationLayerRequest request)
         {
             request.RulesJson = await LoadMergedRulesJsonAsync(request.Profile);
+            request.PopCalibrationJson = await LoadFileOrNullAsync("pop_calibration.json");
             return await Handle(request);
         }
 
@@ -73,6 +79,12 @@ namespace DataFeed.Controllers
         }
 
         #endregion
+
+        private async Task<string?> LoadFileOrNullAsync(string fileName)
+        {
+            var path = Path.Combine(_env.ContentRootPath, "Files", fileName);
+            return System.IO.File.Exists(path) ? await System.IO.File.ReadAllTextAsync(path) : null;
+        }
 
         private async Task<string> LoadMergedRulesJsonAsync(string profile)
         {
