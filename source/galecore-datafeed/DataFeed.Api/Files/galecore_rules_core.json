@@ -272,10 +272,11 @@
     "gex_threshold_by_symbol": {
       "type": "lookup_by_symbol",
       "values": {
-        "SPY": 50,
-        "QQQ": 50
+        "SPY": 0,
+        "QQQ": 0
       },
-      "unit": "billions_usd"
+      "unit": "billions_usd",
+      "_note": "Recalibrado 50B -> 0 (2026-07-27). El macro gex_total ahora exige GEX >= 0 (gamma positivo), la senal operativa que uso el backtesting (BT-5). El piso de 50B quedaba mas estricto que lo backtesteado y volvia inerte al gate signal_gates.gamma_support. Operador '>=' en el handler => GEX >= 0."
     },
     "gamma_zero_level": {
       "type": "marketdata",
@@ -1088,14 +1089,15 @@
         "on_fail": "no_trade"
       },
       "gamma_support": {
-        "enabled": true,
+        "enabled": false,
         "configurable": true,
         "formula": "sum(open_interest * gamma * 100 * spot^2 * 0.01) para DTE<90",
         "min": 0,
         "applies_to": [
           "SPY"
         ],
-        "on_fail": "no_trade"
+        "on_fail": "no_trade",
+        "_note": "Apagado (2026-07-27) por decision del operador. El requisito GEX >= 0 quedo movido al macro gex_total (definitions.gex_threshold_by_symbol = 0), que es un check activo hoy en el handler y aplica a SPY y QQQ. Mantener este gate ademas seria redundante. Cede la proteccion de gamma negativa no testeada fuera de la ventana OOS (BT-17 P1: +2,3 trades/ano)."
       },
       "short_below_put_wall": {
         "enabled": true,

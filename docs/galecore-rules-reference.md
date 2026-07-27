@@ -56,15 +56,20 @@ Cortocircuitantes, se evalúan tras `macro_regime`. El embudo medido (SPY, 206 d
   none/warn/block = 0/1/2; suma ≥2 → engine_out. Suavizado de rachas (huecos ≤2d). Score de
   mercado (SPY), aplica a todo el universo.
 
-### `gamma_support` (GEX ≥ 0) — **FLAG configurable**
-- `enabled: true` (default): mantiene el veto de gamma negativa. Los 15 episodios de estrés de
-  BT-0 tenían GEX<0 en D0. **Su única activación medida (ago-2015) está FUERA de la ventana OOS
+### `gamma_support` (GEX ≥ 0) — **APAGADO (2026-07-27), rol movido al macro**
+- **Decisión del operador (2026-07-27):** `enabled: false`, y el requisito GEX ≥ 0 se movió al check
+  macro `gex_total` bajando `gex_threshold_by_symbol` de 50B → **0** (SPY y QQQ). Motivo: con el piso
+  macro en 50B, este gate ≥0 era **inerte** (50B > 0 nunca deja pasar GEX negativo), y el 50B era más
+  estricto que lo backtesteado. Ahora el veto de gamma negativa lo hace el macro, activo en el handler.
+- Contexto histórico: `enabled: true` mantenía el veto de gamma negativa. Los 15 episodios de estrés
+  de BT-0 tenían GEX<0 en D0. **Su única activación medida (ago-2015) está FUERA de la ventana OOS
   2018–2025** — por eso quitarlo sale "gratis" en el backtest: la ventana no contiene el evento
-  contra el que protege.
-- `enabled: false`: +2,3 trades/año (7,4→9,9 en cartera V2), cediendo esa protección **no
-  testeada**. Es una cesión de seguridad real (BT-17 P1), no un almuerzo gratis. Decisión del
-  operador; default `true` por mandato safety-first.
-- Aplica solo a SPY.
+  contra el que protege. `enabled: false` daba +2,3 trades/año (7,4→9,9 en cartera V2, BT-17 P1).
+- **Advertencia:** apagar el gate ≥0 dedicado + mover el veto al macro es una **cesión de seguridad
+  real** (gamma negativa no testeada), no un almuerzo gratis. El macro sigue vetando GEX<0, pero se
+  perdió el margen del piso de 50B.
+- Nota de implementación: hoy el handler **no evalúa `signal_gates`** (Fase 2b pendiente), así que este
+  flag es declarativo hasta que se cablee; el único cambio con efecto runtime es el umbral macro (→0).
 
 ### `edge` (≥ barra por régimen)
 - `(crédito/ancho) / p_pérdida_trailing`. `p_loss` de la tabla POP empírica de puts, calibración
@@ -118,10 +123,12 @@ Cortocircuitantes, se evalúan tras `macro_regime`. El embudo medido (SPY, 206 d
 
 ## Régimen macro (`macro_regime`)
 
-Sin cambios de v1.3.1. Nota histórica: el umbral `gex_threshold_by_symbol` (50B) proviene del
-diseño original; el research (BT-5) recalibró la señal gamma operativa a `GEX ≥ 0`
-(`signal_gates.gamma_support`), que es la que gobierna la entrada. El check macro `gex_total`
-queda como piso de régimen.
+`gex_threshold_by_symbol` **recalibrado 50B → 0 (2026-07-27)**. Historia: el 50B provenía del
+diseño original; BT-5 recalibró la señal gamma operativa a `GEX ≥ 0`. Con el 50B como piso macro,
+esa señal ≥0 era inerte y el sistema quedaba más estricto que el backtest. Ahora el macro `gex_total`
+exige `GEX ≥ 0` (gamma positivo) para SPY y QQQ — es el veto de gamma negativa activo —, y el gate
+dedicado `signal_gates.gamma_support` quedó `enabled: false` (redundante). El handler lee este umbral
+del JSON (`ValidationLayerHandler.EvaluateLayer1`, operador `>=`), así que el cambio tiene efecto en runtime.
 
 ---
 
