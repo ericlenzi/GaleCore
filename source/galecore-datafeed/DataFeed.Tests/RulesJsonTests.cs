@@ -29,6 +29,13 @@ public class RulesJsonTests
     private static JsonObject Load(string file)
         => JsonNode.Parse(File.ReadAllText(Path.Combine(FilesDir(), file)))!.AsObject();
 
+    private static JsonObject FindLayer(JsonObject core, string name)
+    {
+        foreach (var l in core["position_builder"]!["layers"]!.AsArray())
+            if ((string?)l!["name"] == name) return l.AsObject();
+        throw new Xunit.Sdk.XunitException($"No se encontro el layer '{name}' en position_builder.layers");
+    }
+
     // Espejo fiel del DeepMerge de AppController.LoadMergedRulesJsonAsync.
     private static void DeepMerge(JsonObject target, JsonObject source)
     {
@@ -50,9 +57,12 @@ public class RulesJsonTests
         Assert.Equal("paper_only", (string?)meta["status"]);
         Assert.False((bool)meta["enabled_for_live"]!);
 
-        // PCS-only: seleccion de estructura apagada, estructura por defecto = put_credit_spread.
-        var scope = core["strategy_scope"]!.AsObject();
-        Assert.Equal("put_credit_spread", (string?)scope["default_structure"]);
+        // PCS-only: el enforcement REAL vive en el layer strike_engine (no en strategy_scope, que
+        // es solo descriptivo). structure_selection apagado + estructura forzada a put_credit_spread.
+        var strikeEngine = FindLayer(core, "strike_engine");
+        var structSel = strikeEngine["config"]!["structure_selection"]!.AsObject();
+        Assert.False((bool)structSel["enabled"]!);
+        Assert.Equal("put_credit_spread", (string?)structSel["forced_structure_while_disabled"]);
 
         // El embudo de gates existe con sus 5 gates load-bearing.
         var gates = core["signal_gates"]!["gates"]!.AsObject();
