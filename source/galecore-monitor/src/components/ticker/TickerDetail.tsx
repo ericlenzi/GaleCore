@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { X, RefreshCw } from 'lucide-react';
 import { GexChart } from '../chart/GexChart';
 import { ValidationLayers } from '../validation/ValidationLayers';
+import { MarketDiagnostics } from './MarketDiagnostics';
 import { useMarketStore } from '../../store/useMarketStore';
 import { useValidationStore } from '../../store/useValidationStore';
 import { LayerStatus, SignalType } from '../../types/market';
@@ -84,6 +85,7 @@ export function TickerDetail({ symbol, onClose }: Props) {
 
   const vlData = cached?.vlData ?? null;
   const gexData = cached?.gexData ?? null;
+  const structureInputs = cached?.structureInputs ?? null;
   const updated = cached?.updatedAt ?? null;
 
   const iv30 = (() => {
@@ -185,6 +187,9 @@ export function TickerDetail({ symbol, onClose }: Props) {
             layers={layers}
             vlData={vlData}
           />
+          <div style={{ borderTop: '1px solid var(--border-dark)' }}>
+            <MarketDiagnostics inputs={structureInputs} />
+          </div>
         </div>
 
         {/* Right: chart — fills remaining space */}

@@ -572,17 +572,9 @@ export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Pro
       {/* Layer 2 — Strike engine */}
       <LayerCard title="Layer 2 · Strike engine"
         status={se && <span style={{ color: 'var(--text-muted)' }}>{se.selectedStructure === 'put_credit_spread' ? 'PCS' : se.selectedStructure} · DTE {se.dte}{seFromCascade ? '' : ' · candidato'}</span>}>
-        {se ? (
-          <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 8, marginBottom: 10 }}>
-              <Stat label="z-score" value={se.zScore != null ? se.zScore.toFixed(2) : '—'} hint="dirección" />
-              <Stat label="Trend EMA" value={se.trendSignal ?? '—'} hint={se.ema20 != null && se.ema50 != null ? `${se.ema20.toFixed(1)}/${se.ema50.toFixed(1)}` : ''} />
-              <Stat label="GEX skew" value={se.gexSign ?? '—'} />
-              <Stat label="RV régimen" value={se.realizedVolSignal ?? '—'} hint={se.rv10d != null && se.rv30d != null ? `${se.rv10d.toFixed(0)}/${se.rv30d.toFixed(0)}` : ''} />
-            </div>
-            <RefChecklist labels={strikeEngineCheckLabels(rules, se.selectedStructure)} />
-          </>
-        ) : <PendingChecklist labels={strikeEngineCheckLabels(rules, pb?.selectedStructure?.output ?? 'put_credit_spread')} loading={loadingVl} />}
+        {se
+          ? <RefChecklist labels={strikeEngineCheckLabels(rules, se.selectedStructure)} />
+          : <PendingChecklist labels={strikeEngineCheckLabels(rules, pb?.selectedStructure?.output ?? 'put_credit_spread')} loading={loadingVl} />}
       </LayerCard>
 
       {/* Layer 3 — Microestructura */}

@@ -1,10 +1,13 @@
 import { create } from 'zustand';
-import { ValidationLayerApiResponse, GammaExposureResponse } from '../types/api';
-import { fetchValidationLayer } from '../api/analytics';
+import { ValidationLayerApiResponse, GammaExposureResponse, StructureInputs } from '../types/api';
+import { fetchValidationLayer, fetchPositionBuilder } from '../api/analytics';
 
 interface ValidationCacheEntry {
   vlData: ValidationLayerApiResponse;
   gexData: GammaExposureResponse | null;
+  /** Factores de contexto de mercado (z-score, skew, trend, RV, flow). Fuente: PositionBuilder,
+   *  macro-independiente → disponibles aunque la cascada corte en macro. */
+  structureInputs: StructureInputs | null;
   updatedAt: Date;
 }
 
@@ -65,12 +68,20 @@ export const useValidationStore = create<ValidationStore>((set, get) => ({
       error: { ...s.error, [symbol]: null },
     }));
     try {
-      const vl = await fetchValidationLayer(symbol);
+      // ValidationLayer (cascada, primario) + PositionBuilder (motor macro-independiente) en
+      // paralelo. El PB aporta structureInputs aunque macro corte. allSettled: PB no tumba a VL.
+      const [vlRes, pbRes] = await Promise.allSettled([
+        fetchValidationLayer(symbol),
+        fetchPositionBuilder(symbol),
+      ]);
+      if (vlRes.status === 'rejected') throw vlRes.reason;
+      const vl = vlRes.value;
       const gexData = deriveGexData(vl);
+      const structureInputs = pbRes.status === 'fulfilled' ? pbRes.value.structureInputs : null;
       set((s) => ({
         cache: {
           ...s.cache,
-          [symbol]: { vlData: vl, gexData, updatedAt: new Date() },
+          [symbol]: { vlData: vl, gexData, structureInputs, updatedAt: new Date() },
         },
         loading: { ...s.loading, [symbol]: false },
       }));

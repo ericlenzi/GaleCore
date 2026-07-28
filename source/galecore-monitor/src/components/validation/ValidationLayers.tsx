@@ -311,7 +311,6 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
         <ListRow label="Put Wall" value={layers.putWall != null ? fmtPrice(layers.putWall, 0) : '—'} />
         {l2 && (
           <>
-            <ListRow label="Z-Score" value={l2.zScore.toFixed(2)} />
             <ListRow label="Estructura" value={structureLabels[l2.selectedStructure] ?? l2.selectedStructure} />
             {l2.shortPutStrike != null && (
               <ListRow label="Short Put" value={`${fmtPrice(l2.shortPutStrike, 0)} (Δ${l2.shortPutDelta?.toFixed(2) ?? '?'})`} />
