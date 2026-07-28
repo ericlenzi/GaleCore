@@ -116,7 +116,11 @@ namespace DataFeed.Application.App.GammaExposure
                 foreach (var grp in byKey)
                 {
                     var newest = grp.OrderByDescending(x => x.Time).First();
-                    if (!double.TryParse(newest.Cd.OpenInterest, NumberStyles.Any, CultureInfo.InvariantCulture, out var poi) || poi <= 0)
+                    // Sanitizar OI: rechazar no-parseables, <= 0, NaN/Infinity y valores implausibles.
+                    // Un OI absurdo (o (long)hugeDouble que desborda a long.MinValue) envenena el GEX
+                    // agregado. El OI real por strike no supera ~1e6; 1e9 deja 1000x de holgura.
+                    if (!double.TryParse(newest.Cd.OpenInterest, NumberStyles.Any, CultureInfo.InvariantCulture, out var poi)
+                        || poi <= 0 || poi > 1_000_000_000 || double.IsNaN(poi) || double.IsInfinity(poi))
                         continue;
 
                     result.OpenInterest[grp.Key] = (long)poi;
@@ -262,8 +266,11 @@ namespace DataFeed.Application.App.GammaExposure
                     double delta = greeksData.Delta;
                     double gamma = greeksData.Gamma;
 
-                    // OI del candle del cierre anterior
+                    // OI del candle del cierre anterior.
+                    // Clamp defensivo: un OI corrupto/faltante (o cacheado antes de este fix) no
+                    // debe contribuir al GEX. oi <= 0 → 0 (contribución nula), nunca negativo.
                     multiGreeks.OpenInterest.TryGetValue(streamerSym, out long oi);
+                    if (oi < 0) oi = 0;
 
                     // Cierre del período anterior (close del mismo candle diario)
                     double? prevClose = multiGreeks.PrevClose.TryGetValue(streamerSym, out double pc) ? pc : (double?)null;
