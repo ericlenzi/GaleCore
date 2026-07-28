@@ -13,8 +13,8 @@ interface Props {
   socketStatus: ConnectionStatus;
 }
 
-const LIVE_SYMBOL = 'SPY';
 const LIVE_PROFILE = 'paper';
+const DEFAULT_SYMBOLS = ['SPY', 'QQQ'];
 
 // ─── átomos de estilo ────────────────────────────────────────────────────────
 
@@ -97,6 +97,7 @@ export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Pro
   const [vl, setVl] = useState<ValidationLayerApiResponse | null>(null);
   const [loadingVl, setLoadingVl] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [liveSymbol, setLiveSymbol] = useState('SPY');
 
   useEffect(() => {
     fetchCoreRulesRaw().then(setRules).catch((e) => setErr(String(e?.message ?? e)));
@@ -104,18 +105,20 @@ export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Pro
 
   const loadLive = useCallback(() => {
     setLoadingVl(true);
-    fetchValidationLayer(LIVE_SYMBOL, LIVE_PROFILE)
+    setVl(null);
+    fetchValidationLayer(liveSymbol, LIVE_PROFILE)
       .then(setVl)
       .catch((e) => setErr(String(e?.message ?? e)))
       .finally(() => setLoadingVl(false));
-  }, []);
+  }, [liveSymbol]);
 
   useEffect(() => { loadLive(); }, [loadLive]);
 
   const meta = rules?._meta;
+  const symbols: string[] = rules?.universe?.tickers ?? DEFAULT_SYMBOLS;
   const l2cfg = rules?.position_builder?.layers?.find((l: any) => l.name === 'strike_engine')?.config;
   const delta = l2cfg?.delta_target;
-  const width = l2cfg?.spread_width?.symbol_overrides?.[LIVE_SYMBOL]?.default;
+  const width = l2cfg?.spread_width?.symbol_overrides?.[liveSymbol]?.default;
   const dte = l2cfg?.dte_selection?.target;
   const gatesDef = rules?.signal_gates?.gates ?? {};
   const tm = rules?.trade_management ?? {};
@@ -136,7 +139,7 @@ export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Pro
         <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', padding: '4px 12px', borderRadius: 5,
           color: signalColor(overall), backgroundColor: signalColor(overall) + '22', border: `1px solid ${signalColor(overall)}44`,
           fontFamily: 'JetBrains Mono, monospace' }}>
-          {LIVE_SYMBOL}: {overall}
+          {liveSymbol}: {overall}
         </span>
         <button onClick={loadLive} title="Refrescar evaluación en vivo"
           style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 5, cursor: 'pointer', color: 'var(--text-muted)', padding: 5, display: 'flex' }}>
@@ -152,7 +155,7 @@ export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Pro
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 4 }}>
           <Stat label="Estructura" value="PCS-only" hint="put credit spread · riesgo definido" />
           <Stat label="Delta objetivo" value={delta ? `${delta.put_short_min}` : '0.25'} hint={delta ? `banda ${delta.put_short_min}–${delta.put_short_max}` : ''} />
-          <Stat label={`Ancho (${LIVE_SYMBOL})`} value={width != null ? `$${width}` : '$5'} hint="puntos" />
+          <Stat label={`Ancho (${liveSymbol})`} value={width != null ? `$${width}` : '$5'} hint="puntos" />
           <Stat label="DTE" value={dte ?? 45} hint="target" />
           <Stat label="Universo" value={(rules?.universe?.tickers ?? ['SPY', 'QQQ']).join(' · ')} />
         </div>
@@ -191,7 +194,27 @@ export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Pro
       </Card>
 
       {/* ── SECCIÓN B: EVALUACIÓN EN VIVO ── */}
-      <SectionTitle>B · Evaluación en vivo · {LIVE_SYMBOL} (perfil {LIVE_PROFILE})</SectionTitle>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '2px 0 8px', borderBottom: '1px solid var(--border-dark)', marginBottom: 10 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>
+          B · Evaluación en vivo (perfil {LIVE_PROFILE})
+        </span>
+        <div style={{ display: 'flex', gap: 2, marginLeft: 'auto', backgroundColor: 'var(--bg-tertiary)', borderRadius: 6, padding: 2 }}>
+          {symbols.map((s) => {
+            const active = s === liveSymbol;
+            return (
+              <button key={s} onClick={() => setLiveSymbol(s)}
+                style={{
+                  fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', padding: '3px 12px', borderRadius: 4,
+                  border: 'none', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace',
+                  color: active ? 'var(--bg-primary)' : 'var(--text-muted)',
+                  backgroundColor: active ? 'var(--blue-gc)' : 'transparent',
+                }}>
+                {s}
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <Card>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
           <Stat label="Macro regime"
