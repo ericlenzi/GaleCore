@@ -5,7 +5,7 @@ import { fetchValidationLayer } from '../api/analytics';
 import { ValidationLayerApiResponse, GateResult } from '../types/api';
 import { PositionMonitor } from '../components/positions/PositionMonitor';
 import { ConnectionStatus } from '../socket/useMarketSocket';
-import { signalColor } from '../utils/formatters';
+import { signalColor, tint } from '../utils/formatters';
 
 interface Props {
   subscribeLeg: (sym: string) => void;
@@ -81,7 +81,7 @@ function CheckLine({ name, label, status, valueText, detail }: {
       <span style={{
         fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em', textAlign: 'center',
         padding: '3px 6px', borderRadius: 4, fontFamily: 'JetBrains Mono, monospace',
-        color, backgroundColor: color + '1e', border: `1px solid ${color}44`,
+        color, backgroundColor: tint(color, 12), border: `1px solid ${tint(color, 27)}`,
       }}>
         {STATUS_LABEL[status] ?? status}
       </span>
@@ -176,8 +176,8 @@ function CascadeStepper({ vl, loading }: { vl: ValidationLayerApiResponse | null
             <div style={{
               flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
               padding: '9px 4px', borderRadius: 7,
-              backgroundColor: dim ? 'var(--bg-tertiary)' : `color-mix(in srgb, ${color} 13%, transparent)`,
-              border: `1px solid ${dim ? 'var(--border-dark)' : `color-mix(in srgb, ${color} 45%, transparent)`}`,
+              backgroundColor: dim ? 'var(--bg-tertiary)' : tint(color, 13),
+              border: `1px solid ${dim ? 'var(--border-dark)' : tint(color, 45)}`,
               opacity: s.status === 'idle' ? 0.5 : 1,
             }}>
               <div style={{
@@ -266,7 +266,7 @@ export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Pro
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>GaleCore Strategy</span>
         <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4, letterSpacing: '0.06em',
-          color: 'var(--blue-gc)', backgroundColor: 'var(--blue-gc)22', border: '1px solid var(--blue-gc)44', fontFamily: 'JetBrains Mono, monospace' }}>
+          color: 'var(--blue-gc)', backgroundColor: tint('var(--blue-gc)', 13), border: `1px solid ${tint('var(--blue-gc)', 27)}`, fontFamily: 'JetBrains Mono, monospace' }}>
           v{meta?.version ?? '—'} · {meta?.status ?? '—'}
         </span>
         <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', padding: '4px 12px', borderRadius: 5,
@@ -354,7 +354,7 @@ export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Pro
         <div style={{
           fontSize: 10.5, fontWeight: 600, color: 'var(--red-gc)', fontFamily: 'Inter, sans-serif',
           padding: '6px 10px', marginBottom: 12, borderRadius: 6,
-          backgroundColor: 'color-mix(in srgb, var(--red-gc) 11%, transparent)', border: '1px solid color-mix(in srgb, var(--red-gc) 33%, transparent)',
+          backgroundColor: tint('var(--red-gc)', 11), border: `1px solid ${tint('var(--red-gc)', 33)}`,
         }}>
           Señal detenida — {DIED_AT_LABEL[vl.failedAtLayer] ?? `capa ${vl.failedAtLayer}`}
         </div>

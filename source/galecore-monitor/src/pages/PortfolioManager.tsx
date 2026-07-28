@@ -7,7 +7,7 @@ import { fetchMarketDataByType } from '../api/marketdata';
 import { fetchIVRank, fetchImpliedVolatility, fetchPositionBuilder, fetchValidationLayer } from '../api/analytics';
 import { ConnectionStatus } from '../socket/useMarketSocket';
 import { ValidationLayerApiResponse } from '../types/api';
-import { fmtPrice, fmtOI, fmtExpiry } from '../utils/formatters';
+import { fmtPrice, fmtOI, fmtExpiry, tint } from '../utils/formatters';
 import { PositionBuilderApiResponse, StrikeEngineCandidate, StrikeEngineResult, RiskAndSizingResult, LegMeta } from '../types/api';
 import { TickerState } from '../types/market';
 
@@ -87,7 +87,7 @@ function SignalPill({ signal }: { signal: string }) {
     <span style={{
       fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
       padding: '3px 9px', borderRadius: 20,
-      color, backgroundColor: color + '18', border: `1px solid ${color}40`,
+      color, backgroundColor: tint(color, 9), border: `1px solid ${tint(color, 25)}`,
       fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap',
     }}>
       {signalLabels[signal] ?? signal}
@@ -106,7 +106,7 @@ function StructurePill({ structure }: { structure: string | null }) {
     <span style={{
       fontSize: 12, fontWeight: 700, letterSpacing: '0.03em',
       padding: '3px 5px', borderRadius: 4,
-      color, backgroundColor: color + '18', border: `1px solid ${color}30`,
+      color, backgroundColor: tint(color, 9), border: `1px solid ${tint(color, 19)}`,
       fontFamily: 'JetBrains Mono, monospace',
     }}>
       {label}

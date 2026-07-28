@@ -94,6 +94,17 @@ export function signalColor(signal: string): string {
   return '#ef4444';
 }
 
+/**
+ * Tinte translúcido válido para CUALQUIER color CSS, incluidas las `var(--x)`.
+ * Concatenar alpha-hex a una var (`var(--green)1e`) produce un color inválido que el
+ * navegador ignora (queda transparente); `color-mix` sí resuelve la var y aplica la opacidad.
+ * @param color  color base (var(--x), #hex, rgb(), …)
+ * @param pct    opacidad 0–100
+ */
+export function tint(color: string, pct: number): string {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
+
 export function boolToStatus(v: boolean | null): 'ok' | 'warn' | 'na' {
   if (v === null) return 'na';
   return v ? 'ok' : 'warn';

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useRulesStore } from '../../store/useRulesStore';
+import { tint } from '../../utils/formatters';
 
 /* ──────────────── helpers ──────────────── */
 
@@ -143,7 +144,7 @@ function ExitCard({
       className="flex-1 rounded p-3"
       style={{
         border: `1px solid ${color}`,
-        backgroundColor: `${color}12`,
+        backgroundColor: tint(color, 7),
         minWidth: 160,
       }}
     >
