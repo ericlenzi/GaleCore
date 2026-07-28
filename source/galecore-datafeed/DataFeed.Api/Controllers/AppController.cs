@@ -67,6 +67,7 @@ namespace DataFeed.Controllers
         {
             request.RulesJson = await LoadMergedRulesJsonAsync(request.Profile);
             request.PopCalibrationJson = await LoadFileOrNullAsync("pop_calibration.json");
+            request.SkewHistoryJson = await LoadFileOrNullAsync("skew25_history.json");
             return await Handle(request);
         }
 

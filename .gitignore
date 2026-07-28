@@ -39,6 +39,9 @@ publish/
 .claude/*
 !.claude/commands/
 
+# Estado de runtime del backend (se acumula día a día vía SkewSnapshotService)
+source/galecore-datafeed/DataFeed.Api/Files/skew25_history.json
+
 # Backtesting datasets — se versiona research/data/ (derived/ + vvix) EXCEPTO
 # las carpetas de cadenas crudas, pesadas y re-descargables:
 research/data/iwm_options/

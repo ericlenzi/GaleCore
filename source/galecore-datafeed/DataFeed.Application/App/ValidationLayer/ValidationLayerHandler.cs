@@ -4,10 +4,12 @@ using System.Text.Json.Nodes;
 using DataFeed.Application.App.GammaExposure;
 using DataFeed.Application.App.ImpliedVolatility;
 using DataFeed.Application.App.IVRank;
+using DataFeed.Application.App.PutSkew;
 using DataFeed.Application.Data.Tastytrade.AccountBalances;
 using DataFeed.Application.Data.Tastytrade.AccountPositions;
 using DataFeed.Application.Data.Tastytrade.MarketDataCandle;
 using DataFeed.Application.Data.Tastytrade.MarketDataQuote;
+using DataFeed.Application.Data.Tastytrade.MarketDataTrade;
 
 namespace DataFeed.Application.App.ValidationLayer
 {
@@ -35,13 +37,16 @@ namespace DataFeed.Application.App.ValidationLayer
                 Interval = "1d",
                 FromTime = DateTime.UtcNow.AddDays(-120) // 120 calendar days ~ 85 trading sessions, cubre EMA 50 + buffer
             }, cancellationToken);
+            // VVIX (market-wide) para el gate tail_score — disponible en DXLink con símbolo plano "VVIX".
+            var vvixTask = _mediator.Send(new MarketDataTradeRequest { Symbol = "VVIX" }, cancellationToken);
 
-            await Task.WhenAll(gexTask, ivrTask, ivTask, candleTask);
+            await Task.WhenAll(gexTask, ivrTask, ivTask, candleTask, vvixTask);
 
             var gex = gexTask.Result;
             var ivr = ivrTask.Result;
             var iv = ivTask.Result;
             var candleResponse = candleTask.Result;
+            double? vvix = vvixTask.Result?.Data?.FirstOrDefault()?.Price;
             var candles = candleResponse?.data?
                 .Where(c => c.Close > 0)
                 .OrderBy(c => c.Time)
@@ -123,7 +128,13 @@ namespace DataFeed.Application.App.ValidationLayer
             }
 
             // === SIGNAL GATES: embudo validado por research (VRP, tail_score, edge, credit, wall) ===
-            var signalGates = EvaluateSignalGates(rules, symbol, iv, strikeEngine, microstructure, request.PopCalibrationJson);
+            // skew25 live (desde el GEX ya obtenido) + RoC 5d contra la historia persistida.
+            double currentSkew25 = PutSkewCalculator.Compute(gex).PutSkew25d ?? 0;
+            double? skewRoc = !string.IsNullOrWhiteSpace(request.SkewHistoryJson) && currentSkew25 > 0
+                ? SignalGates.SkewHistory.Parse(request.SkewHistoryJson!).Roc5d(symbol, currentSkew25)
+                : null;
+
+            var signalGates = EvaluateSignalGates(rules, symbol, iv, strikeEngine, microstructure, request.PopCalibrationJson, vvix, skewRoc);
             response.PositionBuilder.SignalGates = signalGates;
 
             if (!signalGates.AllPass)
@@ -147,7 +158,8 @@ namespace DataFeed.Application.App.ValidationLayer
 
         private static SignalGates.SignalGatesResult EvaluateSignalGates(
             JsonObject rules, string symbol, ImpliedVolatilityResponse iv,
-            StrikeEngineResult strikeEngine, MicrostructureResult microstructure, string? popJson)
+            StrikeEngineResult strikeEngine, MicrostructureResult microstructure, string? popJson,
+            double? vvix, double? skew25Roc)
         {
             var pop = string.IsNullOrWhiteSpace(popJson) ? null : SignalGates.PopCalibrationTable.Parse(popJson!);
 
@@ -160,14 +172,14 @@ namespace DataFeed.Application.App.ValidationLayer
                 Symbol = symbol,
                 AtmIv30 = iv.IV30_30d,
                 RealizedVol30 = strikeEngine.Rv30d,
-                Vvix = null,             // pendiente de feed CBOE VVIX -> tail_score degrada a no_data
-                Skew25Roc5d = null,      // pendiente de historia de skew25 -> tail_score degrada a no_data
+                Vvix = vvix,             // VVIX live vía DXLink (símbolo "VVIX")
+                Skew25Roc5d = skew25Roc, // RoC 5d de skew25 (live vs historia persistida)
                 ShortPutStrike = strikeEngine.ShortPutStrike,
                 PutWall = strikeEngine.PutWall,
                 Credit = microstructure.CreditMinimum?.MidCredit,
                 SpreadWidth = width ?? 0,
                 ShortPutDeltaAbs = strikeEngine.ShortPutDelta.HasValue ? Math.Abs(strikeEngine.ShortPutDelta.Value) : null,
-                Regime = "normal",       // clasificador de régimen por declarar en el JSON (edge.bars_by_regime)
+                Regime = ClassifyRegime(rules["definitions"]?["regime_classification"], iv.IV30_30d),
             };
 
             return SignalGates.SignalGatesEvaluator.Evaluate(rules["signal_gates"], inputs, pop);
@@ -957,6 +969,28 @@ namespace DataFeed.Application.App.ValidationLayer
                 // Condición desconocida: pass (fail-safe)
                 _ => true
             };
+        }
+
+        /// <summary>
+        /// Clasifica el régimen de volatilidad para signal_gates.edge.bars_by_regime, según las bandas
+        /// de VIX declaradas en definitions.regime_classification (lookup_by_range). Rango [min, max).
+        /// Fallback "normal" si no hay VIX o el nodo falta. Compartido/testeable.
+        /// </summary>
+        public static string ClassifyRegime(JsonNode? regimeClassification, double? vix)
+        {
+            if (vix is not > 0) return "normal";
+            var ranges = regimeClassification?["ranges"]?.AsArray();
+            if (ranges != null)
+            {
+                foreach (var r in ranges)
+                {
+                    double min = r?["min"]?.GetValue<double>() ?? double.MinValue;
+                    double max = r?["max"]?.GetValue<double>() ?? double.MaxValue;
+                    if (vix.Value >= min && vix.Value < max)
+                        return r?["value"]?.GetValue<string>() ?? "normal";
+                }
+            }
+            return "normal";
         }
 
         /// <summary>

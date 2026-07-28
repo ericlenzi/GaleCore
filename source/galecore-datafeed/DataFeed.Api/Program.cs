@@ -68,6 +68,7 @@ namespace DataFeed
             builder.Services.AddSingleton<IDxLinkStreamingService>(sp => sp.GetRequiredService<DxLinkStreamingService>());
             builder.Services.AddHostedService(sp => sp.GetRequiredService<DxLinkStreamingService>());
             builder.Services.AddHostedService<FlowBroadcastService>();
+            builder.Services.AddHostedService<SkewSnapshotService>();
 
             // MCP Server
             builder.Services

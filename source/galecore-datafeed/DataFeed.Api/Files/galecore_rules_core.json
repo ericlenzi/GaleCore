@@ -261,6 +261,18 @@
         }
       ]
     },
+    "regime_classification": {
+      "type": "lookup_by_range",
+      "key": "vix",
+      "source": "marketdata.$VIX.X.price (proxy operativo: atm_iv_30d, el mismo valor del check macro vix_absolute)",
+      "_note": "Clasificador de regimen para signal_gates.edge.bars_by_regime. Bandas de VIX del research (barras dinamicas v2.1.5). 'caution' es inalcanzable tras macro_regime, que exige VIX < 30.",
+      "ranges": [
+        { "min": 0, "max": 15, "value": "low_vol" },
+        { "min": 15, "max": 25, "value": "normal" },
+        { "min": 25, "max": 30, "value": "elevated" },
+        { "min": 30, "max": 999, "value": "caution" }
+      ]
+    },
     "gex_total": {
       "type": "formula",
       "formula": "sum(open_interest * gamma * 100 * spot^2 * 0.01)",

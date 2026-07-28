@@ -15,5 +15,9 @@ namespace DataFeed.Application.App.ValidationLayer
         /// <summary>Contenido de Files/pop_calibration.json (tabla POP empírica del gate edge). Inyectado por AppController.</summary>
         [JsonIgnore]
         public string? PopCalibrationJson { get; set; }
+
+        /// <summary>Contenido de Files/skew25_history.json (serie diaria para el RoC 5d de tail_score). Inyectado por AppController.</summary>
+        [JsonIgnore]
+        public string? SkewHistoryJson { get; set; }
     }
 }

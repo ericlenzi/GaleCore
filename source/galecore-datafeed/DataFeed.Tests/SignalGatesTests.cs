@@ -158,4 +158,54 @@ public class SignalGatesTests
     [Fact]
     public void PopTable_SimboloDesconocido_DevuelveNull()
         => Assert.Null(Pop().PLoss("IWM", 0.25));
+
+    // ── Clasificador de régimen (edge.bars_by_regime) ──
+    private static JsonNode RegimeClassification() => JsonNode.Parse("""
+    { "ranges": [
+        { "min": 0,  "max": 15,  "value": "low_vol" },
+        { "min": 15, "max": 25,  "value": "normal" },
+        { "min": 25, "max": 30,  "value": "elevated" },
+        { "min": 30, "max": 999, "value": "caution" } ] }
+    """)!;
+
+    [Theory]
+    [InlineData(12, "low_vol")]
+    [InlineData(15, "normal")]    // borde inferior inclusivo
+    [InlineData(18, "normal")]
+    [InlineData(25, "elevated")]
+    [InlineData(28, "elevated")]
+    [InlineData(35, "caution")]
+    public void ClassifyRegime_MapeaBandasDeVix(double vix, string esperado)
+        => Assert.Equal(esperado, DataFeed.Application.App.ValidationLayer.ValidationLayerHandler.ClassifyRegime(RegimeClassification(), vix));
+
+    [Fact]
+    public void ClassifyRegime_SinVix_DevuelveNormal()
+        => Assert.Equal("normal", DataFeed.Application.App.ValidationLayer.ValidationLayerHandler.ClassifyRegime(RegimeClassification(), null));
+
+    // ── Historia de skew25 / RoC 5d (tail_score) ──
+    private static SkewHistory Skew5() => SkewHistory.Parse("""
+    { "SPY": [
+        { "date": "2026-07-20", "skew25": 1.00 },
+        { "date": "2026-07-21", "skew25": 1.02 },
+        { "date": "2026-07-22", "skew25": 1.04 },
+        { "date": "2026-07-23", "skew25": 1.06 },
+        { "date": "2026-07-24", "skew25": 1.08 } ] }
+    """);
+
+    [Fact]
+    public void SkewHistory_Roc5d_UsaElValorDeHace5Sesiones()
+    {
+        // 5 entradas => hace 5 sesiones = la más antigua (1.00). RoC = 1.10/1.00 - 1 = 0.10.
+        double? roc = Skew5().Roc5d("SPY", 1.10);
+        Assert.NotNull(roc);
+        Assert.Equal(0.10, roc!.Value, 4);
+    }
+
+    [Fact]
+    public void SkewHistory_SinHistoriaSuficiente_DevuelveNull()
+    {
+        var h = SkewHistory.Parse("""{ "SPY": [ { "date": "2026-07-24", "skew25": 1.08 } ] }""");
+        Assert.Null(h.Roc5d("SPY", 1.10));            // solo 1 entrada
+        Assert.Null(Skew5().Roc5d("QQQ", 1.10));      // símbolo sin historia
+    }
 }

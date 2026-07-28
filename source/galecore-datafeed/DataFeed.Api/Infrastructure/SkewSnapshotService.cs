@@ -1,0 +1,119 @@
+using System.Text.Json.Nodes;
+using DataFeed.Application.App.GammaExposure;
+using DataFeed.Application.App.PutSkew;
+using MediatR;
+
+namespace DataFeed.Api.Infrastructure
+{
+    /// <summary>
+    /// Servicio hosted que persiste un snapshot diario del skew25 por símbolo a
+    /// Files/skew25_history.json. Es la fuente de historia que el gate tail_score usa para el
+    /// RoC 5d (research: skew25 / skew25.shift(5) - 1). Registra a lo sumo un valor por día y símbolo;
+    /// sobrevive reinicios (archivo). Formato: { "SPY": [ {"date":"2026-07-27","skew25":1.16}, ... ] }.
+    /// </summary>
+    public class SkewSnapshotService : BackgroundService
+    {
+        private readonly IServiceScopeFactory _scopeFactory;
+        private readonly IWebHostEnvironment _env;
+        private readonly ILogger<SkewSnapshotService> _logger;
+        private static readonly object _fileLock = new();
+
+        private static readonly string[] Symbols = { "SPY", "QQQ" };
+        private const int CheckIntervalMs = 6 * 60 * 60 * 1000; // 6h
+        private const int MaxHistory = 90;
+
+        public SkewSnapshotService(IServiceScopeFactory scopeFactory, IWebHostEnvironment env, ILogger<SkewSnapshotService> logger)
+        {
+            _scopeFactory = scopeFactory;
+            _env = env;
+            _logger = logger;
+        }
+
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            _logger.LogInformation("SkewSnapshotService iniciado — snapshot diario de skew25 ({Symbols})", string.Join(",", Symbols));
+            // Pequeño delay inicial para que DXLink complete el handshake.
+            try { await Task.Delay(TimeSpan.FromSeconds(45), stoppingToken); } catch (OperationCanceledException) { return; }
+
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await SnapshotIfNeededAsync(stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+                catch (Exception ex) { _logger.LogError(ex, "Error en SkewSnapshotService tick"); }
+
+                try { await Task.Delay(CheckIntervalMs, stoppingToken); } catch (OperationCanceledException) { break; }
+            }
+            _logger.LogInformation("SkewSnapshotService detenido");
+        }
+
+        private async Task SnapshotIfNeededAsync(CancellationToken ct)
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd");
+            var path = Path.Combine(_env.ContentRootPath, "Files", "skew25_history.json");
+
+            using var scope = _scopeFactory.CreateScope();
+            var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+            foreach (var sym in Symbols)
+            {
+                if (AlreadyRecorded(path, sym, today)) continue;
+
+                var gex = await mediator.Send(new GammaExposureRequest { Symbol = sym, MaxDTE = 60 }, ct);
+                double skew25 = PutSkewCalculator.Compute(gex).PutSkew25d ?? 0;
+                if (skew25 <= 0)
+                {
+                    _logger.LogWarning("SkewSnapshot {Sym}: skew25 no resuelto (mercado cerrado o sin IV); se reintenta próximo tick", sym);
+                    continue;
+                }
+
+                Append(path, sym, today, Math.Round(skew25, 4));
+                _logger.LogInformation("SkewSnapshot {Sym} {Date}: skew25={Skew}", sym, today, skew25);
+            }
+        }
+
+        private static bool AlreadyRecorded(string path, string symbol, string date)
+        {
+            lock (_fileLock)
+            {
+                var root = Load(path);
+                var arr = root[symbol]?.AsArray();
+                if (arr == null) return false;
+                foreach (var r in arr)
+                    if ((string?)r?["date"] == date) return true;
+                return false;
+            }
+        }
+
+        private static void Append(string path, string symbol, string date, double skew25)
+        {
+            lock (_fileLock)
+            {
+                var root = Load(path);
+                var arr = root[symbol]?.AsArray();
+                if (arr == null) { arr = new JsonArray(); root[symbol] = arr; }
+
+                arr.Add(new JsonObject { ["date"] = date, ["skew25"] = skew25 });
+
+                // Recortar a los últimos MaxHistory (por orden de inserción, que es cronológico).
+                while (arr.Count > MaxHistory) arr.RemoveAt(0);
+
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllText(path, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            }
+        }
+
+        private static JsonObject Load(string path)
+        {
+            try
+            {
+                if (File.Exists(path))
+                    return JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? new JsonObject();
+            }
+            catch { /* archivo corrupto: se reescribe limpio */ }
+            return new JsonObject();
+        }
+    }
+}
