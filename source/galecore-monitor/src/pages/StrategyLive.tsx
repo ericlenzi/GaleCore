@@ -281,6 +281,24 @@ function layerCheckLabels(rules: any, layerName: string): string[] {
   return (layer?.checks ?? []).map((c: any) => c.label).filter(Boolean);
 }
 
+// Checks del strike_engine RELEVANTES a la estructura activa.
+// El JSON declara los 9 (put + call + skew_degradation) para las 3 estructuras, pero en
+// PCS-only (producción) solo corre el lado put. Los de call + skew son de IC/CCS (disabled).
+function strikeEngineCheckLabels(rules: any, structure: string | null | undefined): string[] {
+  const layer = rules?.position_builder?.layers?.find((l: any) => l.name === 'strike_engine');
+  const checks: any[] = layer?.checks ?? [];
+  const isIC = structure === 'iron_condor';
+  const side = structure === 'call_credit_spread' ? 'call' : 'put'; // default PCS → put
+  return checks
+    .filter((c) => {
+      if (c.id === 'skew_degradation') return isIC;   // solo aplica degradando un IC
+      if (isIC) return true;                           // IC evalúa ambos lados
+      return c.side === side;                          // PCS/CCS: un solo lado
+    })
+    .map((c) => c.label)
+    .filter(Boolean);
+}
+
 // Estado "por evaluar": lista los checks que la capa correría, en gris.
 function PendingChecklist({ labels, loading }: { labels: string[]; loading: boolean }) {
   if (loading) return <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '8px 0' }}>Evaluando…</div>;
@@ -562,9 +580,9 @@ export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Pro
               <Stat label="GEX skew" value={se.gexSign ?? '—'} />
               <Stat label="RV régimen" value={se.realizedVolSignal ?? '—'} hint={se.rv10d != null && se.rv30d != null ? `${se.rv10d.toFixed(0)}/${se.rv30d.toFixed(0)}` : ''} />
             </div>
-            <RefChecklist labels={layerCheckLabels(rules, 'strike_engine')} />
+            <RefChecklist labels={strikeEngineCheckLabels(rules, se.selectedStructure)} />
           </>
-        ) : <PendingChecklist labels={layerCheckLabels(rules, 'strike_engine')} loading={loadingVl} />}
+        ) : <PendingChecklist labels={strikeEngineCheckLabels(rules, pb?.selectedStructure?.output ?? 'put_credit_spread')} loading={loadingVl} />}
       </LayerCard>
 
       {/* Layer 3 — Microestructura */}

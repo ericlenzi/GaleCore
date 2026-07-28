@@ -339,7 +339,9 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
             Microstructure
           </span>
           <ListRow label="ATM Strike" value={fmtPrice(l3.atmStrike, 0)} />
-          <ListRow label="Short Call OI" value={l3.oiChecks?.shortCall ? fmtOI(l3.oiChecks.shortCall.value) : '—'} />
+          {l3.oiChecks?.shortCall && (
+            <ListRow label="Short Call OI" value={fmtOI(l3.oiChecks.shortCall.value)} />
+          )}
           <ListRow label="Short Put OI" value={l3.oiChecks?.shortPut ? fmtOI(l3.oiChecks.shortPut.value) : '—'} />
           {l3.bidAskChecks && (
             <ListRow label="Bid-Ask" value={

@@ -287,6 +287,14 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg, socketStatus }:
     return a.localeCompare(b);
   });
 
+  // Las columnas call (Short/Long Call, strikes + premium) solo tienen sentido con IC o CCS.
+  // En PCS-only (producción) ningún candidato tiene lado call → se ocultan para no mostrar
+  // media tabla en '—'. Si se reactivara IC/CCS, reaparecen solas.
+  const showCall = sortedSymbols.some((sym) => {
+    const st = pbData[sym]?.strikeEngine?.selectedStructure ?? pbData[sym]?.selectedStructure?.output;
+    return st === 'iron_condor' || st === 'call_credit_spread';
+  });
+
   return (
     <div style={{ padding: '14px 16px', minHeight: '100%', backgroundColor: 'var(--bg-primary)' }}>
 
@@ -337,8 +345,8 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg, socketStatus }:
               <Th rowSpan={2} right>Call Wall</Th>
               <Th rowSpan={2} right>Put Wall</Th>
               <Th rowSpan={2} center>Structure</Th>
-              <Th span={4} center>Strikes</Th>
-              <Th span={4} center>Premium (live)</Th>
+              <Th span={showCall ? 4 : 2} center>Strikes</Th>
+              <Th span={showCall ? 4 : 2} center>Premium (live)</Th>
               <Th rowSpan={2} right>Net Credit</Th>
               <Th rowSpan={2} right>1/3 Rule</Th>
               <Th rowSpan={2} right>POP</Th>
@@ -350,12 +358,12 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg, socketStatus }:
             <tr>
               <Th right>Long Put</Th>
               <Th right>Short Put</Th>
-              <Th right>Short Call</Th>
-              <Th right>Long Call</Th>
+              {showCall && <Th right>Short Call</Th>}
+              {showCall && <Th right>Long Call</Th>}
               <Th right>Long Put</Th>
               <Th right>Short Put</Th>
-              <Th right>Short Call</Th>
-              <Th right>Long Call</Th>
+              {showCall && <Th right>Short Call</Th>}
+              {showCall && <Th right>Long Call</Th>}
             </tr>
           </thead>
           <tbody>
@@ -368,6 +376,7 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg, socketStatus }:
                 loading={pbLoading[symbol] ?? false}
                 tickers={tickers}
                 rowBg={idx % 2 === 0 ? 'var(--bg-primary)' : 'rgba(17,30,51,0.4)'}
+                showCall={showCall}
               />
             ))}
           </tbody>
@@ -387,9 +396,10 @@ interface RowProps {
   loading: boolean;
   tickers: Record<string, TickerState>;
   rowBg: string;
+  showCall: boolean;
 }
 
-function PortfolioRow({ symbol, pb, vl, loading, tickers, rowBg }: RowProps) {
+function PortfolioRow({ symbol, pb, vl, loading, tickers, rowBg, showCall }: RowProps) {
   const t = tickers[symbol];
   const se = pb?.strikeEngine;
   const rs = pb?.riskAndSizing;
@@ -410,7 +420,7 @@ function PortfolioRow({ symbol, pb, vl, loading, tickers, rowBg }: RowProps) {
       <tr style={{ backgroundColor: rowBg }}>
         <Td><MonoVal color="var(--text-primary)">{symbol}</MonoVal></Td>
         <Td><span style={{ opacity: 0.4, fontSize: 12 }}>…</span></Td>
-        {Array.from({ length: 18 }).map((_, i) => <Td key={i}><Dash /></Td>)}
+        {Array.from({ length: showCall ? 18 : 14 }).map((_, i) => <Td key={i}><Dash /></Td>)}
       </tr>
     );
   }
@@ -435,7 +445,7 @@ function PortfolioRow({ symbol, pb, vl, loading, tickers, rowBg }: RowProps) {
         <Td right><MonoVal color="#22c55e">{se?.callWall != null ? fmtPrice(se.callWall, 0) : '—'}</MonoVal></Td>
         <Td right><MonoVal color="#f43f5e">{se?.putWall != null ? fmtPrice(se.putWall, 0) : '—'}</MonoVal></Td>
         <Td center><StructurePill structure={structure} /></Td>
-        {Array.from({ length: 14 }).map((_, i) => <Td key={i}><Dash /></Td>)}
+        {Array.from({ length: showCall ? 14 : 10 }).map((_, i) => <Td key={i}><Dash /></Td>)}
       </tr>
     );
   }
@@ -457,6 +467,7 @@ function PortfolioRow({ symbol, pb, vl, loading, tickers, rowBg }: RowProps) {
           rowBg={rowBg}
           price={price}
           structure={structure}
+          showCall={showCall}
         />
       ))}
     </>
@@ -478,9 +489,10 @@ interface CandidateRowProps {
   rowBg: string;
   price: number;
   structure: string | null;
+  showCall: boolean;
 }
 
-function CandidateRow({ symbol, candidate: c, isFirstRow, rowSpan, pb, vl, se, rs, tickers, rowBg, price, structure }: CandidateRowProps) {
+function CandidateRow({ symbol, candidate: c, isFirstRow, rowSpan, pb, vl, se, rs, tickers, rowBg, price, structure, showCall }: CandidateRowProps) {
   const ls = c.legSymbols;
 
   const shortPutQ  = ls?.shortPut  ? tickers[ls.shortPut]  : undefined;
@@ -588,18 +600,22 @@ function CandidateRow({ symbol, candidate: c, isFirstRow, rowSpan, pb, vl, se, r
           <StrikeMeta meta={c.legMeta?.shortPut} />
         </div>
       </Td>
-      <Td right>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <MonoVal color="#22c55e">{c.shortCallStrike != null ? fmtPrice(c.shortCallStrike, 0) : '—'}</MonoVal>
-          <StrikeMeta meta={c.legMeta?.shortCall} />
-        </div>
-      </Td>
-      <Td right>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <MonoVal color="#22c55e">{c.longCallStrike  != null ? fmtPrice(c.longCallStrike,  0) : '—'}</MonoVal>
-          <StrikeMeta meta={c.legMeta?.longCall} />
-        </div>
-      </Td>
+      {showCall && (
+        <>
+          <Td right>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <MonoVal color="#22c55e">{c.shortCallStrike != null ? fmtPrice(c.shortCallStrike, 0) : '—'}</MonoVal>
+              <StrikeMeta meta={c.legMeta?.shortCall} />
+            </div>
+          </Td>
+          <Td right>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <MonoVal color="#22c55e">{c.longCallStrike  != null ? fmtPrice(c.longCallStrike,  0) : '—'}</MonoVal>
+              <StrikeMeta meta={c.legMeta?.longCall} />
+            </div>
+          </Td>
+        </>
+      )}
 
       {/* Premiums live */}
       <Td right>
@@ -612,16 +628,20 @@ function CandidateRow({ symbol, candidate: c, isFirstRow, rowSpan, pb, vl, se, r
           ? <span><MonoVal>{fmtPrice(shortPutMid, 2)}</MonoVal><LiveDot live /></span>
           : ls?.shortPut ? <span style={{ opacity: 0.4, fontSize: 12 }}>…</span> : <Dash />}
       </Td>
-      <Td right>
-        {shortCallMid != null
-          ? <span><MonoVal>{fmtPrice(shortCallMid, 2)}</MonoVal><LiveDot live /></span>
-          : ls?.shortCall ? <span style={{ opacity: 0.4, fontSize: 12 }}>…</span> : <Dash />}
-      </Td>
-      <Td right>
-        {longCallMid != null
-          ? <span><MonoVal>{fmtPrice(longCallMid, 2)}</MonoVal><LiveDot live /></span>
-          : ls?.longCall ? <span style={{ opacity: 0.4, fontSize: 12 }}>…</span> : <Dash />}
-      </Td>
+      {showCall && (
+        <>
+          <Td right>
+            {shortCallMid != null
+              ? <span><MonoVal>{fmtPrice(shortCallMid, 2)}</MonoVal><LiveDot live /></span>
+              : ls?.shortCall ? <span style={{ opacity: 0.4, fontSize: 12 }}>…</span> : <Dash />}
+          </Td>
+          <Td right>
+            {longCallMid != null
+              ? <span><MonoVal>{fmtPrice(longCallMid, 2)}</MonoVal><LiveDot live /></span>
+              : ls?.longCall ? <span style={{ opacity: 0.4, fontSize: 12 }}>…</span> : <Dash />}
+          </Td>
+        </>
+      )}
 
       {/* Net Credit live */}
       <Td right>
