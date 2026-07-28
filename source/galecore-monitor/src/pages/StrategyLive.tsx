@@ -1,8 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, ChevronRight } from 'lucide-react';
 import { fetchCoreRulesRaw } from '../api/rules';
-import { fetchValidationLayer } from '../api/analytics';
-import { ValidationLayerApiResponse, GateResult } from '../types/api';
+import { fetchValidationLayer, fetchPositionBuilder } from '../api/analytics';
+import {
+  ValidationLayerApiResponse, GateResult, PositionBuilderApiResponse,
+  StrikeEngineResult, MicrostructureResult, RiskAndSizingResult,
+} from '../types/api';
 import { PositionMonitor } from '../components/positions/PositionMonitor';
 import { ConnectionStatus } from '../socket/useMarketSocket';
 import { signalColor, tint } from '../utils/formatters';
@@ -38,6 +41,23 @@ function Card({ children }: { children: React.ReactNode }) {
     }}>
       {children}
     </div>
+  );
+}
+
+// Card con header clickeable que colapsa su contenido. Contraído por defecto.
+function CollapsibleCard({ title, titleColor = 'var(--text-muted)', defaultOpen = false, children }:
+  { title: React.ReactNode; titleColor?: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Card>
+      <button onClick={() => setOpen((o) => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', background: 'none', border: 'none',
+          padding: 0, cursor: 'pointer', color: titleColor, marginBottom: open ? 8 : 0 }}>
+        <ChevronRight size={12} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', fontFamily: 'Inter, sans-serif' }}>{title}</span>
+      </button>
+      {open && <div>{children}</div>}
+    </Card>
   );
 }
 
@@ -222,25 +242,179 @@ function macroCheckLines(macro: ValidationLayerApiResponse['macroRegime']): Arra
   ];
 }
 
+interface CheckLineData { name: string; label: string; status: LineStatus; valueText?: string; detail?: string | null }
+
+// Layer 3 (microstructure) → líneas de check. Usa los booleanos que ya computó la API.
+function microCheckLines(m: MicrostructureResult): CheckLineData[] {
+  const out: CheckLineData[] = [];
+  const st = (p: boolean): LineStatus => (p ? 'pass' : 'fail');
+  const oi = m.oiChecks;
+  const oiRow = (leg: string, c: { passed: boolean; value: number; minRequired: number } | null) =>
+    c && out.push({ name: `OI ${leg}`, label: `≥ ${c.minRequired}`, status: st(c.passed), valueText: `${c.value} / ≥ ${c.minRequired}` });
+  oiRow('short put', oi.shortPut); oiRow('long put', oi.longPut);
+  oiRow('short call', oi.shortCall); oiRow('long call', oi.longCall);
+  const ba = m.bidAskChecks;
+  const baRow = (leg: string, c: { passed: boolean; spreadPct: number | null; maxAllowed: number } | null) =>
+    c && out.push({ name: `B/A ${leg}`, label: `≤ ${(c.maxAllowed * 100).toFixed(0)}% mid`, status: st(c.passed),
+      valueText: `${c.spreadPct != null ? (c.spreadPct * 100).toFixed(1) : '—'}% / ≤ ${(c.maxAllowed * 100).toFixed(0)}%` });
+  if (ba) { baRow('short put', ba.shortPut); baRow('long put', ba.longPut); baRow('short call', ba.shortCall); baRow('long call', ba.longCall); }
+  if (m.creditMinimum)
+    out.push({ name: 'Crédito spread', label: `≥ $${m.creditMinimum.minRequired.toFixed(2)}`, status: st(m.creditMinimum.passed),
+      valueText: `$${m.creditMinimum.midCredit.toFixed(2)} / ≥ $${m.creditMinimum.minRequired.toFixed(2)}` });
+  return out;
+}
+
+// Layer 4 (risk & sizing) → líneas de check. Usa positionsAvailable/heatOk de la API.
+function riskCheckLines(r: RiskAndSizingResult): CheckLineData[] {
+  const st = (p: boolean): LineStatus => (p ? 'pass' : 'fail');
+  return [
+    { name: 'Contratos máx', label: '≥ 1', status: st(r.contracts >= 1), valueText: `${r.contracts} / ≥ 1` },
+    { name: 'Slots', label: 'disponibles ≥ 1', status: st(r.positionsAvailable), valueText: `${r.openPositions}/${r.maxPositions} · máx` },
+    { name: 'Heat total', label: `≤ ${(r.maxHeatPct * 100).toFixed(1)}% NL`, status: st(r.heatOk),
+      valueText: `${(r.currentHeatPct * 100).toFixed(1)}% / ≤ ${(r.maxHeatPct * 100).toFixed(1)}%` },
+  ];
+}
+
+// Labels de los checks de una capa del JSON de reglas — para el estado "por evaluar".
+function layerCheckLabels(rules: any, layerName: string): string[] {
+  const layer = rules?.position_builder?.layers?.find((l: any) => l.name === layerName);
+  return (layer?.checks ?? []).map((c: any) => c.label).filter(Boolean);
+}
+
+// Estado "por evaluar": lista los checks que la capa correría, en gris.
+function PendingChecklist({ labels, loading }: { labels: string[]; loading: boolean }) {
+  if (loading) return <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '8px 0' }}>Evaluando…</div>;
+  if (labels.length === 0) return <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '8px 0' }}>No evaluado — la cascada cortó antes.</div>;
+  return (
+    <>
+      {labels.map((l) => (
+        <div key={l} style={{ display: 'grid', gridTemplateColumns: '1fr 74px', gap: 10, alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--border-dark)' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>{l}</span>
+          <span style={{ fontSize: 9.5, fontWeight: 700, textAlign: 'center', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace', letterSpacing: '0.06em' }}>POR EVAL.</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+// Lista neutra de "qué evalúa" una capa (sin pass/fail — la API no lo expone para Layer 2).
+function RefChecklist({ labels }: { labels: string[] }) {
+  if (labels.length === 0) return null;
+  return (
+    <div>
+      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '2px 0 4px' }}>checks que corre</div>
+      {labels.map((l) => (
+        <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', borderBottom: '1px solid var(--border-dark)' }}>
+          <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>›</span>
+          <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'Inter, sans-serif' }}>{l}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Card de capa con header (nombre + status opcional a la derecha).
+function LayerCard({ title, titleColor = 'var(--blue-gc)', status, children }:
+  { title: string; titleColor?: string; status?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: titleColor }}>{title}</span>
+        {status != null && <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace' }}>{status}</span>}
+      </div>
+      {children}
+    </Card>
+  );
+}
+
+// Panel de la posición candidata que evalúan Layer 2-4 y los gates.
+// Fuente: strikeEngine (de la cascada o, si macro cortó, del motor macro-independiente PositionBuilder).
+function CandidatePanel({ se, spot, fromCascade }: { se: StrikeEngineResult; spot: number | null; fromCascade: boolean }) {
+  const shortOI = se.legMeta?.shortPut?.openInterest;
+  const longOI = se.legMeta?.longPut?.openInterest;
+  const box = (label: string, value: React.ReactNode, hint?: string, accent?: boolean): React.ReactNode => (
+    <div style={{ flex: 1, padding: '7px 8px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 6, textAlign: 'center',
+      border: accent ? `1px solid ${tint('var(--red-gc)', 40)}` : '1px solid transparent' }}>
+      <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>{label}</div>
+      <div className="tabular-nums" style={{ fontSize: 14, fontWeight: 700, marginTop: 2, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-primary)' }}>{value}</div>
+      {hint && <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>{hint}</div>}
+    </div>
+  );
+  const mini = (label: string, value: React.ReactNode, color?: string): React.ReactNode => (
+    <div style={{ padding: 6, backgroundColor: 'var(--bg-tertiary)', borderRadius: 6 }}>
+      <div style={{ fontSize: 9.5, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>{label}</div>
+      <div className="tabular-nums" style={{ fontSize: 12, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace', color: color ?? 'var(--text-primary)' }}>{value}</div>
+    </div>
+  );
+  return (
+    <div style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#a78bfa' }}>Posición candidata en evaluación</span>
+        <span style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
+          {fromCascade ? 'de la cascada' : 'motor · sin cortocircuito'}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+        {box('Long put', se.longPutStrike ?? '—', longOI != null ? `OI ${longOI}` : undefined)}
+        {box('Short put', se.shortPutStrike ?? '—', `${se.shortPutDelta != null ? `Δ ${Math.abs(se.shortPutDelta).toFixed(2)}` : ''}${shortOI != null ? ` · OI ${shortOI}` : ''}`, true)}
+        {box('Spot', spot != null ? spot.toFixed(2) : '—', `wall ${se.putWall ?? '—'}/${se.callWall ?? '—'}`)}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+        {mini('DTE', se.dte ?? '—')}
+        {mini('Estructura', se.selectedStructure === 'put_credit_spread' ? 'PCS' : (se.selectedStructure ?? '—'))}
+        {mini('1/3 Rule', se.creditRatio != null ? `${se.creditRatio.toFixed(1)}%` : '—', creditRatioColor(se.creditRatio))}
+        {mini('POP', se.pop != null ? `${se.pop.toFixed(0)}%` : '—')}
+        {mini('EM', se.expectedMove != null ? `±${se.expectedMove.toFixed(1)}` : '—')}
+      </div>
+    </div>
+  );
+}
+
 // ─── página ──────────────────────────────────────────────────────────────────
 
 export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Props) {
   const [rules, setRules] = useState<any | null>(null);
   const [vl, setVl] = useState<ValidationLayerApiResponse | null>(null);
+  const [pb, setPb] = useState<PositionBuilderApiResponse | null>(null);
   const [loadingVl, setLoadingVl] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [liveSymbol, setLiveSymbol] = useState('SPY');
 
+  // Carga de reglas con reintento: si el fetch falla al montar, rules queda null y toda la
+  // sección declarativa (gates, gestión, checklists de layers) se vacía. Reintenta con backoff.
   useEffect(() => {
-    fetchCoreRulesRaw().then(setRules).catch((e) => setErr(String(e?.message ?? e)));
+    let cancelled = false;
+    const load = (attempt = 0) => {
+      fetchCoreRulesRaw()
+        .then((r) => { if (!cancelled) setRules(r); })
+        .catch((e) => {
+          if (cancelled) return;
+          if (attempt < 3) setTimeout(() => load(attempt + 1), 1000 * (attempt + 1));
+          else setErr(String(e?.message ?? e));
+        });
+    };
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   const loadLive = useCallback(() => {
     setLoadingVl(true);
     setVl(null);
-    fetchValidationLayer(liveSymbol, LIVE_PROFILE)
-      .then(setVl)
-      .catch((e) => setErr(String(e?.message ?? e)))
+    setPb(null);
+    setErr(null);
+    // Recuperación: si rules no cargó al montar, el refresh lo reintenta (rápido, independiente).
+    fetchCoreRulesRaw().then(setRules).catch(() => {});
+    // Cascada (cortocircuitante) + motor macro-independiente en paralelo. El segundo puebla
+    // la posición candidata y Layer 2 aunque macro corte la cascada. allSettled: uno no tumba al otro.
+    Promise.allSettled([
+      fetchValidationLayer(liveSymbol, LIVE_PROFILE),
+      fetchPositionBuilder(liveSymbol, LIVE_PROFILE),
+    ])
+      .then(([vlRes, pbRes]) => {
+        if (vlRes.status === 'fulfilled') setVl(vlRes.value);
+        else setErr(String(vlRes.reason?.message ?? vlRes.reason));
+        if (pbRes.status === 'fulfilled') setPb(pbRes.value);
+      })
       .finally(() => setLoadingVl(false));
   }, [liveSymbol]);
 
@@ -258,7 +432,13 @@ export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Pro
   const gates: GateResult[] = vl?.positionBuilder?.signalGates?.gates ?? [];
   const overall = vl?.overallSignal ?? '—';
   const macro = vl?.macroRegime;
-  const se = vl?.positionBuilder?.strikeEngine;
+
+  // Fuentes efectivas: cascada si llegó, si no el motor macro-independiente (pb).
+  const seFromCascade = !!vl?.positionBuilder?.strikeEngine;
+  const se = vl?.positionBuilder?.strikeEngine ?? pb?.strikeEngine ?? null;
+  const micro = vl?.positionBuilder?.microstructure ?? pb?.microstructure ?? null;
+  const risk = vl?.positionBuilder?.riskAndSizing ?? pb?.riskAndSizing ?? null;
+  const spot = vl?.spotPrice ?? pb?.spotPrice ?? null;
 
   return (
     <div style={{ padding: '14px 18px 40px', height: '100%', overflowY: 'auto', fontFamily: 'Inter, sans-serif' }}>
@@ -294,10 +474,7 @@ export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Pro
         </div>
       </Card>
 
-      <Card>
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#a78bfa', marginBottom: 8 }}>
-          Embudo signal_gates (declaración)
-        </div>
+      <CollapsibleCard title="Embudo signal_gates (declaración)" titleColor="#a78bfa">
         {Object.entries(gatesDef).map(([id, def]: [string, any]) => {
           const thr = def.min ?? (def.min_usd != null ? `$${def.min_usd}` : undefined) ?? (def.bars_by_regime ? 'por régimen' : undefined);
           return (
@@ -311,20 +488,19 @@ export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Pro
             </div>
           );
         })}
-      </Card>
+        {Object.keys(gatesDef).length === 0 && <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '4px 0' }}>Reglas no cargadas.</div>}
+      </CollapsibleCard>
 
-      <Card>
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--yellow-gc)', marginBottom: 8 }}>
-          Gestión de posición (B)
-        </div>
+      <CollapsibleCard title="Gestión de posición (B)" titleColor="var(--yellow-gc)">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
           {tm.take_profit?.pct_of_initial_credit != null && <Stat label="Take profit" value={`${Math.round(tm.take_profit.pct_of_initial_credit * 100)}%`} hint="del crédito inicial" />}
           {tm.defensive_roll?.trigger_unrealized_loss_pct_of_initial_credit_gte != null && <Stat label="Roll defensivo" value={`${Math.round(tm.defensive_roll.trigger_unrealized_loss_pct_of_initial_credit_gte * 100)}%`} hint="pérdida no realizada" />}
           {tm.time_exit?.dte_threshold != null && <Stat label="Salida por tiempo" value={`${tm.time_exit.dte_threshold} DTE`} />}
           {tm.hard_defense?.trigger_any?.short_leg_delta_abs_gt != null && <Stat label="Defensa dura" value={`Δ ${tm.hard_defense.trigger_any.short_leg_delta_abs_gt}`} hint="delta del short" />}
           {tm.daily_kill_switch?.daily_portfolio_mtm_loss_pct_net_liq_max != null && <Stat label="Kill switch" value={`${(tm.daily_kill_switch.daily_portfolio_mtm_loss_pct_net_liq_max * 100).toFixed(1)}%`} hint="MtM diario / NetLiq" />}
+          {Object.keys(tm).length === 0 && <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '4px 0' }}>Reglas no cargadas.</div>}
         </div>
-      </Card>
+      </CollapsibleCard>
 
       {/* ── SECCIÓN B: EVALUACIÓN EN VIVO ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '2px 0 8px', borderBottom: '1px solid var(--border-dark)', marginBottom: 10 }}>
@@ -360,61 +536,60 @@ export function StrategyLive({ subscribeLeg, unsubscribeLeg, socketStatus }: Pro
         </div>
       )}
 
-      {/* Layer 1 — Macro regime (6 checks) */}
-      <Card>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--blue-gc)' }}>
-            Layer 1 · Macro regime
-          </span>
-          {macro && <span style={{ fontSize: 10, fontWeight: 700, marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace',
-            color: macro.signal === 'NO_OPERAR' ? 'var(--red-gc)' : macro.signal === 'ESPERAR' ? 'var(--yellow-gc)' : 'var(--green)' }}>
-            {macro.passedCount}/{macro.totalChecks} · {macro.signal}
-          </span>}
-        </div>
+      {/* Posición candidata que evalúan Layer 2-4 y los gates */}
+      {se && se.shortPutStrike != null
+        ? <CandidatePanel se={se} spot={spot} fromCascade={seFromCascade} />
+        : <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '10px 12px', marginBottom: 14, border: '1px dashed var(--border-dark)', borderRadius: 8 }}>
+            {loadingVl ? 'Construyendo posición candidata…' : 'El motor no propuso una posición candidata (ningún lado pasó la selección de strikes).'}
+          </div>}
+
+      {/* Layer 1 — Macro regime */}
+      <LayerCard title="Layer 1 · Macro regime"
+        status={macro && <span style={{ color: macro.signal === 'NO_OPERAR' ? 'var(--red-gc)' : macro.signal === 'ESPERAR' ? 'var(--yellow-gc)' : 'var(--green)' }}>{macro.passedCount}/{macro.totalChecks} · {macro.signal}</span>}>
         {macro
           ? macroCheckLines(macro).map((l) => <CheckLine key={l.name} {...l} />)
-          : <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '8px 0' }}>{loadingVl ? 'Evaluando…' : 'Sin datos.'}</div>}
-      </Card>
+          : <PendingChecklist labels={(rules?.macro_regime?.checks ?? []).map((c: any) => c.label)} loading={loadingVl} />}
+      </LayerCard>
 
-      {/* Layer 2 — Strike engine (snapshot) */}
-      {se && se.shortPutStrike != null && (
-        <Card>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--blue-gc)', marginBottom: 8 }}>
-            Layer 2 · Strike engine
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8 }}>
-            <Stat label="Estructura" value={se.selectedStructure === 'put_credit_spread' ? 'PCS' : se.selectedStructure} hint={`DTE ${se.dte} · ${se.expiration}`} />
-            <Stat label="Spread" value={se.longPutStrike != null ? `${se.longPutStrike} / ${se.shortPutStrike}` : `${se.shortPutStrike}`}
-              hint={se.shortPutDelta != null ? `Δ short ${Math.abs(se.shortPutDelta).toFixed(2)}` : ''} />
-            <Stat label="Expected move" value={se.expectedMove != null ? `±${se.expectedMove.toFixed(2)}` : '—'} hint={`z ${se.zScore?.toFixed(2) ?? '—'}`} />
-            <Stat label="1/3 Rule"
-              value={<span style={{ color: creditRatioColor(se.creditRatio) }}>{se.creditRatio != null ? `${se.creditRatio.toFixed(1)}%` : '—'}</span>}
-              hint="credit / width" />
-            <Stat label="POP" value={se.pop != null ? `${se.pop.toFixed(0)}%` : '—'} hint="1 − |Δ|" />
-            <Stat label="Put wall" value={se.putWall ?? '—'} hint={`call wall ${se.callWall ?? '—'}`} />
-          </div>
-        </Card>
-      )}
+      {/* Layer 2 — Strike engine */}
+      <LayerCard title="Layer 2 · Strike engine"
+        status={se && <span style={{ color: 'var(--text-muted)' }}>{se.selectedStructure === 'put_credit_spread' ? 'PCS' : se.selectedStructure} · DTE {se.dte}{seFromCascade ? '' : ' · candidato'}</span>}>
+        {se ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 8, marginBottom: 10 }}>
+              <Stat label="z-score" value={se.zScore != null ? se.zScore.toFixed(2) : '—'} hint="dirección" />
+              <Stat label="Trend EMA" value={se.trendSignal ?? '—'} hint={se.ema20 != null && se.ema50 != null ? `${se.ema20.toFixed(1)}/${se.ema50.toFixed(1)}` : ''} />
+              <Stat label="GEX skew" value={se.gexSign ?? '—'} />
+              <Stat label="RV régimen" value={se.realizedVolSignal ?? '—'} hint={se.rv10d != null && se.rv30d != null ? `${se.rv10d.toFixed(0)}/${se.rv30d.toFixed(0)}` : ''} />
+            </div>
+            <RefChecklist labels={layerCheckLabels(rules, 'strike_engine')} />
+          </>
+        ) : <PendingChecklist labels={layerCheckLabels(rules, 'strike_engine')} loading={loadingVl} />}
+      </LayerCard>
+
+      {/* Layer 3 — Microestructura */}
+      <LayerCard title="Layer 3 · Microestructura"
+        status={micro && <span style={{ color: micro.signal === 'NO_OPERAR' ? 'var(--red-gc)' : 'var(--green)' }}>{micro.signal}</span>}>
+        {micro
+          ? microCheckLines(micro).map((l) => <CheckLine key={l.name} {...l} />)
+          : <PendingChecklist labels={layerCheckLabels(rules, 'microstructure')} loading={loadingVl} />}
+      </LayerCard>
+
+      {/* Layer 4 — Riesgo y sizing */}
+      <LayerCard title="Layer 4 · Riesgo y sizing"
+        status={risk && <span style={{ color: risk.signal === 'NO_OPERAR' ? 'var(--red-gc)' : 'var(--green)' }}>{risk.signal}</span>}>
+        {risk
+          ? riskCheckLines(risk).map((l) => <CheckLine key={l.name} {...l} />)
+          : <PendingChecklist labels={layerCheckLabels(rules, 'risk_and_sizing')} loading={loadingVl} />}
+      </LayerCard>
 
       {/* Signal gates — el embudo de research */}
-      <Card>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#a78bfa' }}>
-            Embudo signal_gates (en vivo)
-          </span>
-          {vl?.positionBuilder?.signalGates && (
-            <span style={{ fontSize: 10, fontWeight: 700, marginLeft: 'auto', fontFamily: 'JetBrains Mono, monospace',
-              color: vl.positionBuilder.signalGates.allPass ? 'var(--green)' : 'var(--red-gc)' }}>
-              {vl.positionBuilder.signalGates.allPass ? '✓ todos' : `✗ ${vl.positionBuilder.signalGates.failedGate}`}
-            </span>
-          )}
-        </div>
+      <LayerCard title="Embudo signal_gates" titleColor="#a78bfa"
+        status={vl?.positionBuilder?.signalGates && <span style={{ color: vl.positionBuilder.signalGates.allPass ? 'var(--green)' : 'var(--red-gc)' }}>{vl.positionBuilder.signalGates.allPass ? '✓ todos' : `✗ ${vl.positionBuilder.signalGates.failedGate}`}</span>}>
         {gates.length > 0
           ? gates.map((g) => <GateRow key={g.id} g={g} />)
-          : <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '8px 0' }}>
-              {loadingVl ? 'Evaluando…' : 'La señal no llegó al embudo (falló una capa previa o el mercado no está operable).'}
-            </div>}
-      </Card>
+          : <PendingChecklist labels={Object.entries(gatesDef).filter((e) => (e[1] as any).enabled).map((e) => (e[1] as any).label ?? e[0])} loading={loadingVl} />}
+      </LayerCard>
 
       {/* ── SECCIÓN C: MONITOR DE POSICIONES ── */}
       <SectionTitle>C · Monitor de posiciones</SectionTitle>
