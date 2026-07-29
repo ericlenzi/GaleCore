@@ -58,9 +58,12 @@ Sesión de alineación en curso — plan de 6 fases (validar RPF = alinear defin
   **resueltas:** estructuras → **PCS-only** (BT-11); régimen → **flags rápidos** (no el de 8);
   parámetros → **calibración del backtest** (delta 0.25, GEX≥0, barras edge 1.05/1.10/1.20, VRP 1.2).
 - **Fase 2 ✅** — definición canónica v2 escrita (este es el doc alineado).
-- **Fase 3 ✅** — JSON `galecore_rules_rpf.json` v0.1.0-draft. Todos los valores del libro mayor.
-  **Gap abierto:** los cortes VIX de las etiquetas de régimen (low_vol/normal/elevated/caution) que
-  eligen la barra `min_edge` son **provisorios** — hay que fijarlos contra el clasificador del
-  research en Fase 4 (las barras están calibradas; los cortes de etiqueta no).
-- **Fase 4 ⏭** — test de consistencia doc↔JSON↔research (espejo de `RulesJsonTests`).
-  **Fase 5** — contrato `TradeSuggestion` + máquina de estados (arquitectura RPF completo).
+- **Fase 3 ✅** — JSON `galecore_rules_rpf.json` (v0.2.0-draft tras Fase 4). Valores del libro mayor.
+- **Fase 4 ✅** — test de consistencia doc↔JSON↔**código**. Hallazgo: la capa de señal RPF ya está
+  implementada (`SignalGatesEvaluator` + `PopCalibrationTable` + `SkewHistory`) y coincide valor por
+  valor con el JSON. Forks decididos: **A** — JSON reestructurado al schema `signal_gates` (reutiliza
+  el evaluador sin código nuevo); **B** — iv_rank removido. Gap de etiquetas de régimen **cerrado**
+  (`ClassifyRegime` ya existe). Test `DataFeed.Tests/RpfRulesJsonTests.cs` (15) + suite 65/65 verde.
+  Divergencias v1.4.0↔RPF catalogadas en reconciliación §12.3 (2 candidatas a limpieza de la vigente).
+- **Fase 5 ⏭** — contrato `TradeSuggestion` + máquina de estados + loop backend (orquestación, la
+  parte NO implementada; se valida por diseño + paper).

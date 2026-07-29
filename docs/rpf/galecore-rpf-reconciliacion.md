@@ -186,5 +186,57 @@ Las cinco filas ⚠️ que bloqueaban el freeze de la spec quedaron resueltas:
 | **4** | Umbral hard_defense con entrada 0.25 | ✅ **delta 0.42** | defensa coherente con entrada 0.25 |
 | **5** | Arquitectura: estados+loop backend vs cascada | ✅ **RPF completo** (estados + loop backend + push) | agranda Fase 5; es la visión objetivo |
 
-**Freeze desbloqueado.** Próximo: Fase 2 (reescribir `galecore-estrategia-rpf.md` v2) → Fase 3
-(JSON) → Fase 4 (test de consistencia) → Fase 5 (contrato TradeSuggestion + máquina de estados).
+**Freeze desbloqueado.** Fases 2 (definición v2) y 3 (JSON) hechas. Fase 4 abajo.
+
+---
+
+## 12. Fase 4 — reconciliación contra el CÓDIGO (2026-07-29)
+
+Hallazgo al ubicar el JSON en `DataFeed.Api/Files`: **la capa de señal RPF ya está implementada**
+(`DataFeed.Application/App/SignalGates/*`: `SignalGatesEvaluator`, `PopCalibrationTable`,
+`SkewHistory`; + `Files/pop_calibration.json` y `Files/skew25_history.json` sirviendo datos). Corre
+dentro de la cascada v1.4.0. Lo que NO existe es la orquestación (estados + loop + push). Por eso
+Fase 4 pasó a tener **tres superficies: doc ↔ JSON ↔ código.**
+
+### 12.1 Alineación confirmada (la señal implementada ES la señal RPF)
+
+Valor por valor, el `signal_gates` del core + `SignalGatesEvaluator` coinciden con el RPF JSON:
+VRP 1.2 · tail VVIX 110/130 & skew 0.05/0.08 score≥2 · edge `(cr/w)/pLoss` barras 1.05/1.10/1.10/1.20
+· credit_min $0.30 & ratio 10% · short≤put_wall · POP trailing sin shrinkage · PCS. **El gap de los
+cortes de etiqueta de régimen quedó CERRADO:** `definitions.regime_classification` ya existe
+(0-15 low_vol / 15-25 normal / 25-30 elevated / 30+ caution) y la lee `ValidationLayerHandler.ClassifyRegime`.
+
+### 12.2 Decisiones de Fase 4
+
+| Fork | Decisión | Efecto |
+|---|---|---|
+| **A** — schema del JSON | ✅ **reestructurar a `signal_gates`** (espeja el core) | RPF reutiliza `SignalGatesEvaluator` SIN código nuevo; los 2 ejes viven en la definición |
+| **B** — iv_rank | ✅ **removido** (gate Y display) | consistente con BT-0 + principio 2; "lo que no se usa no se muestra" |
+
+### 12.3 Divergencias: v1.4.0 implementado vs RPF decidido
+
+Estas son diferencias entre la estrategia **vigente** y la config RPF. El RPF JSON encoda los valores
+RPF; algunas filas son además **limpiezas pendientes de la estrategia vigente**:
+
+| Parámetro | v1.4.0 implementado | RPF decidido | Nota |
+|---|---|---|---|
+| delta_target | rango 0.25–**0.30** | **0.25** fijo | RPF más específico |
+| ancho | permite hasta **$10** | **$5** | $10 = apalancamiento (BT-17) |
+| sizing / heat | **1.5% / 4.5%** | **3.5% / 7%** | tres juegos de números en circulación |
+| hard_defense | delta **0.30** | **0.42** | 🔴 v1.4.0: con delta 0.25-0.30 el 0.30 dispara casi en la entrada |
+| **time_exit 21 DTE** | **ACTIVO** | **desactivado** | 🔴 v1.4.0 carga una regla que **BT-4 refutó** |
+| daily_kill_switch | **1.5%** | **1%** | menor |
+| iv_momentum | IV30 RoC | VIX RoC5d | BT-0 usó VIX RoC; divergencia menor a reconciliar |
+
+Las filas 🔴 (`hard_defense 0.30`, `time_exit 21 DTE`) son candidatas a limpieza de la **estrategia
+vigente v1.4.0**, fuera del scope RPF — decisión del operador.
+
+### 12.4 Test de consistencia
+
+`DataFeed.Tests/RpfRulesJsonTests.cs` (15 tests): congela invariantes RPF + verifica alineación con
+el core + **prueba el reuse real** (corre `SignalGatesEvaluator` sobre el `signal_gates` del RPF JSON,
+`ClassifyRegime` sobre su `regime_classification`, `PopCalibrationTable` sobre el served file). Suite
+completo: **65/65 verde.** JSON RPF → v0.2.0-draft (reestructurado).
+
+**Próximo:** Fase 5 (contrato `TradeSuggestion` + máquina de estados + loop backend = orquestación,
+la parte NO implementada; se valida por diseño + paper).
