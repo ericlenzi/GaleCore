@@ -25,6 +25,7 @@ Contexto completo de por qué esto es distinto de lo que corre hoy: ver la secci
 | Archivo | Rol |
 |---|---|
 | [`galecore-estrategia-rpf.md`](galecore-estrategia-rpf.md) | **Definición canónica v2** — alineada al research (2026-07-29). Reemplaza al diseño original. |
+| [`galecore-rpf-fase5-orquestacion.md`](galecore-rpf-fase5-orquestacion.md) | **Diseño de orquestación (Fase 5).** Contrato `TradeSuggestion` + máquina de estados + loop backend + ack. Doc-only; implementación = Fase 6. |
 | [`galecore-rpf-reconciliacion.md`](galecore-rpf-reconciliacion.md) | **Libro mayor de reconciliación (Fase 0).** Valor final · BT · estado de cada parámetro. Contrato de la validación; ante duda de un número, manda este. |
 | [`galecore-research-backtesting-rpf.md`](galecore-research-backtesting-rpf.md) | **Backtesting ejecutado** (BT-0…BT-17). Evidencia empírica. Copia RPF del research compartido de `../`. |
 | [`galecore-rpf-plan-validacion.md`](galecore-rpf-plan-validacion.md) | **Plan de validación** original (BT-1…BT-8). Restaurado de `95ed70d` — contexto histórico del diseño de las validaciones. |
@@ -65,5 +66,9 @@ Sesión de alineación en curso — plan de 6 fases (validar RPF = alinear defin
   el evaluador sin código nuevo); **B** — iv_rank removido. Gap de etiquetas de régimen **cerrado**
   (`ClassifyRegime` ya existe). Test `DataFeed.Tests/RpfRulesJsonTests.cs` (15) + suite 65/65 verde.
   Divergencias v1.4.0↔RPF catalogadas en reconciliación §12.3 (2 candidatas a limpieza de la vigente).
-- **Fase 5 ⏭** — contrato `TradeSuggestion` + máquina de estados + loop backend (orquestación, la
-  parte NO implementada; se valida por diseño + paper).
+- **Fase 5 ✅** — **diseño de orquestación** ([`galecore-rpf-fase5-orquestacion.md`](galecore-rpf-fase5-orquestacion.md)):
+  contrato `TradeSuggestion` + máquina de estados (7 estados + precedencia) + loop backend
+  (`RpfLoopService`, Tier A/B) + **ack explícito del operador** (Accept/Dismiss). Decisiones: doc-only,
+  persistencia in-memory, TTL 2× Tier B, δ cooldown `null`. Todo `enabled:false`; se valida por diseño + paper.
+- **Fase 6 ⏭** — **implementación** de la orquestación (esqueleto de código + deltas JSON del §9 +
+  re-encuadre del tablero). Arranca inerte; se activa solo tras paper.

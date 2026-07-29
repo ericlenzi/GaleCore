@@ -336,14 +336,20 @@ Con la Decisión 5 (RPF completo), esto **deja de ser "formalizar un contrato" y
 desarrollo de orquestación nuevo** en el backend. La señal está validada por datos; la máquina de
 estados y el loop se validan **por diseño y en paper**, no con backtest.
 
+> ✅ **Diseño canónico escrito (2026-07-29):** [`galecore-rpf-fase5-orquestacion.md`](galecore-rpf-fase5-orquestacion.md)
+> resuelve las piezas de abajo (contrato, máquina de estados, loop, ack, deltas JSON). Decisiones
+> nuevas: entregable = doc-only; cierre del ciclo = **ack explícito del operador**; persistencia
+> in-memory; TTL = 2× Tier B; δ cooldown `null`. La **implementación** queda para Fase 6.
+
 | Pieza | Estado | Nota |
 |---|---|---|
-| Contrato `TradeSuggestion` | a formalizar | payload, TTL, campo `state`, persistencia, entrega por SignalR |
-| Máquina de estados por símbolo | a implementar | 7 estados (§8) computados de outputs de gates + cupo + cooldown |
-| Loop en backend | a implementar | Tier A lento (arma/desarma) + Tier B rápido (vigila edge, dispara) |
-| Frontend = tablero | a re-encuadrar | deja de ser el loop; pasa a diagnóstico del loop |
-| δ del cooldown | refinamiento | la ocupación hace el grueso; δ menor |
-| Merge JSON-first | Fase 3 | `galecore_rules_rpf.json` nuevo e independiente, todo `enabled:false` |
+| Contrato `TradeSuggestion` | ✅ diseñado (Fase 5) | payload, TTL 2× Tier B, `state`=foto, persistencia in-memory, SignalR grupo `rpf` |
+| Máquina de estados por símbolo | ✅ diseñado (Fase 5) | 7 estados (§8) + precedencia; función pura de outputs de gates + cupo + cooldown |
+| Loop en backend | ✅ diseñado (Fase 5) | `RpfLoopService`: Tier A lento cacheado + Tier B rápido; molde `FlowBroadcastService` |
+| Ack del operador | ✅ diseñado (Fase 5) | Accept/Dismiss en el hub; Accept confirma + cooldown, NO ejecuta; `IN_POSITION` lo confirma la cuenta |
+| Frontend = tablero | a re-encuadrar (Fase 6) | deja de ser el loop; consume `RpfStateUpdate`/`TradeSuggestion` |
+| δ del cooldown | `null` (refinamiento) | la ocupación hace el grueso; el cooldown implementado es anti-doble-emisión |
+| Merge JSON-first | Fase 3 → deltas en Fase 6 | `galecore_rules_rpf.json`; `state_machine`/`trade_suggestion`/`orchestration` `enabled:false` |
 
 ---
 
