@@ -4,7 +4,8 @@
 > desarrollarla como una estrategia **independiente** de la que corre hoy, dentro de la **misma
 > aplicación + API**, reutilizando el código ya desarrollado (GEX, cadenas, Greeks, SignalR, etc.).
 >
-> **Estado (2026-07-29):** diseño cerrado, **sin implementar**. Por ahora **no se desarrolla código**.
+> **Estado (2026-07-29):** research cerrado, **definición alineada (v2)**, 5 decisiones del operador
+> cerradas. **Sin código todavía** — próximo: JSON (Fase 3). Ver "Estado de la validación" abajo.
 
 ---
 
@@ -23,26 +24,32 @@ Contexto completo de por qué esto es distinto de lo que corre hoy: ver la secci
 
 | Archivo | Rol |
 |---|---|
-| [`galecore-estrategia-rpf.md`](galecore-estrategia-rpf.md) | **Definición técnica** (13 secciones; §8 máquina de estados). Restaurado de `95ed70d`. |
-| [`galecore-rpf-plan-validacion.md`](galecore-rpf-plan-validacion.md) | **Plan de validación** original (BT-1…BT-8). Restaurado de `95ed70d`. |
-| [`galecore-research-backtesting-rpf.md`](galecore-research-backtesting-rpf.md) | **Backtesting ejecutado** (BT-0…BT-17). Copia RPF del research compartido de `../` (snapshot 2026-07-29). |
+| [`galecore-estrategia-rpf.md`](galecore-estrategia-rpf.md) | **Definición canónica v2** — alineada al research (2026-07-29). Reemplaza al diseño original. |
+| [`galecore-rpf-reconciliacion.md`](galecore-rpf-reconciliacion.md) | **Libro mayor de reconciliación (Fase 0).** Valor final · BT · estado de cada parámetro. Contrato de la validación; ante duda de un número, manda este. |
+| [`galecore-research-backtesting-rpf.md`](galecore-research-backtesting-rpf.md) | **Backtesting ejecutado** (BT-0…BT-17). Evidencia empírica. Copia RPF del research compartido de `../`. |
+| [`galecore-rpf-plan-validacion.md`](galecore-rpf-plan-validacion.md) | **Plan de validación** original (BT-1…BT-8). Restaurado de `95ed70d` — contexto histórico del diseño de las validaciones. |
+| [`archive/galecore-estrategia-rpf.diseno-2026-07-06.md`](archive/galecore-estrategia-rpf.diseno-2026-07-06.md) | **Diseño original pre-research** (verbatim). Reemplazado por la v2; se conserva por trazabilidad. |
 | `new-estrategy-one-pager.docx` | One-pager ejecutivo (lenguaje natural, los 7 estados en español). |
 | `GaleCore-Resumen-Config-Referencia.docx` | Resumen ejecutivo para el socio (10-jul) de la config validada H3/Config-C. |
-| `galecore_rules_rpf.json` *(pendiente)* | **JSON de reglas nuevo e independiente** — a construir y validar acá. |
+| `galecore_rules_rpf.json` *(pendiente — Fase 3)* | **JSON de reglas nuevo e independiente** — a construir y validar acá. |
 
 ## JSON de reglas — nuevo e independiente
 
 El JSON de RPF será **completamente nuevo**, sin heredar el schema de
 `../../source/galecore-datafeed/DataFeed.Api/Files/galecore_rules_core.json`. Se **arma y valida en esta
-carpeta** primero (fase de diseño, sin código). Recién cuando esté cerrado se decide cómo servirlo desde
-la API sin tocar la estrategia vigente. Insumos de diseño ya listos en los docs de arriba: los nodos
-nuevos (§10 de la definición) — `alpha_gate`, `edge_gate`, barras `vrp_min`/`min_edge` por régimen,
-`correlation_veto`, `risk_bands`, `cooldown`, la máquina de estados y el contrato `TradeSuggestion`.
+carpeta** primero (Fase 3, sin código). Recién cuando esté cerrado se decide cómo servirlo desde la API
+sin tocar la estrategia vigente. Esqueleto diseñado: ejes A/B (arma/dispara) + `pop_calibration`
+first-class + `state_machine` + `research_provenance` (ata cada nodo a su BT). Los valores salen del
+libro mayor.
 
-## Tensiones a reconciliar antes de implementar (decisión del operador)
+## Estado de la validación (2026-07-29)
 
-1. **Estructuras:** RPF admite IC/PCS/CCS; el backtesting del operador concluyó **PCS-only**.
-2. **Régimen:** RPF usa el regime engine de **8 regímenes** (para las barras dinámicas); lo implementado
-   relajó el macro. Hay que decidir si el regime engine vuelve para RPF.
-3. **Parámetros:** las tablas `vrp_min`/`min_edge` del diseño son **placeholders**; su calibración real
-   está en el backtesting ejecutado ([`galecore-research-backtesting-rpf.md`](galecore-research-backtesting-rpf.md)).
+Sesión de alineación en curso — plan de 6 fases (validar RPF = alinear definición ↔ research ↔ archivos):
+
+- **Fase 0 ✅** — libro mayor de reconciliación escrito.
+- **Fase 1 ✅** — las 5 decisiones del operador cerradas. Las 3 tensiones históricas quedaron
+  **resueltas:** estructuras → **PCS-only** (BT-11); régimen → **flags rápidos** (no el de 8);
+  parámetros → **calibración del backtest** (delta 0.25, GEX≥0, barras edge 1.05/1.10/1.20, VRP 1.2).
+- **Fase 2 ✅** — definición canónica v2 escrita (este es el doc alineado).
+- **Fase 3 ⏭** — JSON `galecore_rules_rpf.json`. **Fase 4** — test de consistencia doc↔JSON↔research.
+  **Fase 5** — contrato `TradeSuggestion` + máquina de estados (arquitectura RPF completo).
