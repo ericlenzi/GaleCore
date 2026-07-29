@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Text.Json.Nodes;
+using DataFeed.Application.App.Rpf;
 using DataFeed.Application.Data.Tastytrade.OptionChains;
 using DataFeed.Infrastructure.Providers.Tastytrade;
 using MediatR;
@@ -15,6 +17,8 @@ namespace DataFeed.Api.Hubs
         private readonly IDxLinkStreamingService _streaming;
         private readonly IFlowAggregatorService _flowAggregator;
         private readonly IMediator _mediator;
+        private readonly RpfStateStore _rpfStore;
+        private readonly IWebHostEnvironment _env;
         private readonly ILogger<MarketDataHub> _logger;
 
         // Tipos de evento soportados para streaming
@@ -33,11 +37,15 @@ namespace DataFeed.Api.Hubs
             IDxLinkStreamingService streaming,
             IFlowAggregatorService flowAggregator,
             IMediator mediator,
+            RpfStateStore rpfStore,
+            IWebHostEnvironment env,
             ILogger<MarketDataHub> logger)
         {
             _streaming = streaming;
             _flowAggregator = flowAggregator;
             _mediator = mediator;
+            _rpfStore = rpfStore;
+            _env = env;
             _logger = logger;
         }
 
@@ -214,6 +222,85 @@ namespace DataFeed.Api.Hubs
                     "UnsubscribeFlow: {ConnectionId} removido de flow {Symbol} (otros clientes activos)",
                     connectionId, symbol);
             }
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // Orquestación RPF (Fase 6a) — tablero + ack del operador
+        // ═══════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Cliente (tablero) se suscribe al estado del loop RPF. Al unirse recibe un snapshot del
+        /// estado actual de cada símbolo trackeado (ReceiveRpfState) para pintar el cockpit sin esperar
+        /// el próximo tick.
+        /// </summary>
+        public async Task SubscribeRpf()
+        {
+            await Groups.AddToGroupAsync(Context.ConnectionId, "rpf");
+
+            var now = DateTime.UtcNow;
+            foreach (var s in _rpfStore.All())
+            {
+                await Clients.Caller.SendAsync("ReceiveRpfState", s.Symbol, new RpfStateUpdate
+                {
+                    Symbol = s.Symbol,
+                    State = s.State.ToWire(),
+                    CooldownRemainingSec = _rpfStore.CooldownRemainingSec(s.Symbol, now),
+                    SuggestionId = s.Suggestion?.Id,
+                    Timestamp = s.UpdatedAt,
+                });
+            }
+
+            _logger.LogInformation("SubscribeRpf: {ConnectionId} unido al grupo rpf", Context.ConnectionId);
+        }
+
+        public Task UnsubscribeRpf()
+            => Groups.RemoveFromGroupAsync(Context.ConnectionId, "rpf");
+
+        /// <summary>
+        /// El operador aprueba la sugerencia vigente. NO ejecuta la orden — confirma la intención y
+        /// arranca el cooldown anti-doble-emisión. IN_POSITION lo confirma la cuenta, no este ack.
+        /// Idempotente por id: un ack sobre una sugerencia vencida/reemplazada se ignora.
+        /// </summary>
+        public Task AcceptSuggestion(string suggestionId) => AckAsync(suggestionId, accepted: true);
+
+        /// <summary>El operador descarta la sugerencia vigente; arranca el cooldown.</summary>
+        public Task DismissSuggestion(string suggestionId) => AckAsync(suggestionId, accepted: false);
+
+        private async Task AckAsync(string suggestionId, bool accepted)
+        {
+            int cooldownSeconds = ReadCooldownSeconds();
+            var symbol = _rpfStore.Ack(suggestionId, accepted, cooldownSeconds, DateTime.UtcNow);
+
+            if (symbol == null)
+            {
+                _logger.LogInformation("Ack ignorado (sugerencia {Id} vencida o reemplazada) accepted={Accepted}", suggestionId, accepted);
+                return;
+            }
+
+            // Feedback inmediato: el símbolo entra en COOLDOWN. El loop lo refina en el próximo tick.
+            _rpfStore.SetState(symbol, RpfState.Cooldown);
+            var now = DateTime.UtcNow;
+            await Clients.Group("rpf").SendAsync("ReceiveRpfState", symbol, new RpfStateUpdate
+            {
+                Symbol = symbol,
+                State = RpfState.Cooldown.ToWire(),
+                CooldownRemainingSec = _rpfStore.CooldownRemainingSec(symbol, now),
+                Timestamp = now,
+            });
+
+            _logger.LogInformation("Ack {Verb}: sugerencia {Id} ({Symbol}) → COOLDOWN {Sec}s",
+                accepted ? "ACCEPT" : "DISMISS", suggestionId, symbol, cooldownSeconds);
+        }
+
+        private int ReadCooldownSeconds()
+        {
+            try
+            {
+                var path = Path.Combine(_env.ContentRootPath, "Files", "galecore_rules_rpf.json");
+                var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+                return (int?)root["orchestration"]?["cooldown_seconds"] ?? 120;
+            }
+            catch { return 120; }
         }
 
         // ═══════════════════════════════════════════════════════════════════════

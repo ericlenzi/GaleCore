@@ -36,5 +36,15 @@ namespace DataFeed.Api.Infrastructure
         {
             await _hubContext.Clients.Group($"flow_{symbol}").SendAsync("ReceiveFlow", symbol, flowData);
         }
+
+        public async Task BroadcastRpfStateAsync(string symbol, object stateUpdate)
+        {
+            await _hubContext.Clients.Group("rpf").SendAsync("ReceiveRpfState", symbol, stateUpdate);
+        }
+
+        public async Task BroadcastTradeSuggestionAsync(string symbol, object suggestion)
+        {
+            await _hubContext.Clients.Group("rpf").SendAsync("ReceiveTradeSuggestion", symbol, suggestion);
+        }
     }
 }

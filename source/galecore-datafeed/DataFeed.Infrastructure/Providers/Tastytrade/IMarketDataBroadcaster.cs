@@ -12,5 +12,17 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
         /// <summary>Emite ReceiveFlow al grupo "flow_{symbol}" con el snapshot de flow agresivo.</summary>
         Task BroadcastFlowAsync(string symbol, object flowData);
+
+        /// <summary>
+        /// Emite ReceiveRpfState al grupo "rpf" con el snapshot de estado del loop RPF (Fase 6a).
+        /// El frontend es tablero: consume este evento en vez de correr la cascada.
+        /// </summary>
+        Task BroadcastRpfStateAsync(string symbol, object stateUpdate);
+
+        /// <summary>
+        /// Emite ReceiveTradeSuggestion al grupo "rpf" cuando la máquina entra en TRIGGERED.
+        /// El sistema sugiere, nunca ejecuta: la apertura sigue siendo manual.
+        /// </summary>
+        Task BroadcastTradeSuggestionAsync(string symbol, object suggestion);
     }
 }

@@ -142,32 +142,43 @@ inventado — así el reinicio del proceso no las pierde.
 ## 4. Máquina de estados (por símbolo)
 
 Los 7 estados de la definición §8, **computados** de los outputs de los gates + cupo + cooldown +
-posiciones. Ningún estado se "setea" a mano salvo por el ack del operador (§6).
+posiciones. Ningún estado se "setea" a mano salvo por el ack del operador (§6). Precedencia = el
+primero que matchea gana (orden de la tabla).
 
-| Estado | Condición (precedencia de arriba hacia abajo) | Emite |
+| Estado | Condición | Emite |
 |---|---|---|
-| `IN_POSITION` | hay posición abierta del símbolo | — (solo gestión) |
-| `VETOED` | `tail_score ≥ 2` | `RpfStateUpdate` |
-| `DORMANT` | sin veto ∧ Tier A no pasa completo | `RpfStateUpdate` |
-| `ARMED` | Tier A pasa ∧ edge < barra | `RpfStateUpdate` |
-| `WAITING_CAPACITY` | ARMED-plus ∧ edge ≥ barra ∧ sin cupo | `RpfStateUpdate` |
-| `COOLDOWN` | edge ≥ barra ∧ cupo ∧ cooldown activo | `RpfStateUpdate` |
-| `TRIGGERED` | edge ≥ barra ∧ cupo ∧ sin cooldown | `RpfStateUpdate` + `TradeSuggestion` |
+| `VETOED` | `tail_score ≥ 2` (gate corrió) | `RpfStateUpdate` |
+| `WAITING_CAPACITY` | trigger vivo (Tier A ∧ edge ≥ barra) ∧ **sin cupo** | `RpfStateUpdate` |
+| `IN_POSITION` | sin cupo ∧ ¬trigger vivo ∧ hay posiciones abiertas | — (solo gestión) |
+| `DORMANT` | sin veto ∧ sin setup operable (Tier A no pasa, o sin cupo por heat y sin posiciones) | `RpfStateUpdate` |
+| `ARMED` | Tier A pasa ∧ cupo ∧ edge < barra | `RpfStateUpdate` |
+| `COOLDOWN` | trigger vivo ∧ cupo ∧ cooldown activo | `RpfStateUpdate` |
+| `TRIGGERED` | trigger vivo ∧ cupo ∧ sin cooldown | `RpfStateUpdate` + `TradeSuggestion` |
 
-> **Precedencia:** `IN_POSITION` y `VETOED` ganan sobre todo lo demás — la gestión y el veto de cola
-> tienen autoridad (definición §1.1, safety-first). `WAITING_CAPACITY` solo se alcanza con V2 (2 cupos
-> ocupados); con 1 posición casi nunca aparece (§8 de la definición).
+> **Resolución de una ambigüedad de la definición §8 (decisión operador 2026-07-29).** La tabla §8
+> lista `IN_POSITION` = "posición abierta" con autoridad, pero su propia nota dice que
+> `WAITING_CAPACITY` aparece "cuando ambos cupos [V2] están ocupados y aparece un trade que cruza la
+> barra". Las dos cosas no coexisten: si *cualquier* posición abierta forzara `IN_POSITION`, el 2º
+> cupo de V2 nunca armaría y `WAITING_CAPACITY` sería inalcanzable — matando lo que BT-15 validó
+> (4.9→7.4 trades/año, mejor peor-año). Resolución: **`IN_POSITION` = libro lleno *sin* trigger vivo**
+> (solo queda gestionar); con 1 de 2 cupos el sistema sigue armando/disparando la 2ª. Y **`VETOED`
+> gana sobre `IN_POSITION`**: el peligro de cola domina la lectura (safety-first §1.1); la gestión de
+> la posición abierta sigue por `trade_management`, el estado solo comunica el entorno.
 
 ### 4.1 Diagrama de transiciones
 
 ```
-        tail≥2                     Tier A ok               edge≥barra & cupo & ¬cooldown
-DORMANT ───────▶ VETOED    DORMANT ─────────▶ ARMED    ARMED ────────────────────────────▶ TRIGGERED
-   ▲   veto off    │          ▲   Tier A cae    │                                              │ ack Accept / entrada manual
-   └───────────────┘          └─────────────────┘                                              ▼
-                                                                                          IN_POSITION
-   ARMED ──edge≥barra & ¬cupo──▶ WAITING_CAPACITY        TRIGGERED ──ack Dismiss / TTL──▶ COOLDOWN ──δ vencido──▶ ARMED
+DORMANT ──Tier A ok & cupo──▶ ARMED ──edge≥barra──▶ TRIGGERED ──ack Accept/Dismiss / TTL──▶ COOLDOWN ──vencido──▶ ARMED
+   ▲                            │                        │
+   │ Tier A cae / sin cupo      │ edge < barra           │ el operador abre → el libro se llena
+   └────────────────────────────┘                        ▼
+                                                (cupo agotado)
+ARMED/TRIGGERED ──edge≥barra & ¬cupo──▶ WAITING_CAPACITY        libro lleno & ¬trigger ──▶ IN_POSITION
+cualquier estado ──tail≥2──▶ VETOED  (autoridad; vuelve al que corresponda al bajar el veto)
 ```
+
+> `IN_POSITION` no es un destino del ack — surge de las **posiciones de cuenta**: cuando el operador
+> abre el spread y el libro queda lleno sin un trigger vivo. El ack solo arranca el `COOLDOWN`.
 
 ### 4.2 Qué guarda el store (lo NO recomputable)
 

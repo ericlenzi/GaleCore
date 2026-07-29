@@ -352,26 +352,52 @@
 
   "state_machine": {
     "enabled": false,
-    "enabled_note": "Arquitectura elegida (Decision 5) pero NO implementada. Desarrollo nuevo de Fase 5. Se valida por diseno + paper, no por backtest.",
+    "enabled_note": "Disenada en Fase 5 (docs/rpf/galecore-rpf-fase5-orquestacion.md). Implementacion Fase 6a: RpfStateMachine (funcion pura) + RpfStateStore. Arranca INERTE mientras enabled:false. Se valida por diseno + paper, no por backtest.",
     "scope": "por simbolo",
+    "precedence": ["VETOED", "WAITING_CAPACITY", "IN_POSITION", "DORMANT", "ARMED", "COOLDOWN", "TRIGGERED"],
+    "precedence_note": "Se evalua de arriba hacia abajo; el primero que matchea gana. VETOED tiene autoridad (safety-first, principio 1.1): el peligro activo domina la lectura aunque haya posiciones abiertas; la gestion sigue corriendo por trade_management.",
     "states": {
-      "VETOED": "tail_score >= 2",
-      "DORMANT": "sin veto y sin entorno completo habilitado",
-      "ARMED": "macro_regime pasa & VRP >= 1.2 (Tier A completo)",
-      "WAITING_CAPACITY": "ARMED & edge >= barra & sin cupo (2 posiciones V2 ocupadas)",
-      "TRIGGERED": "ARMED & edge >= barra & cupo & sin cooldown => emite trade_suggestion",
-      "COOLDOWN": "recien disparo; suprime re-disparo",
-      "IN_POSITION": "posicion abierta; solo gestion"
+      "VETOED": "tail_score >= 2 (peligro de cola activo)",
+      "WAITING_CAPACITY": "trigger vivo (Tier A & edge >= barra) & sin cupo (2 posiciones V2 ocupadas): se senaliza sin poder abrir",
+      "IN_POSITION": "sin cupo & sin trigger vivo & con posiciones abiertas: solo gestion",
+      "DORMANT": "sin veto y sin setup operable (Tier A no pasa, o sin cupo por heat y sin posiciones)",
+      "ARMED": "Tier A pasa (macro_regime & VRP & tail & GEX>=0) & cupo & edge < barra",
+      "COOLDOWN": "trigger vivo & cupo & cooldown activo (recien disparo/ack; suprime re-disparo)",
+      "TRIGGERED": "trigger vivo & cupo & sin cooldown => emite trade_suggestion"
     },
-    "computed_from": "outputs de macro_regime + signal_gates + cupo + cooldown"
+    "v2_semantics_note": "Decision operador 2026-07-29: IN_POSITION es 'libro lleno sin trigger vivo', NO 'cualquier posicion abierta'. Con 1 de 2 cupos el sistema SIGUE armando/disparando para la 2a posicion (es lo que valida BT-15: 4.9->7.4 trades/ano y mejor peor-ano). La lectura literal de la tabla 8 de la definicion habria desactivado el 2o cupo y dejado WAITING_CAPACITY inalcanzable.",
+    "computed_from": "outputs de macro_regime + signal_gates + cupo (posiciones de cuenta) + cooldown (store in-memory)"
   },
 
   "trade_suggestion": {
     "enabled": false,
-    "enabled_note": "Contrato a formalizar en Fase 5 (frontera diseno->implementacion).",
-    "transport": "SignalR (backend empuja; frontend = tablero)",
-    "payload": ["symbol", "structure", "legs", "credit", "width", "edge_emp", "delta_short", "dte", "state", "ttl"],
-    "pending": ["TTL", "persistencia", "semantica del campo state"]
+    "enabled_note": "Contrato disenado en Fase 5. DTO TradeSuggestion (Application). Emite solo con state_machine.enabled:true tras validacion en paper.",
+    "transport": "SignalR grupo 'rpf' (backend empuja; frontend = tablero). Evento ReceiveTradeSuggestion.",
+    "payload": ["id", "symbol", "structure", "legs", "credit", "width", "creditRatio", "edgeEmp", "bar", "regime", "deltaShort", "dte", "riskPerTradePct", "highRisk", "contracts", "state", "createdAt", "ttlSeconds"],
+    "state_semantics": "foto del estado que la emitio (TRIGGERED); no muta en el payload. Los cambios viajan como RpfStateUpdate separado + ackStatus.",
+    "ttl": { "mode": "multiple_of_tier_b", "factor": 2, "note": "cada tick Tier B con el simbolo aun TRIGGERED refresca (mismo id); al vencer sin ack se descarta" },
+    "persistence": "in_memory_singleton",
+    "persistence_note": "el estado se recomputa de los gates al reiniciar; IN_POSITION viene de la cuenta; el cooldown perdido es refinamiento menor (definicion seccion 6)",
+    "ack": {
+      "mode": "explicit_operator",
+      "methods": ["AcceptSuggestion", "DismissSuggestion"],
+      "accept_note": "confirma intencion + arranca cooldown; NO ejecuta la orden; IN_POSITION lo confirma la cuenta, no el ack",
+      "dismiss_note": "descarta + arranca cooldown",
+      "idempotency": "por id (un ack sobre sugerencia vencida/reemplazada se ignora)"
+    }
+  },
+
+  "orchestration": {
+    "enabled": false,
+    "enabled_note": "Nodo nuevo (Fase 5/6). Cadencias del loop RpfLoopService (BackgroundService singleton, molde FlowBroadcastService). Referencia de diseno; se afinan en paper.",
+    "loop": "RpfLoopService",
+    "tier_a_refresh_seconds": 300,
+    "tier_a_note": "arma/desarma: macro_regime + VRP + tail + GEX>=0. Escala diaria/horaria; cacheado en el store.",
+    "tier_b_tick_seconds": 30,
+    "tier_b_note": "dispara: strike engine PCS + edge + cupo + cooldown. Necesita quotes frescos; corre solo si Tier A dejo ARMED.",
+    "cooldown_seconds": 120,
+    "cooldown_note": "anti-doble-emision tras ack/TTL. La histeresis de edge (delta) queda null (definicion seccion 6). La freshness dura la gatea data_quality.max_quote_age_seconds (15s).",
+    "physical_timer": "un solo timer a la cadencia rapida (tier_b_tick_seconds); Tier A se recomputa cada N ticks (N = tier_a_refresh_seconds / tier_b_tick_seconds)"
   },
 
   "research_provenance": {

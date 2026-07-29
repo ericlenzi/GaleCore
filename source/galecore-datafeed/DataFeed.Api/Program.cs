@@ -70,6 +70,11 @@ namespace DataFeed
             builder.Services.AddHostedService<FlowBroadcastService>();
             builder.Services.AddHostedService<SkewSnapshotService>();
 
+            // Orquestación RPF (Fase 6a) — store in-memory + loop. El loop arranca INERTE:
+            // no corre la cascada ni emite hasta state_machine.enabled=true en galecore_rules_rpf.json.
+            builder.Services.AddSingleton<DataFeed.Application.App.Rpf.RpfStateStore>();
+            builder.Services.AddHostedService<RpfLoopService>();
+
             // MCP Server
             builder.Services
                 .AddMcpServer()

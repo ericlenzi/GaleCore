@@ -191,8 +191,49 @@ public class RpfRulesJsonTests
     public void Rpf_OrquestacionNoImplementada_EnabledFalse()
     {
         var r = Rpf();
-        Assert.False((bool)r["state_machine"]!["enabled"]!);   // Fase 5
-        Assert.False((bool)r["trade_suggestion"]!["enabled"]!); // Fase 5
+        Assert.False((bool)r["state_machine"]!["enabled"]!);    // Fase 5/6
+        Assert.False((bool)r["trade_suggestion"]!["enabled"]!); // Fase 5/6
+        Assert.False((bool)r["orchestration"]!["enabled"]!);    // Fase 6 (loop inerte)
+    }
+
+    [Fact]
+    public void Rpf_StateMachine_SieteEstados_ConPrecedencia()
+    {
+        var sm = Rpf()["state_machine"]!.AsObject();
+
+        var estados = sm["states"]!.AsObject().Select(kv => kv.Key).ToHashSet();
+        var esperados = new[] { "IN_POSITION", "VETOED", "DORMANT", "ARMED", "WAITING_CAPACITY", "COOLDOWN", "TRIGGERED" };
+        foreach (var e in esperados) Assert.Contains(e, estados);
+        Assert.Equal(esperados.Length, estados.Count);
+
+        // La precedencia (orden de evaluación) declara VETOED primero — autoridad safety-first —
+        // y WAITING_CAPACITY antes que IN_POSITION (V2: el 2º cupo se señaliza aunque el libro esté lleno).
+        var prec = sm["precedence"]!.AsArray().Select(x => (string?)x).ToList();
+        Assert.Equal("VETOED", prec[0]);
+        Assert.True(prec.IndexOf("WAITING_CAPACITY") < prec.IndexOf("IN_POSITION"),
+            "WAITING_CAPACITY debe evaluarse antes que IN_POSITION (semántica V2)");
+        Assert.Equal(esperados.OrderBy(x => x), prec.OrderBy(x => x)); // mismo conjunto, distinto orden
+    }
+
+    [Fact]
+    public void Rpf_TradeSuggestion_AckExplicito_TtlMultiploDeTierB()
+    {
+        var ts = Rpf()["trade_suggestion"]!.AsObject();
+        Assert.Equal("explicit_operator", (string?)ts["ack"]!["mode"]);
+        var methods = ts["ack"]!["methods"]!.AsArray().Select(x => (string?)x).ToHashSet();
+        Assert.Contains("AcceptSuggestion", methods);
+        Assert.Contains("DismissSuggestion", methods);
+        Assert.Equal("multiple_of_tier_b", (string?)ts["ttl"]!["mode"]);
+        Assert.Equal("in_memory_singleton", (string?)ts["persistence"]);
+    }
+
+    [Fact]
+    public void Rpf_Orchestration_TierBMasRapidoQueTierA()
+    {
+        var o = Rpf()["orchestration"]!.AsObject();
+        var tierA = (int)o["tier_a_refresh_seconds"]!;
+        var tierB = (int)o["tier_b_tick_seconds"]!;
+        Assert.True(tierB < tierA, "Tier B (dispara) debe tickear más rápido que el refresh de Tier A (arma)");
     }
 
     [Fact]
