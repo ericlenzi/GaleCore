@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { useMarketStore } from '../store/useMarketStore';
 import { useFlowStore } from '../store/useFlowStore';
+import { useRpfStore } from '../store/useRpfStore';
 import { TradePayload, QuotePayload, FlowPayload, GreeksPayload } from '../types/api';
+import { RpfStateUpdate, TradeSuggestion } from '../types/rpf';
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -52,6 +54,14 @@ export function useMarketSocket(tickers: string[] = []) {
       useFlowStore.getState().updateFlow(symbol, data);
     });
 
+    // ── RPF orchestration handlers (Fase 6b) ───────────────────────────────
+    connection.on('ReceiveRpfState', (symbol: string, data: RpfStateUpdate) => {
+      useRpfStore.getState().applyState(symbol, data);
+    });
+    connection.on('ReceiveTradeSuggestion', (symbol: string, data: TradeSuggestion) => {
+      useRpfStore.getState().applySuggestion(symbol, data);
+    });
+
     // ── Reconnect logic ───────────────────────────────────────────────────
     connection.onreconnecting(() => {
       setStatus('connecting');
@@ -70,6 +80,8 @@ export function useMarketSocket(tickers: string[] = []) {
       flowSymbols.forEach((symbol) => {
         connection.invoke('SubscribeFlow', symbol, null, null).catch(console.error);
       });
+      // Re-join the RPF board group
+      connection.invoke('SubscribeRpf').catch(console.error);
     });
 
     connection.onclose(() => {
@@ -86,6 +98,8 @@ export function useMarketSocket(tickers: string[] = []) {
         tickers.forEach((symbol) => {
           connection.invoke('Subscribe', symbol, false).catch(console.error);
         });
+        // Join the RPF board group (loop puede estar inerte → no llega nada, es esperado)
+        connection.invoke('SubscribeRpf').catch(console.error);
       })
       .catch((err) => {
         console.error('SignalR connection error:', err);
@@ -147,5 +161,21 @@ export function useMarketSocket(tickers: string[] = []) {
     useFlowStore.getState().clearFlow(symbol);
   }, []);
 
-  return { status, subscribeFlow, unsubscribeFlow, subscribeLeg, unsubscribeLeg };
+  // ── RPF ack methods (Fase 6b) ─────────────────────────────────────────
+  // El sistema sugiere, nunca ejecuta: Accept confirma intención + cooldown, NO abre la orden.
+  const acceptSuggestion = useCallback((suggestionId: string) => {
+    const conn = connectionRef.current;
+    if (conn?.state === signalR.HubConnectionState.Connected) {
+      conn.invoke('AcceptSuggestion', suggestionId).catch(console.error);
+    }
+  }, []);
+
+  const dismissSuggestion = useCallback((suggestionId: string) => {
+    const conn = connectionRef.current;
+    if (conn?.state === signalR.HubConnectionState.Connected) {
+      conn.invoke('DismissSuggestion', suggestionId).catch(console.error);
+    }
+  }, []);
+
+  return { status, subscribeFlow, unsubscribeFlow, subscribeLeg, unsubscribeLeg, acceptSuggestion, dismissSuggestion };
 }

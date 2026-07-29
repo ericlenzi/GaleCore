@@ -9,6 +9,7 @@ import { PortfolioManager } from './pages/PortfolioManager';
 import { Monitor } from './pages/Monitor';
 import { Strategy } from './pages/Strategy';
 import { StrategyLive } from './pages/StrategyLive';
+import { Rpf } from './pages/Rpf';
 import { useMarketSocket, ConnectionStatus } from './socket/useMarketSocket';
 import { useRulesStore } from './store/useRulesStore';
 import { useAccountStore } from './store/useAccountStore';
@@ -49,7 +50,7 @@ function Dashboard({ onLogout }: DashboardProps) {
       .finally(() => setLoadingPositions(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { status, subscribeLeg, unsubscribeLeg } = useMarketSocket(tickers);
+  const { status, subscribeLeg, unsubscribeLeg, acceptSuggestion, dismissSuggestion } = useMarketSocket(tickers);
   useEffect(() => { setSocketStatus(status); }, [status]);
 
   return (
@@ -66,6 +67,9 @@ function Dashboard({ onLogout }: DashboardProps) {
           </div>
           <div style={{ display: tab === 'estrategia-live' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
             <StrategyLive subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} />
+          </div>
+          <div style={{ display: tab === 'rpf' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
+            <Rpf acceptSuggestion={acceptSuggestion} dismissSuggestion={dismissSuggestion} />
           </div>
           {tab === 'estrategia' && <Strategy />}
         </main>
