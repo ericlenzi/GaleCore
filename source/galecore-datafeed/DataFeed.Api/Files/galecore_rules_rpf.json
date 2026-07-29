@@ -1,0 +1,353 @@
+{
+  "_meta": {
+    "version": "0.1.0-draft",
+    "strategy": "rpf_real_premium_firing",
+    "strategy_name_es": "Disparo por prima real",
+    "profile": "core",
+    "status": "paper_only",
+    "enabled_for_live": false,
+    "config_ref": "BT-17 variante C con capa gamma mantenida (delta 0.25 + GEX>=0)",
+    "config_note": "delta 0.25 + GEX es una INTERPOLACION, no una fila impresa del research (ganador BT-17 variante C es sin GEX). Se adopta la conjuncion de dos palancas validadas por separado. Ver reconciliacion seccion 10.5.",
+    "last_updated": "2026-07-29",
+    "reference_doc": "docs/rpf/galecore-estrategia-rpf.md",
+    "ledger_doc": "docs/rpf/galecore-rpf-reconciliacion.md",
+    "research_doc": "docs/rpf/galecore-research-backtesting-rpf.md",
+    "expected_metrics": {
+      "trades_per_year": 8,
+      "win_rate": 0.97,
+      "worst_year_usd": -140,
+      "note": "interpolado entre variante A (7.4/ano) y C (10.6/ano) de BT-17; revalidar en paper"
+    },
+    "location": "source/galecore-datafeed/DataFeed.Api/Files/ (junto a core/live/paper)",
+    "served_status": "presente en Files pero SIN endpoint (AppController sirve solo core/live/paper por nombre fijo). paper_only + enabled_for_live:false gatean el paso a real.",
+    "signal_layer_note": "La capa de senal RPF (VRP, edge con POP empirica, tail/skew, gamma) YA corre en codigo (DataFeed.Application/App/SignalGates/*) dentro de la cascada v1.4.0. Lo que falta es la ORQUESTACION: state_machine + loop backend + trade_suggestion (Fase 5)."
+  },
+
+  "principles": {
+    "safety_first": true,
+    "gates_vs_triggers": true,
+    "no_cross_compensation": true,
+    "prune_dont_add": true,
+    "json_first": true,
+    "suggest_never_execute": true
+  },
+
+  "universe": {
+    "mode": "whitelist",
+    "tickers": ["SPY"],
+    "excluded": {
+      "QQQ": "operador 2026-07-14 (replico en BT-6 pero fuera del trading)",
+      "IWM": "BT-6: sin prima rica, refutado"
+    }
+  },
+
+  "data_quality": {
+    "max_quote_age_seconds": 15,
+    "max_structural_levels_age_minutes": 15,
+    "block_on_crossed_market": true,
+    "block_on_missing_critical_data": true,
+    "spread_max_pct": 0.05,
+    "spread_note": "gate primario de microestructura (BT seccion 8); se auto-protege sin importar el OI"
+  },
+
+  "definitions": {
+    "vrp": {
+      "type": "formula",
+      "formula": "atm_iv / rv30",
+      "rv30": "stddev(log_returns c2c, 30 dias habiles) * sqrt(252)",
+      "denominator_note": "RV30 TRAILING. HAR-RV probado y refutado (BT-16): reabre el bear 2022.",
+      "endpoint": "derived from /App.Analytics/ImpliedVolatility + /Data/Tastytrade/MarketData/Candle"
+    },
+    "pop_empirical": {
+      "type": "lookup_table",
+      "ref": "pop_calibration",
+      "note": "Reemplaza 1-|delta|. BT-1: el delta sobrestima el riesgo put ~2x. Lado put unicamente (PCS-only)."
+    },
+    "edge_emp": {
+      "type": "formula",
+      "formula": "(net_credit / spread_width) / pop_empirical(delta_short)",
+      "semantics": "edge > 1 <=> EV > 0 con probabilidad honesta",
+      "note": "BT-3 run-2: con POP empirica la mediana pasa de 0.59 a 1.11"
+    },
+    "credit_ratio": {
+      "type": "formula",
+      "formula": "net_credit / spread_width",
+      "role": "display + piso anti-pennies (>=0.10). El target 33.3% quedo RETIRADO como piso (BT-3 run-2)."
+    },
+    "gex": {
+      "type": "formula",
+      "formula": "sum(OI * gamma * 100 * spot^2 * 0.01) sobre strikes, callGEX - putGEX",
+      "unit": "USD (no billones)",
+      "fix_note": "BT-5: el backend calculaba sin el x0.01 y guardaba /1e6 en un campo NetGexBillions (bug: valores -5e16). Fix pendiente en GammaExposureHandler.cs.",
+      "endpoint": "/App.Analytics/GammaExposure"
+    },
+    "gex_skew": {
+      "type": "formula",
+      "formula": "callGEX / (callGEX + abs(putGEX))",
+      "note": "no usado como selector de estructura (PCS-only); se conserva como diagnostico"
+    },
+    "put_wall": {
+      "type": "formula",
+      "formula": "strike con maximo gamma*OI de puts, DTE < 90",
+      "role": "restriccion de sanidad (short <= put_wall), NO ancla de strikes (BT 3-bis)"
+    },
+    "directional_zscore": {
+      "type": "formula",
+      "formula": "ret_5d_log / (atm_iv / sqrt(252))",
+      "note": "diagnostico de mercado; no gate en PCS-only"
+    },
+    "tail_score": {
+      "type": "formula",
+      "inputs": ["vvix_level", "skew25_roc5d"],
+      "scoring": "none/warn/block = 0/1/2 por input; score = suma; score >= 2 => engine_out",
+      "gap_smoothing_days": 2,
+      "market_proxy": "SPY (aplica al unico simbolo)"
+    },
+    "friction": {
+      "type": "model",
+      "per_trade_usd": 6.30,
+      "components": "comisiones + fees + slippage + gestion esperada (PCS 2 legs, round trip, cierre 50%)",
+      "floor_formula": "min_edge_floor = 1 + friction_usd / credit_usd",
+      "note": "piso real ~1.02-1.06 para creditos decentes (liquidez SPY); la tabla min_edge sobrevive con margen"
+    }
+  },
+
+  "pop_calibration": {
+    "enabled": true,
+    "side": "put_only",
+    "method": "expanding_window_anti_lookahead",
+    "shrinkage": null,
+    "shrinkage_note": "SIN shrinkage. El shrinkage 50% (BT-9b/H2) mata la ocurrencia a delta bajo (BT-10); a delta 0.25-0.30 el trailing puro es la eleccion (BT-10c).",
+    "served_file": "Files/pop_calibration.json",
+    "served_format": "symbols.SPY[] = { delta, pLoss, n }. pLoss = prob. empirica ITM por bucket de |delta|. Interpolar linealmente. edge = (credit/width) / pLoss.",
+    "reader_code": "DataFeed.Application/App/SignalGates/PopCalibrationTable.cs",
+    "origin": "research/data/derived/pop_calibration_{sym}.parquet (BT-10)",
+    "note_spy_only": "el served_file trae SPY y QQQ; en RPF solo se usa SPY (universe). QQQ queda como dato inerte.",
+    "caveat": "Hija del drift (13 anos mayormente alcistas). Si el drift cambia, el factor cambia (test IWM, BT-6). Monitorear el factor por ventana (criterio C4).",
+    "monitoring_c4": "el factor put de zona (buckets 0.15-0.25) no debe variar > 0.15 entre ventanas. Quedo en falla declarada en H3 (salto 0.215), absorbido por barras robustas, no resuelto."
+  },
+
+  "eje_a_arma": {
+    "_note": "TIER A - lento. Entorno habilitado (seguridad, binario). Todo pasa => ARMED.",
+
+    "regime": {
+      "enabled": true,
+      "engine": "fast_flags",
+      "engine_note": "Decision operador 2026-07-29: flags rapidos, NO el regime engine de 8 regimenes (nunca backtesteado con esta config).",
+      "operable_rule": "NOT ( vix >= 30 OR vix9d > vix3m OR vix_roc5d_pct > 12 )",
+      "flags": {
+        "vix_block_level": 30,
+        "term_structure_inversion": "vix9d > vix3m",
+        "vix_roc5d_block_pct": 12
+      },
+      "lead_time_note": "BT-0: lead mediano +3 dias, positivo en 11/15 episodios; cubre el peor dia en 14/15.",
+      "labels_for_min_edge": {
+        "_note": "Etiqueta de 4 vias para elegir la barra min_edge (seccion edge_gate). Las BARRAS estan calibradas (BT-3 run-2); los cortes VIX de las etiquetas deben fijarse contra la definicion del clasificador en Fase 4.",
+        "low_vol": "vix < 15",
+        "normal": "15 <= vix < 25",
+        "elevated": "25 <= vix < 30 sin flags de stress (sweet spot: BT-2/3 98.9% win)",
+        "caution": "un flag en warn sin llegar a out",
+        "cutoffs_status": "PROVISORIO - pin contra el clasificador de regimen en Fase 4"
+      }
+    },
+
+    "tail_gate": {
+      "enabled": true,
+      "vvix": { "warn": 110, "block": 130 },
+      "skew25_roc5d": { "warn_pct": 5, "block_pct": 8 },
+      "skew25_source": "IV_put25delta / IV_atm de las cadenas SPY, DTE 25-35",
+      "score_out_ge": 2,
+      "on_fail": "engine_out (estado VETOED)",
+      "note": "BT-9b habilito H2; BT-10c: load-bearing a delta 0.30+"
+    },
+
+    "gamma_gate": {
+      "enabled": true,
+      "rule": "gex >= 0",
+      "scope": "SPY_only",
+      "decision_note": "Decision operador 2026-07-29: MANTENER (safety-first). Seguro anti-crash de gamma negativa.",
+      "blind_spot": "El unico episodio que justifica el gate (ago-2015) esta FUERA de la ventana OOS 2018-2025. Se mantiene por principio, no porque el OOS lo exija.",
+      "retired_thresholds": "el umbral 25B/50B del diseno quedo retirado (inalcanzable con la formula real); recalibrado a GEX >= 0 (BT-5).",
+      "qqq_status": "gamma enabled:false para QQQ (BT-6: no paga). Moot en SPY-only."
+    },
+
+    "alpha_gate": {
+      "enabled": true,
+      "vrp_min": 1.2,
+      "structure": "plano",
+      "structure_note": "NO tabla por regimen. El barrido no justifico dinamizar esta barra (BT-2/3). El dinamismo entra por min_edge.",
+      "validation": "BT-2/3: P&L medio VRP>=1.2 = $25.5 vs $9.5 rechazado (2.7x); banda 1.2-1.4 p5 positivo"
+    }
+  },
+
+  "eje_b_dispara": {
+    "_note": "TIER B - rapido. Oportunidad (spread). Solo si ARMED.",
+
+    "strike_engine": {
+      "enabled": true,
+      "structure": "put_credit_spread",
+      "forbidden_structures": {
+        "iron_condor": "BT-11: in-edgeable a probabilidad honesta (necesitaria credito >=63% del ancho)",
+        "call_credit_spread": "BT-11: credito requerido ~$2.40, el mercado no lo ofrece",
+        "naked_short": "prohibido por diseno (principio safety-first)",
+        "ratio_spread": "prohibido por diseno",
+        "long_directional": "prohibido por diseno"
+      },
+      "structure_selection_retired": "el motor multi_factor degradaba el baseline (BT-11); a re-diseno con ciclo nuevo si se revive",
+      "delta_target": 0.25,
+      "delta_note": "BT-17 ganador; BT-12 meseta 0.28-0.32 (no pico). Delta 0.25 = clavija limpia (ganancia genuina, no re-tuning).",
+      "width_usd": 5,
+      "width_note": "$10 rechazado (BT-17): apalancamiento, no alpha (mismo total con 2x max loss)",
+      "dte_target": 45,
+      "dte_range": [35, 50],
+      "sanity": {
+        "short_le_put_wall": true,
+        "note": "BT 3-bis: muerde <1% de entradas pero filtra configuraciones toxicas (-$152 avg). No es barrera anti-crash."
+      },
+      "anti_pennies": {
+        "credit_ratio_min": 0.10,
+        "credit_min_usd": 0.30,
+        "note": "el piso 33.3% (regla 1/3) quedo RETIRADO para spreads de un solo lado (BT-3 run-2)"
+      },
+      "microstructure": {
+        "open_interest_min": 100,
+        "oi_note": "bajo de 2000 (BT seccion 8): el OI no predice calidad de quote en SPY moderno",
+        "spread_max_pct": 0.05,
+        "volume_min_status": "el filtro de volumen (>200) muerde parecido; pendiente revisar con el mismo metodo (BT seccion 8)"
+      }
+    },
+
+    "edge_gate": {
+      "enabled": true,
+      "rule": "edge_emp >= min_edge(regime_label)",
+      "selector": "elegir el strike de MAYOR edge_emp entre los que pasan el piso",
+      "min_edge_by_regime": {
+        "normal": 1.05,
+        "low_vol": 1.10,
+        "elevated": 1.10,
+        "caution": 1.20
+      },
+      "calibration": "BT-3 run-2 (barrido con datos). Congelado en BT-9..17.",
+      "invariants": {
+        "monotonic": "barra no-decreciente con el peligro del regimen",
+        "hard_floor": "min_edge >= 1 + friction/credit en todo regimen",
+        "no_cross_compensation": "VRP alto no compra min_edge bajo, ni al reves"
+      },
+      "robustness": "BT-9/10c: veredicto C3 no flipea con barras +-0.05"
+    }
+  },
+
+  "risk": {
+    "sizing_pct_netliq": {
+      "standard_max": 0.05,
+      "target": 0.035,
+      "high_risk_band": [0.05, 0.08],
+      "high_risk_note": "flag high_risk: solo regimen benigno, aprobacion manual explicita SIEMPRE",
+      "never_gt": 0.08
+    },
+    "heat_cap_pct": 0.07,
+    "heat_note": "intacto. NO se relaja para que V2 entre a $10k (violaria principio no_cross_compensation).",
+    "portfolio": {
+      "variant": "V2",
+      "max_positions": 2,
+      "constraint": "la 2a posicion solo con vencimiento distinto a la abierta",
+      "never": "apilar mismo lado / mismo vencimiento (doble friccion, correlacion 1.0)",
+      "validation": "BT-15: C1+C2+C3 pasan; sube trades/ano 4.9->7.4 y MEJORA el peor ano"
+    },
+    "capital": {
+      "base_reference_usd": 16000,
+      "base_note": "respeta maxDD 5% + heat 7% sin tocar limites; V2 corre ~$820 riesgo simultaneo, maxDD medido -8.3% a 1 contrato",
+      "live_funding_target_usd": 32000,
+      "live_note": "objetivo negocio $200/mes; la escala la cierra el capital, no un parametro de senal"
+    },
+    "maxdd_cap_pct": 0.05,
+    "correlation_veto": {
+      "enabled": false,
+      "reason": "muerto en SPY-only (no hay segundo simbolo). BT-6: sin evidencia in-sample de que pague."
+    }
+  },
+
+  "trade_management": {
+    "profit_target_pct": 0.50,
+    "profit_note": "BT-4: politica B domina en $/dia (win 99%, libera capital en ~17d vs ~43)",
+    "forced_dte_exit": {
+      "enabled": false,
+      "reason": "BT-4 REFUTO la salida a 21 DTE: destruye win 97->75%, cola negativa (cristaliza rebotes)"
+    },
+    "hard_defense": {
+      "enabled": true,
+      "short_delta_gt": 0.42,
+      "loss_ge_x_credit": 2.0,
+      "delta_note": "subio de 0.30 (diseno) a 0.42: con entrada delta 0.25, 0.30 disparia casi en la entrada. BT-12: deterioro gradual sin acantilado hasta 0.35."
+    },
+    "daily_kill_switch_pct": -0.01,
+    "rolls": {
+      "otm_only": true,
+      "by_net_credit": true,
+      "min_new_dte": 21,
+      "itm": "se cierra, no se rolla"
+    },
+    "ex_div_spy": {
+      "enabled": false,
+      "rule": "block CCS con ex-dividend <= 3 dias, warn <= 7",
+      "reason": "inactivo con PCS-only (no hay CCS); reactiva si vuelve el lado call"
+    },
+    "structure_mutation": {
+      "enabled": false,
+      "reason": "PCS->IC muerto (IC prohibido, BT-11)"
+    }
+  },
+
+  "cooldown": {
+    "enabled": true,
+    "type": "edge_hysteresis",
+    "delta": null,
+    "note": "la ocupacion de la posicion (~17d) hace ~80% del trabajo del cooldown (BT-7/BT-15); delta = refinamiento menor, no bloqueante"
+  },
+
+  "state_machine": {
+    "enabled": false,
+    "enabled_note": "arquitectura elegida (Decision 5) pero NO implementada. Desarrollo nuevo de Fase 5. Validada por diseno + paper, no por backtest.",
+    "scope": "por simbolo",
+    "states": {
+      "VETOED": "veto de cola activo (tail_gate score >= 2)",
+      "DORMANT": "sin veto y sin entorno completo habilitado",
+      "ARMED": "Tier A completo pasa (regime & tail & GEX>=0 & VRP>=1.2)",
+      "WAITING_CAPACITY": "ARMED & edge >= barra & sin cupo (2 posiciones V2 ocupadas)",
+      "TRIGGERED": "ARMED & edge >= barra & cupo & sin cooldown => emite TradeSuggestion",
+      "COOLDOWN": "recien disparo; suprime re-disparo",
+      "IN_POSITION": "posicion abierta; trigger apagado, solo gestion"
+    },
+    "computed_from": "outputs de los gates + cupo + cooldown"
+  },
+
+  "trade_suggestion": {
+    "enabled": false,
+    "enabled_note": "contrato a formalizar en Fase 5 (frontera diseno->implementacion)",
+    "transport": "SignalR (backend empuja; frontend = tablero)",
+    "payload": ["symbol", "structure", "legs", "credit", "width", "edge_emp", "delta_short", "dte", "state", "ttl"],
+    "pending": ["TTL", "persistencia", "semantica del campo state"]
+  },
+
+  "research_provenance": {
+    "_note": "Ata cada decision del JSON a su BT. El test de Fase 4 falla si un parametro cambia sin respaldo.",
+    "universe_spy_only": "operador 2026-07-14 + BT-6",
+    "structure_pcs_only": "BT-11",
+    "delta_target_0_25": "BT-17 (ganador) + BT-12 (meseta)",
+    "width_5": "BT-13c + BT-17",
+    "pop_empirical_no_shrinkage": "BT-1 + BT-9b + BT-10c",
+    "min_edge_bars": "BT-3 run-2",
+    "vrp_min_1_2_flat": "BT-2/3",
+    "vrp_denominator_trailing": "BT-16 (HAR refutado)",
+    "tail_gate_vvix_skew": "BT-9b",
+    "gamma_gate_gex_ge_0": "BT-5 (SPY) + BT-6 (poda QQQ) + BT-17/P1 (decision mantener)",
+    "put_wall_restriction": "BT 3-bis",
+    "microstructure_oi_100": "BT seccion 8",
+    "portfolio_v2": "BT-15",
+    "management_b_50pct": "BT-4",
+    "forced_dte_exit_refuted": "BT-4",
+    "hard_defense_0_42": "BT-12",
+    "capital_16k_32k": "BT-15 + BT-17",
+    "architecture_full_rpf": "decision operador 2026-07-29 (no es hallazgo de datos)"
+  }
+}

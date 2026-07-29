@@ -31,16 +31,23 @@ Contexto completo de por qué esto es distinto de lo que corre hoy: ver la secci
 | [`archive/galecore-estrategia-rpf.diseno-2026-07-06.md`](archive/galecore-estrategia-rpf.diseno-2026-07-06.md) | **Diseño original pre-research** (verbatim). Reemplazado por la v2; se conserva por trazabilidad. |
 | `new-estrategy-one-pager.docx` | One-pager ejecutivo (lenguaje natural, los 7 estados en español). |
 | `GaleCore-Resumen-Config-Referencia.docx` | Resumen ejecutivo para el socio (10-jul) de la config validada H3/Config-C. |
-| `galecore_rules_rpf.json` *(pendiente — Fase 3)* | **JSON de reglas nuevo e independiente** — a construir y validar acá. |
+| [`galecore_rules_rpf.json`](../../source/galecore-datafeed/DataFeed.Api/Files/galecore_rules_rpf.json) | **JSON de reglas v0.1.0-draft (Fase 3).** Ubicado en `DataFeed.Api/Files/` (junto a core/live/paper), SIN endpoint todavía. Ejes A/B + `pop_calibration` + `state_machine` + `research_provenance`. `paper_only`. |
 
 ## JSON de reglas — nuevo e independiente
 
-El JSON de RPF será **completamente nuevo**, sin heredar el schema de
-`../../source/galecore-datafeed/DataFeed.Api/Files/galecore_rules_core.json`. Se **arma y valida en esta
-carpeta** primero (Fase 3, sin código). Recién cuando esté cerrado se decide cómo servirlo desde la API
-sin tocar la estrategia vigente. Esqueleto diseñado: ejes A/B (arma/dispara) + `pop_calibration`
+El JSON de RPF es **completamente nuevo**, sin heredar el schema de `galecore_rules_core.json`.
+Ubicado en **`../../source/galecore-datafeed/DataFeed.Api/Files/galecore_rules_rpf.json`** (junto a
+core/live/paper), pero **sin endpoint**: `AppController` sirve solo core/live/paper por nombre fijo, así
+que el RPF está presente pero no se publica. Estructura: ejes A/B (arma/dispara) + `pop_calibration`
 first-class + `state_machine` + `research_provenance` (ata cada nodo a su BT). Los valores salen del
 libro mayor.
+
+**Nota — la capa de señal ya existe en código.** `DataFeed.Application/App/SignalGates/*`
+(`SignalGatesEvaluator`, `PopCalibrationTable`, `SkewHistory`) ya computa VRP, edge con POP empírica,
+tail/skew y gamma dentro de la cascada v1.4.0; y `Files/pop_calibration.json` + `Files/skew25_history.json`
+ya sirven los datos. Lo que la Decisión 5 (RPF completo) agrega es la **orquestación** encima:
+máquina de estados + loop backend + push `TradeSuggestion`. Consecuencia para Fase 4: el test de
+consistencia tiene **tres superficies** — doc ↔ JSON ↔ **código**.
 
 ## Estado de la validación (2026-07-29)
 
@@ -51,5 +58,9 @@ Sesión de alineación en curso — plan de 6 fases (validar RPF = alinear defin
   **resueltas:** estructuras → **PCS-only** (BT-11); régimen → **flags rápidos** (no el de 8);
   parámetros → **calibración del backtest** (delta 0.25, GEX≥0, barras edge 1.05/1.10/1.20, VRP 1.2).
 - **Fase 2 ✅** — definición canónica v2 escrita (este es el doc alineado).
-- **Fase 3 ⏭** — JSON `galecore_rules_rpf.json`. **Fase 4** — test de consistencia doc↔JSON↔research.
+- **Fase 3 ✅** — JSON `galecore_rules_rpf.json` v0.1.0-draft. Todos los valores del libro mayor.
+  **Gap abierto:** los cortes VIX de las etiquetas de régimen (low_vol/normal/elevated/caution) que
+  eligen la barra `min_edge` son **provisorios** — hay que fijarlos contra el clasificador del
+  research en Fase 4 (las barras están calibradas; los cortes de etiqueta no).
+- **Fase 4 ⏭** — test de consistencia doc↔JSON↔research (espejo de `RulesJsonTests`).
   **Fase 5** — contrato `TradeSuggestion` + máquina de estados (arquitectura RPF completo).
