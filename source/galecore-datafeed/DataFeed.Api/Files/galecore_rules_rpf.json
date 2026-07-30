@@ -248,6 +248,7 @@
     },
     "layers": [
       {
+        "id": 2,
         "name": "strike_engine",
         "config": {
           "dte_selection": { "target": 45, "min": 35, "max": 50 },
@@ -263,15 +264,23 @@
         }
       },
       {
+        "id": 3,
         "name": "microstructure",
         "config": {
           "open_interest_min": 100,
           "oi_note": "bajo de 2000 (BT seccion 8): el OI no predice calidad de quote en SPY moderno",
           "spread_max_pct": 0.05,
           "volume_min_status": "el filtro de volumen (>200) muerde parecido; pendiente revisar (BT seccion 8)"
-        }
+        },
+        "checks": [
+          { "id": "oi_short_leg", "label": "OI short >= 100", "applies_per_leg": "short", "operator": "gte", "threshold": { "value": 100 }, "on_fail": "discard_side" },
+          { "id": "oi_long_leg", "label": "OI long >= 100", "applies_per_leg": "long", "operator": "gte", "threshold": { "value": 100 }, "on_fail": "discard_side" },
+          { "id": "bid_ask_spread", "label": "B/A <= 5% mid", "applies_per_leg": "all", "operator": "lte", "threshold": { "value": 0.05 }, "on_fail": "discard_side" },
+          { "id": "credit_minimum", "label": "Credito >= $0.30", "applies_per_spread": true, "operator": "gte", "threshold": { "value": 0.30 }, "on_fail": "try_wider_spread_then_discard" }
+        ]
       },
       {
+        "id": 4,
         "name": "risk_and_sizing",
         "config": {
           "risk_per_trade_pct": 0.035,
