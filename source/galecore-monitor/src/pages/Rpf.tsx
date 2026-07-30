@@ -1,7 +1,6 @@
 import React from 'react';
 import { WifiOff, Check, X, Circle, AlertTriangle } from 'lucide-react';
 import { useRpfStore } from '../store/useRpfStore';
-import { useRulesStore } from '../store/useRulesStore';
 import { RpfStateBadge, rpfStateHint } from '../components/rpf/RpfStateBadge';
 import { RpfSuggestionCard } from '../components/rpf/RpfSuggestionCard';
 import { RpfStateUpdate, RpfCheck, RpfCandidate, RpfStateName } from '../types/rpf';
@@ -188,10 +187,11 @@ function SymbolPanel({ symbol, st, suggestion, onAccept, onDismiss }: {
 
 export function Rpf({ acceptSuggestion, dismissSuggestion }: Props) {
   const { states, suggestions, loopOnline } = useRpfStore();
-  const rulesTickers = useRulesStore((s) => s.tickers);
 
-  const stateSymbols = Object.keys(states);
-  const symbols = stateSymbols.length ? stateSymbols : (rulesTickers.length ? rulesTickers : ['SPY']);
+  // Solo los símbolos que el loop RPF emitió — NO el universo del core. RPF define su propio
+  // universo (SPY-only) en galecore_rules_rpf.json; caer al ticker list del core mostraría QQQ como
+  // si fuera parte de RPF, que es engañoso. Mientras el loop no emite, se muestra solo el banner.
+  const symbols = Object.keys(states);
 
   return (
     <div style={{ padding: '14px 18px 40px', height: '100%', overflowY: 'auto', fontFamily: 'Inter, sans-serif' }}>
@@ -233,6 +233,12 @@ export function Rpf({ acceptSuggestion, dismissSuggestion }: Props) {
           onDismiss={dismissSuggestion}
         />
       ))}
+
+      {loopOnline && symbols.length === 0 && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '10px 12px', border: '1px dashed var(--border-dark)', borderRadius: 8 }}>
+          Loop conectado — esperando el primer estado del universo RPF (SPY).
+        </div>
+      )}
     </div>
   );
 }
