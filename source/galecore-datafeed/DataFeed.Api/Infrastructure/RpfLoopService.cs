@@ -1,6 +1,6 @@
 using System.Text.Json.Nodes;
-using DataFeed.Application.App.PositionBuilder;
 using DataFeed.Application.App.Rpf;
+using DataFeed.Application.App.Rpf.Engine;
 using DataFeed.Application.App.SignalGates;
 using DataFeed.Application.App.ValidationLayer;
 using DataFeed.Infrastructure.Providers.Tastytrade;
@@ -122,41 +122,27 @@ namespace DataFeed.Api.Infrastructure
                 var now = DateTime.UtcNow;
                 try
                 {
-                    var resp = await mediator.Send(new ValidationLayerRequest
+                    // Motor de decisión PROPIO de RPF (corte total): un solo tick corre macro + candidato
+                    // (siempre, con legs) + signal_gates sobre rpf.json. Ya no comparte VL/PB con Main.
+                    var tick = await mediator.Send(new RpfTickRequest
                     {
                         Symbol = symbol,
-                        Profile = "core",
                         RulesJson = cfg.RulesJson,
                         PopCalibrationJson = cfg.PopJson,
                         SkewHistoryJson = cfg.SkewJson,
                     }, ct);
 
-                    // Motor macro-independiente: da el candidato aun cuando la cascada corta en macro
-                    // (decisión "candidato siempre visible"). Su fallo no tumba el tick.
-                    PositionBuilderResponse? pb = null;
-                    try
-                    {
-                        pb = await mediator.Send(new PositionBuilderRequest
-                        {
-                            Symbol = symbol,
-                            Profile = "core",
-                            RulesJson = cfg.RulesJson,
-                        }, ct);
-                    }
-                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-                    catch (Exception ex) { _logger.LogWarning(ex, "RpfLoop: PositionBuilder falló para {Symbol} (candidato no disponible)", symbol); }
-
                     bool inCooldown = _store.InCooldown(symbol, now);
-                    var inputs = BuildInputs(resp, inCooldown);
+                    var inputs = BuildInputs(tick, inCooldown);
                     var state = RpfStateMachine.Evaluate(inputs);
 
-                    HandleSuggestion(symbol, state, resp, cfg, now);
+                    HandleSuggestion(symbol, state, tick, cfg, now);
                     _store.SetState(symbol, state);
 
                     // Heartbeat: se emite cada tick (no solo en cambio) para que el tablero sepa que
                     // el loop vive. Sin esto, un estado DORMANT que coincide con el default del store
                     // nunca se emitiría y el front quedaría en "loop offline" con el loop corriendo.
-                    await _broadcaster.BroadcastRpfStateAsync(symbol, BuildStateUpdate(symbol, state, resp, pb, inputs, now));
+                    await _broadcaster.BroadcastRpfStateAsync(symbol, BuildStateUpdate(symbol, state, tick, inputs, now));
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
                 catch (Exception ex)
@@ -184,15 +170,15 @@ namespace DataFeed.Api.Infrastructure
         /// Short-circuit: si el macro corta, PositionBuilder viene null → tail/edge no corrieron
         /// (TailScoreAvailable=false) y Tier A no pasa → DORMANT honesto (nunca VETOED sin dato).
         /// </summary>
-        private static RpfStateInputs BuildInputs(ValidationLayerResponse resp, bool inCooldown)
+        private static RpfStateInputs BuildInputs(RpfTickResult tick, bool inCooldown)
         {
-            var gates = resp.PositionBuilder?.SignalGates;
+            var gates = tick.SignalGates;
             var tail = gates?.Gates.FirstOrDefault(g => g.Id == "tail_score");
             var edge = gates?.Gates.FirstOrDefault(g => g.Id == "edge");
-            var sizing = resp.PositionBuilder?.RiskAndSizing;
+            var sizing = tick.RiskAndSizing;
 
-            bool macroPass = resp.MacroRegime?.Signal is "OPERAR" or "PASS"
-                             || (resp.MacroRegime is { } m && m.PassedCount == m.TotalChecks && m.TotalChecks > 0);
+            bool macroPass = tick.MacroRegime?.Signal is "OPERAR" or "PASS"
+                             || (tick.MacroRegime is { } m && m.PassedCount == m.TotalChecks && m.TotalChecks > 0);
             bool vrpTailPass = gates != null && gates.AllPass ||
                                (gates != null && gates.FailedGate is not ("volatility_risk_premium" or "tail_score"));
             bool tierAPass = macroPass && gates != null && gates.FailedGate is not ("volatility_risk_premium" or "tail_score");
@@ -217,7 +203,7 @@ namespace DataFeed.Api.Infrastructure
             };
         }
 
-        private void HandleSuggestion(string symbol, RpfState state, ValidationLayerResponse resp, LoopConfig cfg, DateTime now)
+        private void HandleSuggestion(string symbol, RpfState state, RpfTickResult tick, LoopConfig cfg, DateTime now)
         {
             if (state == RpfState.Triggered)
             {
@@ -225,13 +211,13 @@ namespace DataFeed.Api.Infrastructure
                 if (current != null && !_store.SuggestionExpired(symbol, now))
                 {
                     // Refresca la vigente (mismo id) con números actuales — evita spam (§5.3).
-                    var refreshed = BuildSuggestion(symbol, resp, cfg, current.Id, current.CreatedAt);
+                    var refreshed = BuildSuggestion(symbol, tick, cfg, current.Id, current.CreatedAt);
                     _store.SetSuggestion(symbol, refreshed);
                     _ = _broadcaster.BroadcastTradeSuggestionAsync(symbol, refreshed);
                 }
                 else
                 {
-                    var fresh = BuildSuggestion(symbol, resp, cfg, Guid.NewGuid().ToString(), now);
+                    var fresh = BuildSuggestion(symbol, tick, cfg, Guid.NewGuid().ToString(), now);
                     _store.SetSuggestion(symbol, fresh);
                     _ = _broadcaster.BroadcastTradeSuggestionAsync(symbol, fresh);
                 }
@@ -246,12 +232,12 @@ namespace DataFeed.Api.Infrastructure
 
         // ── Builders del contrato (payload se finaliza en activación; acá se pueblan los campos disponibles) ──
 
-        private static TradeSuggestion BuildSuggestion(string symbol, ValidationLayerResponse resp, LoopConfig cfg, string id, DateTime createdAt)
+        private static TradeSuggestion BuildSuggestion(string symbol, RpfTickResult tick, LoopConfig cfg, string id, DateTime createdAt)
         {
-            var se = resp.PositionBuilder?.StrikeEngine;
-            var edge = resp.PositionBuilder?.SignalGates?.Gates.FirstOrDefault(g => g.Id == "edge");
-            var sizing = resp.PositionBuilder?.RiskAndSizing;
-            var credit = resp.PositionBuilder?.Microstructure?.CreditMinimum?.MidCredit ?? 0;
+            var se = tick.StrikeEngine;
+            var edge = tick.SignalGates?.Gates.FirstOrDefault(g => g.Id == "edge");
+            var sizing = tick.RiskAndSizing;
+            var credit = tick.Microstructure?.CreditMinimum?.MidCredit ?? 0;
             double width = se is { ShortPutStrike: { } sp, LongPutStrike: { } lp } ? Math.Abs(sp - lp) : 5;
 
             double riskPct = sizing != null && sizing.NetLiq > 0 ? (double)(sizing.MaxLoss / sizing.NetLiq) : 0;
@@ -273,7 +259,7 @@ namespace DataFeed.Api.Infrastructure
                 CreditRatio = se?.CreditRatio.HasValue == true ? se.CreditRatio / 100.0 : null,
                 EdgeEmp = edge?.Value,
                 Bar = edge?.Threshold,
-                Regime = resp.PositionBuilder?.SignalGates?.Regime ?? "normal",
+                Regime = tick.SignalGates?.Regime ?? "normal",
                 DeltaShort = Math.Abs(se?.ShortPutDelta ?? 0),
                 Dte = se?.DTE ?? 0,
                 RiskPerTradePct = riskPct,
@@ -285,10 +271,10 @@ namespace DataFeed.Api.Infrastructure
             };
         }
 
-        private RpfStateUpdate BuildStateUpdate(string symbol, RpfState state, ValidationLayerResponse resp, PositionBuilderResponse? pb, RpfStateInputs inp, DateTime now)
+        private RpfStateUpdate BuildStateUpdate(string symbol, RpfState state, RpfTickResult tick, RpfStateInputs inp, DateTime now)
         {
-            var edge = resp.PositionBuilder?.SignalGates?.Gates.FirstOrDefault(g => g.Id == "edge");
-            var sizing = resp.PositionBuilder?.RiskAndSizing ?? pb?.RiskAndSizing;
+            var edge = tick.SignalGates?.Gates.FirstOrDefault(g => g.Id == "edge");
+            var sizing = tick.RiskAndSizing;
 
             return new RpfStateUpdate
             {
@@ -299,7 +285,7 @@ namespace DataFeed.Api.Infrastructure
                 // Régimen que eligió la barra del edge. Solo presente si el macro pasó (los signal
                 // gates corrieron); si la cascada cortó en macro, viene null y el tablero cae a la
                 // etiqueta genérica — coherente con el eje DISPARA atenuado en ese caso.
-                Regime = resp.PositionBuilder?.SignalGates?.Regime,
+                Regime = tick.SignalGates?.Regime,
                 CapacityAvailable = inp.CapacityAvailable,
                 OpenPositions = sizing?.OpenPositions ?? 0,
                 MaxPositions = sizing?.MaxPositions ?? 0,
@@ -307,14 +293,14 @@ namespace DataFeed.Api.Infrastructure
                 CooldownRemainingSec = _store.CooldownRemainingSec(symbol, now),
                 SuggestionId = state == RpfState.Triggered ? _store.CurrentSuggestion(symbol)?.Id : null,
 
-                MacroPassed = resp.MacroRegime?.PassedCount ?? 0,
-                MacroTotal = resp.MacroRegime?.TotalChecks ?? 0,
-                MacroChecks = MapMacroChecks(resp.MacroRegime),
-                Gates = MapGates(resp.PositionBuilder?.SignalGates),
-                Candidate = BuildCandidate(resp, pb, edge),
+                MacroPassed = tick.MacroRegime?.PassedCount ?? 0,
+                MacroTotal = tick.MacroRegime?.TotalChecks ?? 0,
+                MacroChecks = MapMacroChecks(tick.MacroRegime),
+                Gates = MapGates(tick.SignalGates),
+                Candidate = BuildCandidate(tick, edge),
 
                 CascadeOk = true,
-                DiedAtLayer = resp.FailedAtLayer,
+                DiedAtLayer = tick.FailedAtLayer,
                 Timestamp = now,
             };
         }
@@ -354,15 +340,14 @@ namespace DataFeed.Api.Infrastructure
             return list;
         }
 
-        // Eje DISPARA — el PCS candidato. Prefiere el de la cascada; si macro cortó, el del motor
-        // macro-independiente (pb). Así se ve SIEMPRE (decisión candidato-siempre).
-        private static RpfCandidate? BuildCandidate(ValidationLayerResponse resp, PositionBuilderResponse? pb, GateResult? edge)
+        // Eje DISPARA — el PCS candidato. El motor RPF produce UN solo strikeEngine (con legs), poblado
+        // siempre (aun DORMANT) — decisión candidato-siempre, ahora coherente para estado y display.
+        private static RpfCandidate? BuildCandidate(RpfTickResult tick, GateResult? edge)
         {
-            var se = resp.PositionBuilder?.StrikeEngine ?? pb?.StrikeEngine;
+            var se = tick.StrikeEngine;
             if (se?.ShortPutStrike is not { } shortStrike) return null;
 
-            double? credit = resp.PositionBuilder?.Microstructure?.CreditMinimum?.MidCredit
-                             ?? pb?.Microstructure?.CreditMinimum?.MidCredit;
+            double? credit = tick.Microstructure?.CreditMinimum?.MidCredit;
             double? width = se.LongPutStrike is { } lp ? Math.Abs(shortStrike - lp) : 5;
 
             return new RpfCandidate
@@ -379,7 +364,11 @@ namespace DataFeed.Api.Infrastructure
                 PutWall = se.PutWall,
                 Edge = edge?.Value,
                 Bar = edge?.Threshold,
-                FromCascade = resp.PositionBuilder?.StrikeEngine != null,
+                FromCascade = tick.FailedAtLayer != 1, // macro no cortó → candidato validado por el entorno
+                // Legs DXLink + OI/cierre previo del mismo motor que armó los strikes: el tablero
+                // suscribe estas patas para primas en vivo del candidato REAL de RPF (no del PositionBuilder).
+                LegSymbols = se.LegSymbols,
+                LegMeta = se.LegMeta,
             };
         }
     }

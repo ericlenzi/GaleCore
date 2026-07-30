@@ -1,17 +1,23 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   WifiOff, Check, X, Circle, AlertTriangle, Clock, ChevronDown, RefreshCw,
   Moon, Target, Zap, Ban, Hourglass, Layers, Briefcase, LucideIcon,
 } from 'lucide-react';
 import { useRpfStore } from '../store/useRpfStore';
+import { useMarketStore } from '../store/useMarketStore';
 import { RpfStateBadge } from '../components/rpf/RpfStateBadge';
 import { RpfSuggestionCard } from '../components/rpf/RpfSuggestionCard';
 import { RpfStateUpdate, RpfCheck, RpfCandidate, RpfStateName } from '../types/rpf';
-import { tint } from '../utils/formatters';
+import { ConnectionStatus } from '../socket/useMarketSocket';
+import { LegMeta } from '../types/api';
+import { tint, fmtPrice, fmtOI, fmtExpiry } from '../utils/formatters';
 
 interface Props {
   acceptSuggestion: (id: string) => void;
   dismissSuggestion: (id: string) => void;
+  subscribeLeg: (occ: string) => void;
+  unsubscribeLeg: (occ: string) => void;
+  socketStatus: ConnectionStatus;
 }
 
 // Estados en los que el entorno ya armó (el eje DISPARA está activo).
@@ -55,6 +61,47 @@ const panelStyle: React.CSSProperties = {
 
 const fmt = (n: number | null | undefined, d = 2) =>
   n == null ? '—' : Number.isInteger(n) ? `${n}` : n.toFixed(d);
+
+// Mid del leg desde bid/ask del socket. null si falta cualquiera de los dos.
+const legMid = (bid?: number, ask?: number): number | null =>
+  !bid || !ask || bid <= 0 || ask <= 0 ? null : (bid + ask) / 2;
+
+// Punto verde: el valor de esta celda es live (recalculado del socket), no un snapshot.
+function LiveDot() {
+  return <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+    backgroundColor: '#22c55e', marginLeft: 5, verticalAlign: 'middle', boxShadow: '0 0 4px #22c55e88' }} />;
+}
+
+// ── Celdas de la tabla del candidato (look Main · Setup candidato) ──
+const thStyle: React.CSSProperties = {
+  padding: '6px 8px', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+  color: 'var(--text-muted)', textAlign: 'center', fontFamily: 'Inter, sans-serif',
+  borderBottom: '1px solid var(--border-dark)', borderRight: '1px solid rgba(255,255,255,0.04)',
+  whiteSpace: 'nowrap', verticalAlign: 'middle', backgroundColor: 'var(--bg-tertiary)',
+};
+const tdStyle: React.CSSProperties = {
+  padding: '10px 8px', textAlign: 'center', whiteSpace: 'nowrap', verticalAlign: 'middle',
+  fontFamily: 'JetBrains Mono, monospace', fontVariantNumeric: 'tabular-nums', fontSize: 13,
+  borderRight: '1px solid rgba(255,255,255,0.03)',
+};
+const Th = ({ children, colSpan, rowSpan }: { children: React.ReactNode; colSpan?: number; rowSpan?: number }) =>
+  <th colSpan={colSpan} rowSpan={rowSpan} style={thStyle}>{children}</th>;
+const Td = ({ children, color }: { children: React.ReactNode; color?: string }) =>
+  <td style={{ ...tdStyle, color: color ?? 'var(--text-secondary)' }}>{children}</td>;
+
+// Sublínea OI + cierre previo bajo un strike (datos estáticos del candle anterior).
+function StrikeMeta({ meta }: { meta: LegMeta | null | undefined }) {
+  if (!meta || (meta.openInterest == null && meta.prevClose == null)) return null;
+  const parts: string[] = [];
+  if (meta.openInterest != null) parts.push(`OI ${fmtOI(meta.openInterest)}`);
+  if (meta.prevClose != null) parts.push(fmtPrice(meta.prevClose, 2));
+  return (
+    <span style={{ display: 'block', fontSize: 9, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace',
+      fontVariantNumeric: 'tabular-nums', marginTop: 2, whiteSpace: 'nowrap' }}>
+      {parts.join(' · ')}
+    </span>
+  );
+}
 
 const tickTime = (iso?: string) => {
   if (!iso) return null;
@@ -242,56 +289,149 @@ function StateResolution({ state }: { state: RpfStateName }) {
   );
 }
 
-// Tarjeta del candidato PCS: la estructura del spread (siempre visible, aun DORMANT).
-function CandidateCard({ cand, note }: { cand: RpfCandidate | null; note: string }) {
-  if (!cand || cand.shortPutStrike == null) {
-    return (
-      <div style={{ ...panelStyle, fontSize: 11, color: 'var(--text-muted)' }}>
-        El motor no propuso una posición candidata.
-      </div>
-    );
-  }
-  const ratioPct = cand.creditRatio != null ? cand.creditRatio * 100 : null;
-  const ratioColor = ratioPct == null ? 'var(--text-muted)' : ratioPct >= 33.3 ? 'var(--green)' : ratioPct >= 25 ? 'var(--yellow-gc)' : 'var(--red-gc)';
+// Tarjeta del candidato PCS: el spread en formato tabla (look Main · Setup candidato), con primas
+// EN VIVO. Suscribe los legs DXLink del candidato al socket y recalcula crédito/1-3/max/BPR del mid.
+// Siempre visible (aun DORMANT); si no hay legs live, cae a los valores snapshot del payload.
+function CandidateCard({ symbol, cand, note, subscribeLeg, unsubscribeLeg, socketStatus }: {
+  symbol: string; cand: RpfCandidate | null; note: string;
+  subscribeLeg: (occ: string) => void; unsubscribeLeg: (occ: string) => void; socketStatus: ConnectionStatus;
+}) {
+  const tickers = useMarketStore((s) => s.tickers);
+  const initTicker = useMarketStore((s) => s.initTicker);
+  const ls = cand?.legSymbols;
 
-  const tile = (label: string, value: React.ReactNode, color: string = 'var(--text-primary)') => (
-    <div style={{ minWidth: 72, flex: 1 }}>
-      <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif', marginBottom: 2 }}>{label}</div>
-      <div className="tabular-nums" style={{ fontSize: 13, fontWeight: 700, color, fontFamily: 'JetBrains Mono, monospace' }}>{value}</div>
+  // Suscribir/desuscribir los legs del candidato para primas en vivo (mismo patrón que PortfolioManager).
+  useEffect(() => {
+    if (socketStatus !== 'connected' || !ls) return;
+    const legs = [ls.shortPut, ls.longPut].filter((s): s is string => !!s);
+    legs.forEach((occ) => { initTicker(occ); subscribeLeg(occ); });
+    return () => legs.forEach((occ) => unsubscribeLeg(occ));
+  }, [socketStatus, ls?.shortPut, ls?.longPut]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const header = (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', fontFamily: 'Inter, sans-serif' }}>Candidato PCS · primas en vivo</span>
+      <span style={{ fontSize: 10.5, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>{note}</span>
     </div>
   );
 
+  if (!cand || cand.shortPutStrike == null) {
+    return (
+      <div style={panelStyle}>
+        {header}
+        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>El motor no propuso una posición candidata.</div>
+      </div>
+    );
+  }
+
+  // Precio del subyacente (para la columna PRICE) desde el stream del ticker principal.
+  const price = tickers[symbol]?.price ?? null;
+
+  // Mids en vivo de cada leg.
+  const shortPutQ = ls?.shortPut ? tickers[ls.shortPut] : undefined;
+  const longPutQ  = ls?.longPut  ? tickers[ls.longPut]  : undefined;
+  const shortPutMid = legMid(shortPutQ?.bid, shortPutQ?.ask);
+  const longPutMid  = legMid(longPutQ?.bid,  longPutQ?.ask);
+
+  const width = cand.shortPutStrike != null && cand.longPutStrike != null
+    ? Math.abs(cand.shortPutStrike - cand.longPutStrike)
+    : cand.width ?? null;
+
+  // Crédito: live (mid short − mid long) si ambas patas cotizan; si no, el snapshot del payload.
+  const netCreditLive = shortPutMid != null && longPutMid != null ? shortPutMid - longPutMid : null;
+  const credit = netCreditLive ?? cand.credit ?? null;
+  const isLive = netCreditLive != null;
+
+  // Regla 1/3, max profit/loss y BPR — por contrato. Derivados del crédito vigente (live o snapshot).
+  const ratioPct = credit != null && width != null && width > 0 ? (credit / width) * 100
+    : cand.creditRatio != null ? cand.creditRatio * 100 : null;
+  const ratioColor = ratioPct == null ? 'var(--text-muted)' : ratioPct >= 33.3 ? 'var(--green)' : ratioPct >= 25 ? 'var(--yellow-gc)' : 'var(--red-gc)';
+  const maxProfit = credit != null ? credit * 100 : null;
+  const maxLoss   = credit != null && width != null ? (width - credit) * 100 : null;
+  const bpr       = maxLoss; // PCS: BPR = ancho − crédito (= max loss)
+
+  const liveCell = (v: React.ReactNode) => <span>{v}{isLive && <LiveDot />}</span>;
+
   return (
     <div style={panelStyle}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-secondary)', fontFamily: 'Inter, sans-serif' }}>Candidato PCS · siempre visible</span>
-        <span style={{ fontSize: 10.5, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>{note}</span>
-      </div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        <span className="tabular-nums" style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace', padding: '4px 10px', borderRadius: 5, color: 'var(--red-gc)', backgroundColor: tint('var(--red-gc)', 13), border: `1px solid ${tint('var(--red-gc)', 30)}` }}>
-          SELL put {cand.shortPutStrike}{cand.shortPutDelta != null ? ` · Δ ${Math.abs(cand.shortPutDelta).toFixed(2)}` : ''}
-        </span>
-        <span className="tabular-nums" style={{ fontSize: 12, fontFamily: 'JetBrains Mono, monospace', padding: '4px 10px', borderRadius: 5, color: 'var(--text-secondary)', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-dark)' }}>
-          BUY put {cand.longPutStrike ?? '—'}
-        </span>
-      </div>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        {tile('DTE', cand.dte ? `${cand.dte}${cand.expiration ? ` · ${cand.expiration}` : ''}` : '—')}
-        {tile('Crédito', cand.credit != null ? `$${fmt(cand.credit)}` : '—')}
-        {tile('Ancho', cand.width != null ? `$${fmt(cand.width)}` : '—')}
-        {tile('Regla 1/3', ratioPct != null ? `${ratioPct.toFixed(0)}%` : '—', ratioColor)}
-        {tile('POP', cand.pop != null ? `${cand.pop.toFixed(0)}%` : '—')}
+      {header}
+      <div style={{ borderRadius: 8, border: '1px solid var(--border-dark)', overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <Th rowSpan={2}>Ticker</Th>
+              <Th rowSpan={2}>DTE</Th>
+              <Th rowSpan={2}>Price</Th>
+              <Th rowSpan={2}>Structure</Th>
+              <Th colSpan={2}>Strikes</Th>
+              <Th colSpan={2}>Premium (live)</Th>
+              <Th rowSpan={2}>Net Credit</Th>
+              <Th rowSpan={2}>1/3 Rule</Th>
+              <Th rowSpan={2}>POP</Th>
+              <Th rowSpan={2}>Max Profit</Th>
+              <Th rowSpan={2}>Max Loss</Th>
+              <Th rowSpan={2}>BPR</Th>
+            </tr>
+            <tr>
+              <Th>Long Put</Th>
+              <Th>Short Put</Th>
+              <Th>Long Put</Th>
+              <Th>Short Put</Th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <Td color="var(--text-primary)"><span style={{ fontWeight: 700, fontSize: 15, letterSpacing: '0.05em' }}>{symbol}</span></Td>
+              <Td>
+                {cand.dte ? <span style={{ color: 'var(--text-muted)' }}>{cand.dte}d</span> : '—'}
+                {cand.expiration && <span style={{ display: 'block', fontSize: 10, fontWeight: 600, color: 'var(--text-secondary)', marginTop: 3 }}>{fmtExpiry(cand.expiration)}</span>}
+              </Td>
+              <Td color="var(--text-primary)">{price != null && price > 0 ? fmtPrice(price) : '—'}</Td>
+              <Td>
+                <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 5px', borderRadius: 4, color: 'var(--green)',
+                  backgroundColor: tint('var(--green)', 9), border: `1px solid ${tint('var(--green)', 19)}` }}>PCS</span>
+              </Td>
+              {/* Strikes */}
+              <Td color="var(--red-gc)">
+                <div>{cand.longPutStrike != null ? fmtPrice(cand.longPutStrike, 0) : '—'}</div>
+                <StrikeMeta meta={cand.legMeta?.longPut} />
+              </Td>
+              <Td color="var(--red-gc)">
+                <div>{fmtPrice(cand.shortPutStrike, 0)}{cand.shortPutDelta != null && <span style={{ color: 'var(--text-muted)', fontSize: 10, marginLeft: 4 }}>Δ{Math.abs(cand.shortPutDelta).toFixed(2)}</span>}</div>
+                <StrikeMeta meta={cand.legMeta?.shortPut} />
+              </Td>
+              {/* Premium live */}
+              <Td>{longPutMid != null ? <span>{fmtPrice(longPutMid, 2)}<LiveDot /></span> : ls?.longPut ? <span style={{ opacity: 0.4 }}>…</span> : '—'}</Td>
+              <Td>{shortPutMid != null ? <span>{fmtPrice(shortPutMid, 2)}<LiveDot /></span> : ls?.shortPut ? <span style={{ opacity: 0.4 }}>…</span> : '—'}</Td>
+              {/* Net credit */}
+              <Td color={credit != null ? (credit > 0 ? 'var(--green)' : 'var(--red-gc)') : 'var(--text-muted)'}>
+                {credit != null ? liveCell(`$${fmtPrice(credit, 2)}`) : '—'}
+              </Td>
+              {/* 1/3 rule */}
+              <Td color={ratioColor}>{ratioPct != null ? liveCell(`${ratioPct.toFixed(1)}%`) : '—'}</Td>
+              {/* POP */}
+              <Td color="var(--green)">{cand.pop != null ? `${cand.pop.toFixed(0)}%` : '—'}</Td>
+              {/* Max profit / loss / BPR */}
+              <Td color="var(--green)">{maxProfit != null ? liveCell(`$${fmtPrice(maxProfit, 0)}`) : '—'}</Td>
+              <Td color="var(--red-gc)">{maxLoss != null ? liveCell(`$${fmtPrice(maxLoss, 0)}`) : '—'}</Td>
+              <Td>{bpr != null ? liveCell(`$${fmtPrice(bpr, 0)}`) : '—'}</Td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
 
-function SymbolPanel({ symbol, st, suggestion, onAccept, onDismiss }: {
+function SymbolPanel({ symbol, st, suggestion, onAccept, onDismiss, subscribeLeg, unsubscribeLeg, socketStatus }: {
   symbol: string;
   st: RpfStateUpdate | undefined;
   suggestion: ReturnType<typeof useRpfStore.getState>['suggestions'][string];
   onAccept: (id: string) => void;
   onDismiss: (id: string) => void;
+  subscribeLeg: (occ: string) => void;
+  unsubscribeLeg: (occ: string) => void;
+  socketStatus: ConnectionStatus;
 }) {
   const state: RpfStateName = st?.state ?? 'DORMANT';
   const armed = ARMED_STATES.includes(state);
@@ -325,7 +465,8 @@ function SymbolPanel({ symbol, st, suggestion, onAccept, onDismiss }: {
 
       {/* Candidato */}
       <Connector />
-      <CandidateCard cand={st?.candidate ?? null} note={note} />
+      <CandidateCard symbol={symbol} cand={st?.candidate ?? null} note={note}
+        subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} />
 
       {/* Sugerencia (solo cuando dispara) */}
       {suggestion && (
@@ -337,7 +478,7 @@ function SymbolPanel({ symbol, st, suggestion, onAccept, onDismiss }: {
   );
 }
 
-export function Rpf({ acceptSuggestion, dismissSuggestion }: Props) {
+export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubscribeLeg, socketStatus }: Props) {
   const { states, suggestions, loopOnline } = useRpfStore();
 
   // Solo los símbolos que el loop RPF emitió — NO el universo del core. RPF define su propio
@@ -390,6 +531,9 @@ export function Rpf({ acceptSuggestion, dismissSuggestion }: Props) {
           suggestion={suggestions[sym] ?? null}
           onAccept={acceptSuggestion}
           onDismiss={dismissSuggestion}
+          subscribeLeg={subscribeLeg}
+          unsubscribeLeg={unsubscribeLeg}
+          socketStatus={socketStatus}
         />
       ))}
 

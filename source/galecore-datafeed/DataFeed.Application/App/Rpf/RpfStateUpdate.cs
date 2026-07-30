@@ -1,3 +1,5 @@
+using DataFeed.Application.App.ValidationLayer;
+
 namespace DataFeed.Application.App.Rpf
 {
     /// <summary>Un check con etiqueta legible + valor/umbral, para pintar una fila del tablero.</summary>
@@ -29,6 +31,10 @@ namespace DataFeed.Application.App.Rpf
         public double? Bar { get; set; }
         /// <summary>true si viene de la cascada (macro pasó); false si del motor macro-independiente.</summary>
         public bool FromCascade { get; set; }
+        /// <summary>Símbolos DXLink streamer de cada leg — el tablero RPF los suscribe al socket para primas en vivo.</summary>
+        public LegSymbols? LegSymbols { get; set; }
+        /// <summary>OI + cierre anterior por leg — sublínea de cada strike en el candidato.</summary>
+        public LegMetaSet? LegMeta { get; set; }
     }
 
     /// <summary>

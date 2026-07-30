@@ -67,7 +67,8 @@ function Dashboard({ onLogout }: DashboardProps) {
             <StrategyLive subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} />
           </div>
           <div style={{ display: tab === 'rpf' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
-            <Rpf acceptSuggestion={acceptSuggestion} dismissSuggestion={dismissSuggestion} />
+            <Rpf acceptSuggestion={acceptSuggestion} dismissSuggestion={dismissSuggestion}
+              subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} />
           </div>
           {tab === 'estrategia' && <Strategy />}
         </main>

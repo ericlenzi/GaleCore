@@ -2,6 +2,8 @@
 // Espeja los DTOs del backend (DataFeed.Application/App/Rpf). SignalR serializa
 // con CamelCasePropertyNamesContractResolver → nombres camelCase en el wire.
 
+import { LegSymbols, LegMetaSet } from './api';
+
 export type RpfStateName =
   | 'VETOED'
   | 'WAITING_CAPACITY'
@@ -38,6 +40,10 @@ export interface RpfCandidate {
   edge?: number | null;
   bar?: number | null;
   fromCascade: boolean;
+  /** Símbolos DXLink de los legs — el tablero los suscribe al socket para primas en vivo. */
+  legSymbols?: LegSymbols | null;
+  /** OI + cierre previo por leg — sublínea bajo cada strike. */
+  legMeta?: LegMetaSet | null;
 }
 
 /** Snapshot del estado del loop por símbolo (evento ReceiveRpfState), enriquecido con el
