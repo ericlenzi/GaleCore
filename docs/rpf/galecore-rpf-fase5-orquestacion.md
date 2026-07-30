@@ -242,7 +242,11 @@ se ejecuta sola** — expira por TTL y el símbolo cae a `COOLDOWN` o vuelve a `
 - **Broadcaster:** dos métodos nuevos en `IMarketDataBroadcaster`:
   - `BroadcastRpfStateAsync(symbol, RpfStateUpdate)` → evento hub `ReceiveRpfState`.
   - `BroadcastTradeSuggestionAsync(symbol, TradeSuggestion)` → evento hub `ReceiveTradeSuggestion`.
-- **`RpfStateUpdate`** (liviano, en cada cambio): `{ symbol, state, tierA: {gate→pass}, edge, bar, regime, capacity, cooldownRemainingSec, suggestionId? }` — alimenta el cockpit del tablero.
+- **`RpfStateUpdate`** (liviano): `{ symbol, state, tierA: {gate→pass}, edge, bar, regime, capacity, cooldownRemainingSec, suggestionId? }` — alimenta el cockpit del tablero.
+  - **Heartbeat (impl 6a-activación):** se emite en **cada tick**, no solo en cambio de estado. Sin
+    esto, un `DORMANT` que coincide con el default del store nunca se emitiría y el tablero quedaría
+    en "loop offline" con el loop corriendo. Si la cascada tira excepción, se emite igual un estado
+    (`DORMANT` con `tierA.cascade_ok=false`) para no confundir un error con "loop apagado".
 
 ---
 

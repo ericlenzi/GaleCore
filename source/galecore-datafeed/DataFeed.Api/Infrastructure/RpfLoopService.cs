@@ -118,25 +118,48 @@ namespace DataFeed.Api.Infrastructure
 
             foreach (var symbol in cfg.Tickers)
             {
-                var resp = await mediator.Send(new ValidationLayerRequest
-                {
-                    Symbol = symbol,
-                    Profile = "core",
-                    RulesJson = cfg.RulesJson,
-                    PopCalibrationJson = cfg.PopJson,
-                    SkewHistoryJson = cfg.SkewJson,
-                }, ct);
-
                 var now = DateTime.UtcNow;
-                bool inCooldown = _store.InCooldown(symbol, now);
-                var inputs = BuildInputs(resp, inCooldown);
-                var state = RpfStateMachine.Evaluate(inputs);
+                try
+                {
+                    var resp = await mediator.Send(new ValidationLayerRequest
+                    {
+                        Symbol = symbol,
+                        Profile = "core",
+                        RulesJson = cfg.RulesJson,
+                        PopCalibrationJson = cfg.PopJson,
+                        SkewHistoryJson = cfg.SkewJson,
+                    }, ct);
 
-                HandleSuggestion(symbol, state, resp, cfg, now);
+                    bool inCooldown = _store.InCooldown(symbol, now);
+                    var inputs = BuildInputs(resp, inCooldown);
+                    var state = RpfStateMachine.Evaluate(inputs);
 
-                bool changed = _store.SetState(symbol, state);
-                if (changed || state == RpfState.Triggered)
+                    HandleSuggestion(symbol, state, resp, cfg, now);
+                    _store.SetState(symbol, state);
+
+                    // Heartbeat: se emite cada tick (no solo en cambio) para que el tablero sepa que
+                    // el loop vive. Sin esto, un estado DORMANT que coincide con el default del store
+                    // nunca se emitiría y el front quedaría en "loop offline" con el loop corriendo.
                     await _broadcaster.BroadcastRpfStateAsync(symbol, BuildStateUpdate(symbol, state, resp, inputs, now));
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    // La cascada falló (ej. sin datos de mercado, o la integración cascada-sobre-RPF-JSON).
+                    // Se emite igual un estado para que el tablero muestre LOOP ONLINE y el símbolo en
+                    // DORMANT con nota de error, en vez de un silencio indistinguible de "loop apagado".
+                    _logger.LogError(ex, "RpfLoop: fallo evaluando {Symbol}; emito estado de error", symbol);
+                    _store.SetState(symbol, RpfState.Dormant);
+                    await _broadcaster.BroadcastRpfStateAsync(symbol, new RpfStateUpdate
+                    {
+                        Symbol = symbol,
+                        State = RpfState.Dormant.ToWire(),
+                        TierA = new Dictionary<string, bool> { ["cascade_ok"] = false },
+                        CapacityAvailable = false,
+                        CooldownRemainingSec = _store.CooldownRemainingSec(symbol, now),
+                        Timestamp = now,
+                    });
+                }
             }
         }
 

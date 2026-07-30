@@ -351,8 +351,8 @@
   },
 
   "state_machine": {
-    "enabled": false,
-    "enabled_note": "Disenada en Fase 5 (docs/rpf/galecore-rpf-fase5-orquestacion.md). Implementacion Fase 6a: RpfStateMachine (funcion pura) + RpfStateStore. Arranca INERTE mientras enabled:false. Se valida por diseno + paper, no por backtest.",
+    "enabled": true,
+    "enabled_note": "ACTIVADA EN PAPER 2026-07-29. RpfLoopService corre la cascada sobre este JSON y emite estado+sugerencia. paper_only + enabled_for_live:false siguen bloqueando real. Fase 5/6a diseno+impl; activacion = validacion en paper (ver reconciliacion caveat OOS agotado).",
     "scope": "por simbolo",
     "precedence": ["VETOED", "WAITING_CAPACITY", "IN_POSITION", "DORMANT", "ARMED", "COOLDOWN", "TRIGGERED"],
     "precedence_note": "Se evalua de arriba hacia abajo; el primero que matchea gana. VETOED tiene autoridad (safety-first, principio 1.1): el peligro activo domina la lectura aunque haya posiciones abiertas; la gestion sigue corriendo por trade_management.",
@@ -370,8 +370,8 @@
   },
 
   "trade_suggestion": {
-    "enabled": false,
-    "enabled_note": "Contrato disenado en Fase 5. DTO TradeSuggestion (Application). Emite solo con state_machine.enabled:true tras validacion en paper.",
+    "enabled": true,
+    "enabled_note": "ACTIVADO EN PAPER 2026-07-29 (junto con state_machine). El loop emite TradeSuggestion al entrar en TRIGGERED. El sistema sugiere, nunca ejecuta.",
     "transport": "SignalR grupo 'rpf' (backend empuja; frontend = tablero). Evento ReceiveTradeSuggestion.",
     "payload": ["id", "symbol", "structure", "legs", "credit", "width", "creditRatio", "edgeEmp", "bar", "regime", "deltaShort", "dte", "riskPerTradePct", "highRisk", "contracts", "state", "createdAt", "ttlSeconds"],
     "state_semantics": "foto del estado que la emitio (TRIGGERED); no muta en el payload. Los cambios viajan como RpfStateUpdate separado + ackStatus.",
@@ -388,8 +388,8 @@
   },
 
   "orchestration": {
-    "enabled": false,
-    "enabled_note": "Nodo nuevo (Fase 5/6). Cadencias del loop RpfLoopService (BackgroundService singleton, molde FlowBroadcastService). Referencia de diseno; se afinan en paper.",
+    "enabled": true,
+    "enabled_note": "ACTIVADO EN PAPER 2026-07-29. Cadencias del loop RpfLoopService (BackgroundService singleton). Referencia de diseno; se afinan en paper.",
     "loop": "RpfLoopService",
     "tier_a_refresh_seconds": 300,
     "tier_a_note": "arma/desarma: macro_regime + VRP + tail + GEX>=0. Escala diaria/horaria; cacheado en el store.",

@@ -188,12 +188,17 @@ public class RpfRulesJsonTests
     }
 
     [Fact]
-    public void Rpf_OrquestacionNoImplementada_EnabledFalse()
+    public void Rpf_OrquestacionActivadaEnPaper_RealSigueBloqueado()
     {
         var r = Rpf();
-        Assert.False((bool)r["state_machine"]!["enabled"]!);    // Fase 5/6
-        Assert.False((bool)r["trade_suggestion"]!["enabled"]!); // Fase 5/6
-        Assert.False((bool)r["orchestration"]!["enabled"]!);    // Fase 6 (loop inerte)
+        // Activada en paper 2026-07-29: el loop corre y emite.
+        Assert.True((bool)r["state_machine"]!["enabled"]!);
+        Assert.True((bool)r["trade_suggestion"]!["enabled"]!);
+        Assert.True((bool)r["orchestration"]!["enabled"]!);
+        // Pero el gate de real sigue cerrado: la orquestacion es paper-only, nunca ejecuta.
+        var meta = r["_meta"]!.AsObject();
+        Assert.Equal("paper_only", (string?)meta["status"]);
+        Assert.False((bool)meta["enabled_for_live"]!);
     }
 
     [Fact]
