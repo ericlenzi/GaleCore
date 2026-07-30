@@ -44,6 +44,11 @@ const STATUS_COLOR: Record<string, string> = {
   skipped: 'var(--text-muted)', pending: 'var(--text-muted)', na: 'var(--text-muted)',
 };
 
+// Claves de régimen (edge.bars_by_regime) → etiqueta legible.
+const REGIME_ES: Record<string, string> = {
+  low_vol: 'vol baja', normal: 'normal', elevated: 'vol elevada', caution: 'cautela',
+};
+
 const panelStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', borderRadius: 10, padding: '14px 16px',
 };
@@ -182,7 +187,7 @@ function DisparaPanel({ st, active }: { st: RpfStateUpdate; active: boolean }) {
   const max = st.maxPositions || 2;
   const capOk = st.capacityAvailable ?? (open < max);
   const cd = st.cooldownRemainingSec ?? 0;
-  const regimeLabel = st.regime ? `barra · régimen ${st.regime}` : 'barra del régimen';
+  const regimeLabel = st.regime ? `barra · régimen ${REGIME_ES[st.regime] ?? st.regime}` : 'barra del régimen';
   const heat = st.heatPct != null ? ` · heat ${(st.heatPct * 100).toFixed(0)}%` : '';
 
   return (

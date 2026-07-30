@@ -273,7 +273,7 @@ namespace DataFeed.Api.Infrastructure
                 CreditRatio = se?.CreditRatio.HasValue == true ? se.CreditRatio / 100.0 : null,
                 EdgeEmp = edge?.Value,
                 Bar = edge?.Threshold,
-                Regime = "",
+                Regime = resp.PositionBuilder?.SignalGates?.Regime ?? "normal",
                 DeltaShort = Math.Abs(se?.ShortPutDelta ?? 0),
                 Dte = se?.DTE ?? 0,
                 RiskPerTradePct = riskPct,
@@ -296,7 +296,10 @@ namespace DataFeed.Api.Infrastructure
                 State = state.ToWire(),
                 Edge = edge?.Value,
                 Bar = edge?.Threshold,
-                Regime = null,
+                // Régimen que eligió la barra del edge. Solo presente si el macro pasó (los signal
+                // gates corrieron); si la cascada cortó en macro, viene null y el tablero cae a la
+                // etiqueta genérica — coherente con el eje DISPARA atenuado en ese caso.
+                Regime = resp.PositionBuilder?.SignalGates?.Regime,
                 CapacityAvailable = inp.CapacityAvailable,
                 OpenPositions = sizing?.OpenPositions ?? 0,
                 MaxPositions = sizing?.MaxPositions ?? 0,

@@ -38,6 +38,9 @@ namespace DataFeed.Application.App.SignalGates
         public bool AllPass { get; set; }
         public string? FailedGate { get; set; }
         public List<GateResult> Gates { get; set; } = new();
+        /// <summary>Régimen de volatilidad clasificado (clave de edge.bars_by_regime): la etiqueta que
+        /// explica qué barra se aplicó al edge. Es macro-independiente (depende de VIX/IV30).</summary>
+        public string Regime { get; set; } = "normal";
     }
 
     /// <summary>
@@ -50,7 +53,7 @@ namespace DataFeed.Application.App.SignalGates
     {
         public static SignalGatesResult Evaluate(JsonNode? signalGatesNode, SignalGatesInputs inp, PopCalibrationTable? pop)
         {
-            var result = new SignalGatesResult();
+            var result = new SignalGatesResult { Regime = inp.Regime };
             var gates = signalGatesNode?["gates"];
 
             void Add(GateResult g)
