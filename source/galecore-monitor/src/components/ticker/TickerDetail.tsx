@@ -1,12 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import { X, RefreshCw } from 'lucide-react';
 import { GexChart } from '../chart/GexChart';
-import { ValidationLayers } from '../validation/ValidationLayers';
-import { MarketDiagnostics } from './MarketDiagnostics';
+import { StrikesEnginePanel } from '../validation/StrikesEnginePanel';
 import { useMarketStore } from '../../store/useMarketStore';
 import { useValidationStore } from '../../store/useValidationStore';
-import { LayerStatus, SignalType } from '../../types/market';
-import { ValidationLayerApiResponse } from '../../types/api';
 import { fmtTime, isStale } from '../../utils/formatters';
 
 interface Props {
@@ -15,55 +12,6 @@ interface Props {
 }
 
 const AUTO_REFRESH_MS = 30_000;
-
-function mapValidationToLayers(v: ValidationLayerApiResponse): LayerStatus {
-  const mr = v.macroRegime;
-  const checks = mr?.checks;
-  const l2 = v.positionBuilder?.strikeEngine;
-  const l3 = v.positionBuilder?.microstructure;
-  const g = v.gexData;
-
-  const signalMap: Record<string, SignalType> = {
-    'OPERAR': 'OPERAR',
-    'ESPERAR': 'ESPERAR',
-    'NO_OPERAR': 'NO OPERAR',
-  };
-
-  let gexCallWall: number | null = null;
-  let gexPutWall: number | null = null;
-  if (g && g.strikes?.length) {
-    const cw = g.strikes.reduce((best, s) => (s.callGEX > best.callGEX ? s : best), g.strikes[0]);
-    const pw = g.strikes.reduce((best, s) => (s.putGEX < best.putGEX ? s : best), g.strikes[0]);
-    gexCallWall = cw.strike;
-    gexPutWall = pw.strike;
-  }
-
-  return {
-    vixAbsoluteOk: checks?.vixAbsolute?.passed ?? null,
-    vixAbsoluteValue: checks?.vixAbsolute?.value ?? null,
-    vixTermStructureOk: checks?.vixTermStructure?.passed ?? null,
-    ivRankOk: checks?.ivRank?.passed ?? null,
-    ivRankValue: checks?.ivRank?.value ?? null,
-    ivMomentumOk: checks?.ivMomentum?.passed ?? null,
-    ivMomentumValue: checks?.ivMomentum?.value ?? null,
-    gexOk: checks?.gexTotal?.passed ?? null,
-    gexValue: checks?.gexTotal?.value ?? null,
-    spotAboveZgl: checks?.spotVsZgl?.passed ?? null,
-    zglValue: checks?.spotVsZgl?.zgl ?? g?.gammaZeroLevel ?? null,
-
-    expectedMove: l2?.expectedMove ?? null,
-    callWall: l2?.callWall ?? gexCallWall,
-    putWall: l2?.putWall ?? gexPutWall,
-
-    atmStrike: l3?.atmStrike ?? null,
-    atmCallOI: l3?.oiChecks?.shortCall?.value ?? null,
-    atmPutOI: l3?.oiChecks?.shortPut?.value ?? null,
-    atmCallDelta: l3?.atmCallDelta ?? null,
-    atmPutDelta: l3?.atmPutDelta ?? null,
-
-    signal: signalMap[v.overallSignal] ?? 'NO OPERAR',
-  };
-}
 
 const DETAIL_HEIGHT = 500;
 
@@ -85,7 +33,6 @@ export function TickerDetail({ symbol, onClose }: Props) {
 
   const vlData = cached?.vlData ?? null;
   const gexData = cached?.gexData ?? null;
-  const structureInputs = cached?.structureInputs ?? null;
   const updated = cached?.updatedAt ?? null;
 
   const iv30 = (() => {
@@ -96,18 +43,6 @@ export function TickerDetail({ symbol, onClose }: Props) {
     }
     return undefined;
   })();
-
-  const layers: LayerStatus = vlData
-    ? mapValidationToLayers(vlData)
-    : {
-        vixAbsoluteOk: null, vixAbsoluteValue: null,
-        vixTermStructureOk: null, ivRankOk: null, ivRankValue: null,
-        ivMomentumOk: null, ivMomentumValue: null,
-        gexOk: null, gexValue: null, spotAboveZgl: null, zglValue: null,
-        expectedMove: null, callWall: null, putWall: null,
-        atmStrike: null, atmCallOI: null, atmPutOI: null,
-        atmCallDelta: null, atmPutDelta: null, signal: 'NO OPERAR',
-      };
 
   const stale = isStale(updated);
 
@@ -135,7 +70,7 @@ export function TickerDetail({ symbol, onClose }: Props) {
           color: 'var(--text-primary)',
           letterSpacing: '0.04em',
         }}>
-          {symbol} · Details
+          {symbol} · Gamma
         </span>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -175,21 +110,16 @@ export function TickerDetail({ symbol, onClose }: Props) {
       {/* ── Body ─────────────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', height: DETAIL_HEIGHT }}>
 
-        {/* Left: validation layers — fixed width, scrollable */}
+        {/* Left: strikes engine (ZGL, muros, estructura, shorts, EM) — la lectura numérica de
+            lo que dibuja el gráfico gamma. Fixed width, scrollable. El diagnóstico de mercado se
+            movió al cuadro de validación (ValidationLayersPanel en Main). */}
         <div style={{
           width: 230,
           flexShrink: 0,
           borderRight: '1px solid var(--border-dark)',
           overflowY: 'auto',
         }}>
-          <ValidationLayers
-            symbol={symbol}
-            layers={layers}
-            vlData={vlData}
-          />
-          <div style={{ borderTop: '1px solid var(--border-dark)' }}>
-            <MarketDiagnostics inputs={structureInputs} />
-          </div>
+          <StrikesEnginePanel symbol={symbol} />
         </div>
 
         {/* Right: chart — fills remaining space */}

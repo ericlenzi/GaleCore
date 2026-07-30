@@ -17,6 +17,11 @@ interface Props {
   subscribeLeg: (occ: string) => void;
   unsubscribeLeg: (occ: string) => void;
   socketStatus: ConnectionStatus;
+  /** Símbolos a mostrar. Si se omite, usa el universo completo de las reglas.
+   *  Main lo pasa scopeado al ticker seleccionado (una sola fila). */
+  symbols?: string[];
+  /** Modo embebido en Main: header compacto, sin padding/fondo propios. */
+  embedded?: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -193,8 +198,9 @@ function Td({ children, rowSpan }: { children: React.ReactNode; right?: boolean;
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export function PortfolioManager({ subscribeLeg, unsubscribeLeg, socketStatus }: Props) {
-  const { tickers: symbols = [], rules } = useRulesStore();
+export function PortfolioManager({ subscribeLeg, unsubscribeLeg, socketStatus, symbols: symbolsProp, embedded = false }: Props) {
+  const { tickers: rulesTickers = [], rules } = useRulesStore();
+  const symbols = symbolsProp ?? rulesTickers;
   const marketStore = useMarketStore();
   const { tickers } = marketStore;
   const { balances } = useAccountStore();
@@ -255,7 +261,11 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg, socketStatus }:
     subscribedLegsRef.current.forEach(occ => unsubscribeLeg(occ));
 
     const newLegs: string[] = [];
-    Object.values(pbData).forEach(pb => {
+    // Solo los símbolos mostrados (scopeados por prop). Iterar todo pbData dejaría legs de
+    // símbolos ya no visibles suscriptos al cambiar de ticker en Main.
+    symbols.forEach(sym => {
+      const pb = pbData[sym];
+      if (!pb) return;
       // Suscribir legs de todos los candidatos (rank 1-3)
       const candidates = pb.strikeCandidates ?? (pb.strikeEngine ? [seToCandidate(pb.strikeEngine)] : []);
       candidates.forEach(c => {
@@ -275,7 +285,7 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg, socketStatus }:
     return () => {
       newLegs.forEach(occ => unsubscribeLeg(occ));
     };
-  }, [socketStatus, JSON.stringify(Object.fromEntries(Object.entries(pbData).map(([k, v]) => [k, v.strikeEngine?.legSymbols])))]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [socketStatus, symbols.join(','), JSON.stringify(symbols.map(s => pbData[s]?.strikeEngine?.legSymbols))]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const anyLoading = symbols.some(s => pbLoading[s]);
 
@@ -295,43 +305,58 @@ export function PortfolioManager({ subscribeLeg, unsubscribeLeg, socketStatus }:
     return st === 'iron_condor' || st === 'call_credit_spread';
   });
 
-  return (
-    <div style={{ padding: '14px 16px', minHeight: '100%', backgroundColor: 'var(--bg-primary)' }}>
+  const refreshBtn = (
+    <button
+      onClick={fetchAllPB} disabled={anyLoading}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 4,
+        fontSize: 11, fontFamily: 'Inter, sans-serif', fontWeight: 600,
+        padding: '6px 12px', borderRadius: 6,
+        backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border)',
+        color: 'var(--text-secondary)', cursor: anyLoading ? 'wait' : 'pointer',
+      }}
+    >
+      <RefreshCw size={11} className={anyLoading ? 'animate-spin' : ''} />
+      Refresh
+    </button>
+  );
 
-      {/* Header */}
-      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-        <div>
-          <h2 style={{ fontSize: 19, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'Inter, sans-serif', margin: 0 }}>
-            Portfolio Manager
-          </h2>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '3px 0 0', fontFamily: 'Inter, sans-serif' }}>
-            Setup per ticker · live premiums via socket · risk values with instant credit
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          {netLiq != null && (
-            <span style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', padding: '3px 10px', borderRadius: 20, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', color: 'var(--text-muted)' }}>
-              NL ${netLiq.toLocaleString('en-US', { maximumFractionDigits: 0 })}
-            </span>
-          )}
-          <span style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', padding: '3px 10px', borderRadius: 20, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', color: 'var(--text-muted)' }}>
-            Max {maxConc} pos
-          </span>
-          <button
-            onClick={fetchAllPB} disabled={anyLoading}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              fontSize: 11, fontFamily: 'Inter, sans-serif', fontWeight: 600,
-              padding: '6px 12px', borderRadius: 6,
-              backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              color: 'var(--text-secondary)', cursor: anyLoading ? 'wait' : 'pointer',
-            }}
-          >
-            <RefreshCw size={11} className={anyLoading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
-        </div>
+  // Header compacto embebido en Main vs header de página completo.
+  const header = embedded ? (
+    <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+      <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>
+        Setup candidato · primas en vivo
+      </span>
+      {refreshBtn}
+    </div>
+  ) : (
+    <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+      <div>
+        <h2 style={{ fontSize: 19, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'Inter, sans-serif', margin: 0 }}>
+          Portfolio Manager
+        </h2>
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '3px 0 0', fontFamily: 'Inter, sans-serif' }}>
+          Setup per ticker · live premiums via socket · risk values with instant credit
+        </p>
       </div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        {netLiq != null && (
+          <span style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', padding: '3px 10px', borderRadius: 20, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', color: 'var(--text-muted)' }}>
+            NL ${netLiq.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+          </span>
+        )}
+        <span style={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace', padding: '3px 10px', borderRadius: 20, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', color: 'var(--text-muted)' }}>
+          Max {maxConc} pos
+        </span>
+        {refreshBtn}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={embedded ? undefined : { padding: '14px 16px', minHeight: '100%', backgroundColor: 'var(--bg-primary)' }}>
+
+      {header}
 
       {/* Table */}
       <div style={{ borderRadius: 8, border: '1px solid var(--border-dark)', overflowX: 'auto' }}>

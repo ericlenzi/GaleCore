@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { LayerStatus } from '../../types/market';
 import { ValidationLayerApiResponse } from '../../types/api';
-import { fmtPrice, fmtGex, signalColor } from '../../utils/formatters';
+import { fmtPrice, fmtGex } from '../../utils/formatters';
 
 interface Props {
   symbol: string;
@@ -158,24 +158,13 @@ function ListRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-const structureLabels: Record<string, string> = {
-  iron_condor: 'IC',
-  put_credit_spread: 'PCS',
-  call_credit_spread: 'CCS',
-};
-
 function fmtOI(v: number): string {
   return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${v}`;
 }
 
 export function ValidationLayers({ symbol, layers, vlData }: Props) {
   const checks = vlData?.macroRegime?.checks;
-  const l2 = vlData?.positionBuilder?.strikeEngine;
   const l3 = vlData?.positionBuilder?.microstructure;
-
-  const emDetail = layers.expectedMove != null
-    ? `±${fmtPrice(layers.expectedMove, 1)}`
-    : '—';
 
   return (
     <div style={{
@@ -263,65 +252,6 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
             { label: 'Buffer', value: `${(checks.spotVsZgl.bufferPct * 100).toFixed(1)}%` },
           ] : undefined}
         />
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '7px 8px',
-          gap: 4,
-          backgroundColor: 'var(--bg-tertiary)',
-          borderRadius: 6,
-          gridColumn: 'span 2',
-        }}>
-          <span style={{
-            fontSize: 8.5, fontWeight: 600, letterSpacing: '0.09em',
-            textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif',
-          }}>
-            Signal
-          </span>
-          <span
-            style={{
-              fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
-              padding: '3px 10px', borderRadius: 4, textTransform: 'uppercase',
-              fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap',
-              color: signalColor(layers.signal),
-              backgroundColor: signalColor(layers.signal) + '22',
-              border: `1px solid ${signalColor(layers.signal)}44`,
-              alignSelf: 'flex-start',
-            }}
-          >
-            {layers.signal}
-          </span>
-        </div>
-      </div>
-
-      {/* ── Motor de Strikes ── */}
-      <div style={{
-        backgroundColor: 'var(--bg-tertiary)',
-        borderRadius: 6,
-        padding: '8px 10px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-      }}>
-        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#a78bfa', fontFamily: 'Inter, sans-serif' }}>
-          Strikes Engine
-        </span>
-        <ListRow label="ZGL" value={layers.zglValue != null ? fmtPrice(layers.zglValue, 0) : '—'} />
-        <ListRow label="Call Wall" value={layers.callWall != null ? fmtPrice(layers.callWall, 0) : '—'} />
-        <ListRow label="Put Wall" value={layers.putWall != null ? fmtPrice(layers.putWall, 0) : '—'} />
-        {l2 && (
-          <>
-            <ListRow label="Estructura" value={structureLabels[l2.selectedStructure] ?? l2.selectedStructure} />
-            {l2.shortPutStrike != null && (
-              <ListRow label="Short Put" value={`${fmtPrice(l2.shortPutStrike, 0)} (Δ${l2.shortPutDelta?.toFixed(2) ?? '?'})`} />
-            )}
-            {l2.shortCallStrike != null && (
-              <ListRow label="Short Call" value={`${fmtPrice(l2.shortCallStrike, 0)} (Δ${l2.shortCallDelta?.toFixed(2) ?? '?'})`} />
-            )}
-            <ListRow label="Dentro de muros" value={l2.strikesInsideWalls ? '✓' : '✗'} />
-          </>
-        )}
-        <ListRow label="Expected Move" value={emDetail !== '—' ? `${emDetail} pts` : '—'} />
       </div>
 
       {/* ── Microestructura ── */}
