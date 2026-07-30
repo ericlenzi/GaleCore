@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using DataFeed.Application.App.PositionBuilder;
 using DataFeed.Application.App.Rpf;
 using DataFeed.Application.App.SignalGates;
 using DataFeed.Application.App.ValidationLayer;
@@ -130,6 +131,21 @@ namespace DataFeed.Api.Infrastructure
                         SkewHistoryJson = cfg.SkewJson,
                     }, ct);
 
+                    // Motor macro-independiente: da el candidato aun cuando la cascada corta en macro
+                    // (decisión "candidato siempre visible"). Su fallo no tumba el tick.
+                    PositionBuilderResponse? pb = null;
+                    try
+                    {
+                        pb = await mediator.Send(new PositionBuilderRequest
+                        {
+                            Symbol = symbol,
+                            Profile = "core",
+                            RulesJson = cfg.RulesJson,
+                        }, ct);
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                    catch (Exception ex) { _logger.LogWarning(ex, "RpfLoop: PositionBuilder falló para {Symbol} (candidato no disponible)", symbol); }
+
                     bool inCooldown = _store.InCooldown(symbol, now);
                     var inputs = BuildInputs(resp, inCooldown);
                     var state = RpfStateMachine.Evaluate(inputs);
@@ -140,7 +156,7 @@ namespace DataFeed.Api.Infrastructure
                     // Heartbeat: se emite cada tick (no solo en cambio) para que el tablero sepa que
                     // el loop vive. Sin esto, un estado DORMANT que coincide con el default del store
                     // nunca se emitiría y el front quedaría en "loop offline" con el loop corriendo.
-                    await _broadcaster.BroadcastRpfStateAsync(symbol, BuildStateUpdate(symbol, state, resp, inputs, now));
+                    await _broadcaster.BroadcastRpfStateAsync(symbol, BuildStateUpdate(symbol, state, resp, pb, inputs, now));
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
                 catch (Exception ex)
@@ -154,7 +170,7 @@ namespace DataFeed.Api.Infrastructure
                     {
                         Symbol = symbol,
                         State = RpfState.Dormant.ToWire(),
-                        TierA = new Dictionary<string, bool> { ["cascade_ok"] = false },
+                        CascadeOk = false,
                         CapacityAvailable = false,
                         CooldownRemainingSec = _store.CooldownRemainingSec(symbol, now),
                         Timestamp = now,
@@ -269,28 +285,98 @@ namespace DataFeed.Api.Infrastructure
             };
         }
 
-        private RpfStateUpdate BuildStateUpdate(string symbol, RpfState state, ValidationLayerResponse resp, RpfStateInputs inp, DateTime now)
+        private RpfStateUpdate BuildStateUpdate(string symbol, RpfState state, ValidationLayerResponse resp, PositionBuilderResponse? pb, RpfStateInputs inp, DateTime now)
         {
             var edge = resp.PositionBuilder?.SignalGates?.Gates.FirstOrDefault(g => g.Id == "edge");
-            var tierA = new Dictionary<string, bool>
-            {
-                ["macro_regime"] = inp.TierAPass || (resp.MacroRegime is { } m && m.PassedCount == m.TotalChecks),
-                ["tail_ok"] = !(inp.TailScoreAvailable && inp.TailScore >= 2),
-                ["vrp_edge_env"] = inp.TierAPass,
-            };
+            var sizing = resp.PositionBuilder?.RiskAndSizing ?? pb?.RiskAndSizing;
 
             return new RpfStateUpdate
             {
                 Symbol = symbol,
                 State = state.ToWire(),
-                TierA = tierA,
                 Edge = edge?.Value,
                 Bar = edge?.Threshold,
                 Regime = null,
                 CapacityAvailable = inp.CapacityAvailable,
+                OpenPositions = sizing?.OpenPositions ?? 0,
+                MaxPositions = sizing?.MaxPositions ?? 0,
+                HeatPct = sizing != null ? sizing.CurrentHeatPct : null,
                 CooldownRemainingSec = _store.CooldownRemainingSec(symbol, now),
                 SuggestionId = state == RpfState.Triggered ? _store.CurrentSuggestion(symbol)?.Id : null,
+
+                MacroPassed = resp.MacroRegime?.PassedCount ?? 0,
+                MacroTotal = resp.MacroRegime?.TotalChecks ?? 0,
+                MacroChecks = MapMacroChecks(resp.MacroRegime),
+                Gates = MapGates(resp.PositionBuilder?.SignalGates),
+                Candidate = BuildCandidate(resp, pb, edge),
+
+                CascadeOk = true,
+                DiedAtLayer = resp.FailedAtLayer,
                 Timestamp = now,
+            };
+        }
+
+        // Eje ARMA — macro_regime. Los 4 checks de RPF (sin iv_rank/spot_vs_zgl) con etiqueta legible.
+        // Se computan dentro de Layer 1 aun si el macro falla, así que la fila muestra el valor igual.
+        private static List<RpfCheck> MapMacroChecks(MacroRegimeResult? macro)
+        {
+            var list = new List<RpfCheck>();
+            if (macro?.Checks is not { } c) return list;
+
+            void Add(string id, string label, bool? passed, double? value, double? threshold, string? detail = null)
+            {
+                if (passed == null) return; // check no presente en el JSON de RPF
+                list.Add(new RpfCheck { Id = id, Label = label, Status = passed.Value ? "pass" : "fail", Value = value, Threshold = threshold, Detail = detail });
+            }
+
+            Add("vix_absolute", "VIX bajo control", c.VixAbsolute?.Passed, c.VixAbsolute?.Value, c.VixAbsolute?.Threshold);
+            Add("vix_term_structure", "Estructura VIX en calma", c.VixTermStructure?.Passed, c.VixTermStructure?.Iv9d, c.VixTermStructure?.Iv30d,
+                c.VixTermStructure != null ? $"9d {c.VixTermStructure.Iv9d:0.0} vs 30d {c.VixTermStructure.Iv30d:0.0}" : null);
+            Add("iv_momentum", "Momentum de vol frenado", c.IVMomentum?.Passed, c.IVMomentum?.Value, c.IVMomentum?.Threshold);
+            Add("gex_total", "Dealers amortiguan (GEX≥0)", c.GexTotal?.Passed, c.GexTotal?.Value, c.GexTotal?.Threshold);
+            return list;
+        }
+
+        // Eje ARMA — gates de señal (VRP, cola) + eje DISPARA (edge, crédito, muro). Solo corren si el
+        // macro pasó (cascada cortocircuitante); si no, la lista viene vacía → el tablero los marca "no evaluado".
+        private static List<RpfCheck> MapGates(SignalGatesResult? gates)
+        {
+            var list = new List<RpfCheck>();
+            if (gates == null) return list;
+            foreach (var g in gates.Gates)
+            {
+                if (!g.Enabled) continue;
+                list.Add(new RpfCheck { Id = g.Id, Label = g.Label, Status = g.Status, Value = g.Value, Threshold = g.Threshold, Detail = g.Detail });
+            }
+            return list;
+        }
+
+        // Eje DISPARA — el PCS candidato. Prefiere el de la cascada; si macro cortó, el del motor
+        // macro-independiente (pb). Así se ve SIEMPRE (decisión candidato-siempre).
+        private static RpfCandidate? BuildCandidate(ValidationLayerResponse resp, PositionBuilderResponse? pb, GateResult? edge)
+        {
+            var se = resp.PositionBuilder?.StrikeEngine ?? pb?.StrikeEngine;
+            if (se?.ShortPutStrike is not { } shortStrike) return null;
+
+            double? credit = resp.PositionBuilder?.Microstructure?.CreditMinimum?.MidCredit
+                             ?? pb?.Microstructure?.CreditMinimum?.MidCredit;
+            double? width = se.LongPutStrike is { } lp ? Math.Abs(shortStrike - lp) : 5;
+
+            return new RpfCandidate
+            {
+                ShortPutStrike = shortStrike,
+                LongPutStrike = se.LongPutStrike,
+                ShortPutDelta = se.ShortPutDelta,
+                Dte = se.DTE,
+                Expiration = se.Expiration,
+                Credit = credit,
+                Width = width,
+                CreditRatio = se.CreditRatio.HasValue ? se.CreditRatio / 100.0 : null,
+                Pop = se.Pop,
+                PutWall = se.PutWall,
+                Edge = edge?.Value,
+                Bar = edge?.Threshold,
+                FromCascade = resp.PositionBuilder?.StrikeEngine != null,
             };
         }
     }
