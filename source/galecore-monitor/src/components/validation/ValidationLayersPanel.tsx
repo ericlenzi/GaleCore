@@ -8,9 +8,9 @@ interface Props {
   symbol: string;
 }
 
-// Cuadro propio para las capas de validación del símbolo activo. Lee del useValidationStore
-// (populado por TickerDetail, que es dueño del fetch + auto-refresh); es read-only.
-// Contiene: capas macro + microestructura (ValidationLayers) + diagnóstico de mercado.
+// Cuadro superior de Main: header "{symbol} · Details" + dos columnas
+// (Capa de Validaciones a la izquierda, Diagnóstico de mercado a la derecha).
+// Read-only del useValidationStore (TickerDetail es dueño del fetch + auto-refresh).
 export function ValidationLayersPanel({ symbol }: Props) {
   const cached = useValidationStore((s) => s.cache[symbol]);
   const vlData = cached?.vlData ?? null;
@@ -25,9 +25,24 @@ export function ValidationLayersPanel({ symbol }: Props) {
       boxShadow: 'var(--shadow-sm)',
       overflow: 'hidden',
     }}>
-      <ValidationLayers symbol={symbol} layers={layers} vlData={vlData} />
-      <div style={{ borderTop: '1px solid var(--border-dark)' }}>
-        <MarketDiagnostics inputs={structureInputs} />
+      {/* Header — formato de título atenuado (no barra tipo ventana) */}
+      <div style={{
+        fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
+        color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif',
+        padding: '10px 12px 8px',
+        borderBottom: '1px solid var(--border-dark)',
+      }}>
+        {symbol} · Details
+      </div>
+
+      {/* Body: dos columnas en mitades iguales */}
+      <div style={{ display: 'flex', alignItems: 'stretch' }}>
+        <div style={{ flex: 1, minWidth: 0, borderRight: '1px solid var(--border-dark)' }}>
+          <ValidationLayers layers={layers} vlData={vlData} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <MarketDiagnostics inputs={structureInputs} />
+        </div>
       </div>
     </div>
   );

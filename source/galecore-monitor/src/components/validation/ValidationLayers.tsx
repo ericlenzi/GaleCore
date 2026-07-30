@@ -4,7 +4,6 @@ import { ValidationLayerApiResponse } from '../../types/api';
 import { fmtPrice, fmtGex } from '../../utils/formatters';
 
 interface Props {
-  symbol: string;
   layers: LayerStatus;
   vlData: ValidationLayerApiResponse | null;
 }
@@ -162,7 +161,7 @@ function fmtOI(v: number): string {
   return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${v}`;
 }
 
-export function ValidationLayers({ symbol, layers, vlData }: Props) {
+export function ValidationLayers({ layers, vlData }: Props) {
   const checks = vlData?.macroRegime?.checks;
   const l3 = vlData?.positionBuilder?.microstructure;
 
@@ -175,18 +174,14 @@ export function ValidationLayers({ symbol, layers, vlData }: Props) {
       flexDirection: 'column',
       gap: 8,
     }}>
-      {/* Title */}
-      <div style={{
-        fontSize: 9,
-        fontWeight: 700,
-        letterSpacing: '0.12em',
-        textTransform: 'uppercase',
-        color: 'var(--text-muted)',
-        fontFamily: 'Inter, sans-serif',
-        paddingBottom: 6,
-        borderBottom: '1px solid var(--border-dark)',
-      }}>
-        {symbol} · Validations Layer
+      {/* Title — mismo formato que Diagnóstico de mercado (título violeta + descripción) */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#a78bfa', fontFamily: 'Inter, sans-serif' }}>
+          Capa de Validaciones
+        </span>
+        <span style={{ fontSize: 8.5, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif', marginBottom: 4, lineHeight: 1.3 }}>
+          Chequeos de la cascada — régimen macro (capa 1) y microestructura del candidato (capa 3).
+        </span>
       </div>
 
       {/* ── Grid Capa 1: 6 checks + señal ── */}
