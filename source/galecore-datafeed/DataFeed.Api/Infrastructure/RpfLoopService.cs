@@ -181,7 +181,13 @@ namespace DataFeed.Api.Infrastructure
                              || (tick.MacroRegime is { } m && m.PassedCount == m.TotalChecks && m.TotalChecks > 0);
             bool vrpTailPass = gates != null && gates.AllPass ||
                                (gates != null && gates.FailedGate is not ("volatility_risk_premium" or "tail_score"));
-            bool tierAPass = macroPass && gates != null && gates.FailedGate is not ("volatility_risk_premium" or "tail_score");
+
+            // Los gates ahora corren SIEMPRE (desacoplados del cupo). TierA exige, además del entorno,
+            // que exista un candidato válido — antes era implícito porque los gates solo corrían con
+            // candidato; sin este conjunto, macro+VRP+tail bastarían para un ARMED espurio sin spread.
+            bool candidateValid = tick.StrikeEngine?.Signal == "OPERAR" && tick.Microstructure?.Signal == "OPERAR";
+            bool tierAPass = macroPass && candidateValid && gates != null
+                             && gates.FailedGate is not ("volatility_risk_premium" or "tail_score");
 
             bool tailAvailable = tail is { Status: not "skipped" and not "no_data" };
             int tailScore = (int)Math.Round(tail?.Value ?? 0);

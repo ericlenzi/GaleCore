@@ -67,6 +67,34 @@ public class RpfStateMachineTests
         Assert.Equal(RpfState.WaitingCapacity, RpfStateMachine.Evaluate(inp));
     }
 
+    // ── Post-reordenamiento: cupo desacoplado de los gates ──
+    // Los gates (seguridad + dispara) ahora corren independientes del sizing, así que la cascada YA PUEDE
+    // emitir (!capacity ∧ tierA ∧ edge) — WAITING_CAPACITY pasa de inalcanzable a alcanzable. Y como el
+    // tail se evalúa siempre, el veto de cola es autoridad global (se afirma aun con el macro caído).
+
+    [Fact]
+    public void WaitingCapacity_AlcanzableConCupoDesacoplado()
+    {
+        // Candidato válido + edge cruza + libro lleno: la señal existe pero no hay dónde abrirla.
+        // Antes era inalcanzable (el sizing cortaba antes de los gates); ahora la cascada lo emite.
+        var inp = Firing() with { HasOpenPosition = true, CapacityAvailable = false };
+        Assert.Equal(RpfState.WaitingCapacity, RpfStateMachine.Evaluate(inp));
+    }
+
+    [Fact]
+    public void Vetoed_Global_AunConMacroCaidoYLibroLleno()
+    {
+        // El tail corre siempre → el veto es autoridad global: se afirma aunque el entorno macro no
+        // habilite (TierAPass=false) y el libro esté lleno (CapacityAvailable=false).
+        var inp = Firing() with
+        {
+            TailScore = 3, TailScoreAvailable = true,
+            TierAPass = false, EdgePass = false,
+            CapacityAvailable = false, HasOpenPosition = true,
+        };
+        Assert.Equal(RpfState.Vetoed, RpfStateMachine.Evaluate(inp));
+    }
+
     [Fact]
     public void SinCupoPorHeat_SinPosiciones_NoEsInPosition()
     {
@@ -107,9 +135,10 @@ public class RpfStateMachineTests
     }
 
     [Fact]
-    public void Dormant_SiTailNoCorrio_AunqueTierAFalle()
+    public void Dormant_SiTailNoTieneDatos_AunqueTierAFalle()
     {
-        // Short-circuit macro: el gate tail no se evaluó → no se puede afirmar VETOED → DORMANT honesto.
+        // Guarda defensiva: si el tail NO tiene datos (VVIX y skew ausentes — raro post-reordenamiento,
+        // donde el tail se evalúa siempre) no se puede afirmar VETOED → DORMANT honesto.
         var inp = Firing() with { TailScoreAvailable = false, TailScore = 0, TierAPass = false };
         Assert.Equal(RpfState.Dormant, RpfStateMachine.Evaluate(inp));
     }

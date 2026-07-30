@@ -91,25 +91,21 @@ namespace DataFeed.Application.App.Rpf.Engine
                 RiskAndSizing = riskAndSizing,
             };
 
-            // ── Signal gates: solo se evalúan si macro no cortó y strike/micro/sizing pasaron ──
-            bool reachedGates = macro.Signal != "NO_OPERAR"
-                && strikeEngine.Signal == "OPERAR"
-                && microstructure.Signal == "OPERAR"
-                && riskAndSizing.Signal == "OPERAR";
+            // ── Signal gates: se evalúan SIEMPRE, independientes del cupo. VRP+tail siempre tienen data
+            // (IV/RV30/VVIX/skew); edge/crédito/muro degradan a no_data sin candidato (no bloquean). Esto
+            // desacopla la seguridad del sizing → el veto de cola es autoridad global y WAITING_CAPACITY se
+            // vuelve alcanzable. El sizing se sigue computando (cupo + números de la sugerencia) pero NO
+            // condiciona la corrida de los gates.
+            double currentSkew25 = PutSkewCalculator.Compute(gex).PutSkew25d ?? 0;
+            double? skewRoc = !string.IsNullOrWhiteSpace(request.SkewHistoryJson) && currentSkew25 > 0
+                ? SkewHistory.Parse(request.SkewHistoryJson!).Roc5d(symbol, currentSkew25)
+                : null;
+            result.SignalGates = EvaluateSignalGates(rules, symbol, iv, strikeEngine, microstructure, request.PopCalibrationJson, vvix, skewRoc);
 
-            if (reachedGates)
-            {
-                double currentSkew25 = PutSkewCalculator.Compute(gex).PutSkew25d ?? 0;
-                double? skewRoc = !string.IsNullOrWhiteSpace(request.SkewHistoryJson) && currentSkew25 > 0
-                    ? SkewHistory.Parse(request.SkewHistoryJson!).Roc5d(symbol, currentSkew25)
-                    : null;
-                result.SignalGates = EvaluateSignalGates(rules, symbol, iv, strikeEngine, microstructure, request.PopCalibrationJson, vvix, skewRoc);
-            }
-
-            // Cortocircuito de la cascada (lógica RPF pura, testeable) → OverallSignal + FailedAtLayer.
+            // Cortocircuito de la SEÑAL (macro→strike→micro→gates). El cupo es ortogonal: se comunica por
+            // el estado (WaitingCapacity) y la fila Cupo del panel, no corta acá.
             var (overall, failedAtLayer) = RpfCascadeResolver.Resolve(
-                macro.Signal, strikeEngine.Signal, microstructure.Signal, riskAndSizing.Signal,
-                result.SignalGates?.AllPass ?? false);
+                macro.Signal, strikeEngine.Signal, microstructure.Signal, result.SignalGates.AllPass);
             result.OverallSignal = overall;
             result.FailedAtLayer = failedAtLayer;
             return result;
