@@ -1,7 +1,7 @@
 # GaleCore — Backtesting pendientes
 
-> **Propósito:** registro de todas las validaciones empíricas pendientes que sostienen la definición
-> de la estrategia de disparo por prima real (edge + estados). Cada supuesto del diseño que no está
+> **Propósito:** registro de todas las validaciones empíricas que sostienen la definición
+> de la estrategia (edge + estados). Cada supuesto del diseño que no está
 > derivado matemáticamente ni calculado con datos propios queda listado acá con: qué hay que calcular,
 > qué dato histórico se necesita, dónde impacta y qué criterio decide.
 >

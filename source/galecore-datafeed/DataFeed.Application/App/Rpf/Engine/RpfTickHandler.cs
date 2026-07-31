@@ -4,6 +4,7 @@ using DataFeed.Application.App.GammaExposure;
 using DataFeed.Application.App.ImpliedVolatility;
 using DataFeed.Application.App.IVRank;
 using DataFeed.Application.App.PutSkew;
+using DataFeed.Application.App.Shared;
 using DataFeed.Application.App.SignalGates;
 using DataFeed.Application.App.ValidationLayer;
 using DataFeed.Application.Data.Tastytrade.AccountBalances;
@@ -11,7 +12,6 @@ using DataFeed.Application.Data.Tastytrade.AccountPositions;
 using DataFeed.Application.Data.Tastytrade.MarketDataCandle;
 using DataFeed.Application.Data.Tastytrade.MarketDataQuote;
 using DataFeed.Application.Data.Tastytrade.MarketDataTrade;
-using VLH = DataFeed.Application.App.ValidationLayer.ValidationLayerHandler;
 
 namespace DataFeed.Application.App.Rpf.Engine
 {
@@ -23,10 +23,8 @@ namespace DataFeed.Application.App.Rpf.Engine
     ///   2) evalúa macro_regime (Layer 1) y los signal_gates con la misma lógica/cortocircuito de la
     ///      cascada, para que el estado que consume RpfStateMachine no cambie.
     ///
-    /// Reusa los primitivos ya compartidos (VLH.* estáticos, SignalGatesEvaluator, PutSkewCalculator);
-    /// NO toca ValidationLayerHandler ni PositionBuilderHandler (Main queda intacto). La orquestación de
-    /// capas queda deliberadamente propia de RPF (tradeoff "acotado a RPF"): consolidar los tres motores
-    /// en un CascadeCore compartido es un follow-up.
+    /// Reusa los primitivos compartidos (CascadeUtils.*, SignalGatesEvaluator, PutSkewCalculator);
+    /// NO toca ValidationLayerHandler ni PositionBuilderHandler (Main queda intacto).
     /// </summary>
     public class RpfTickHandler : IRequestHandler<RpfTickRequest, RpfTickResult>
     {
@@ -118,17 +116,17 @@ namespace DataFeed.Application.App.Rpf.Engine
             var macroChecks = rules["macro_regime"]?["checks"]?.AsArray();
             var definitions = rules["definitions"];
 
-            double maxVix = VLH.FindCheck(macroChecks, "vix_absolute")?["threshold"]?["value"]?.GetValue<double>() ?? 30.0;
+            double maxVix = CascadeUtils.FindCheck(macroChecks, "vix_absolute")?["threshold"]?["value"]?.GetValue<double>() ?? 30.0;
             bool vixAbsPassed = iv.IV30_30d.HasValue && iv.IV30_30d.Value < maxVix;
 
             bool vixTSPassed = iv.IV30_9d.HasValue && iv.IV30_30d.HasValue && iv.IV30_9d.Value < iv.IV30_30d.Value;
 
-            var ivRankDef = VLH.FindCheck(macroChecks, "iv_rank");
+            var ivRankDef = CascadeUtils.FindCheck(macroChecks, "iv_rank");
             double ivMin = ivRankDef?["threshold"]?["min"]?.GetValue<double>() ?? 25;
             double ivMax = ivRankDef?["threshold"]?["max"]?.GetValue<double>() ?? 65;
             bool ivRankPassed = ivr.IVRank >= ivMin && ivr.IVRank <= ivMax;
 
-            double ivMomThreshold = VLH.FindCheck(macroChecks, "iv_momentum")?["threshold"]?["value"]?.GetValue<double>() ?? 12.0;
+            double ivMomThreshold = CascadeUtils.FindCheck(macroChecks, "iv_momentum")?["threshold"]?["value"]?.GetValue<double>() ?? 12.0;
             bool ivMomentumPassed = iv.IV30RocPct.HasValue && Math.Abs(iv.IV30RocPct.Value) <= ivMomThreshold;
 
             double gexThreshold = definitions?["gex_threshold_by_symbol"]?["values"]?[symbol]?.GetValue<double>() ?? 50;
@@ -165,7 +163,7 @@ namespace DataFeed.Application.App.Rpf.Engine
             JsonObject rules, string symbol, GammaExposureResponse gex, ImpliedVolatilityResponse iv,
             List<CandleData> candles, out int spreadWidth)
         {
-            var layer2Node = VLH.GetPositionBuilderLayer(rules, 2);
+            var layer2Node = CascadeUtils.GetPositionBuilderLayer(rules, 2);
             var config = layer2Node?["config"];
             var structureConfig = config?["structure_selection"];
             var spreadConfig = config?["spread_width"];
@@ -177,18 +175,18 @@ namespace DataFeed.Application.App.Rpf.Engine
             double neutralZ = structureConfig?["thresholds"]?["neutral_z"]?.GetValue<double>() ?? 1.0;
             double extremeZ = structureConfig?["thresholds"]?["extreme_z"]?.GetValue<double>() ?? 1.5;
 
-            double priceZScore = VLH.ComputePriceZScore(candles, ivAtm);
-            string gexSkew = VLH.ComputeGexSkew(gex.CallGEX, gex.PutGEX);
-            var (ema20, ema50, trendSignal) = VLH.ComputeTrend(candles);
-            var (rv10d, rv30d, realizedVolSignal) = VLH.ComputeRealizedVol(candles);
+            double priceZScore = CascadeUtils.ComputePriceZScore(candles, ivAtm);
+            string gexSkew = CascadeUtils.ComputeGexSkew(gex.CallGEX, gex.PutGEX);
+            var (ema20, ema50, trendSignal) = CascadeUtils.ComputeTrend(candles);
+            var (rv10d, rv30d, realizedVolSignal) = CascadeUtils.ComputeRealizedVol(candles);
 
-            var (selectedStructure, ruleId, ruleName, ruleLabel) = VLH.ResolveStructure(
+            var (selectedStructure, ruleId, ruleName, ruleLabel) = CascadeUtils.ResolveStructure(
                 structureConfig, priceZScore, gexSkew, trendSignal, neutralZ, extremeZ);
 
             var deltaTarget = config?["delta_target"];
             double putDeltaMin = deltaTarget?["put_short_min"]?.GetValue<double>() ?? 0.25;
             double putDeltaMax = deltaTarget?["put_short_max"]?.GetValue<double>() ?? 0.30;
-            double maxCallDelta = VLH.GetCheckThresholdValue(layer2Node?["checks"]?.AsArray(), "call_strike_delta") ?? 0.25;
+            double maxCallDelta = CascadeUtils.GetCheckThresholdValue(layer2Node?["checks"]?.AsArray(), "call_strike_delta") ?? 0.25;
 
             spreadWidth = 10;
             var symbolOverride = spreadConfig?["symbol_overrides"]?[symbol];
@@ -215,7 +213,7 @@ namespace DataFeed.Application.App.Rpf.Engine
                     {
                         shortPutStrike = putCandidate.Strike;
                         shortPutDelta = putCandidate.PutDelta;
-                        longPutStrike = VLH.SnapToNearestStrike(gex.Strikes, putCandidate.Strike - spreadWidth);
+                        longPutStrike = CascadeUtils.SnapToNearestStrike(gex.Strikes, putCandidate.Strike - spreadWidth);
                     }
                 }
 
@@ -232,7 +230,7 @@ namespace DataFeed.Application.App.Rpf.Engine
                     {
                         shortCallStrike = callCandidate.Strike;
                         shortCallDelta = callCandidate.CallDelta;
-                        longCallStrike = VLH.SnapToNearestStrike(gex.Strikes, callCandidate.Strike + spreadWidth);
+                        longCallStrike = CascadeUtils.SnapToNearestStrike(gex.Strikes, callCandidate.Strike + spreadWidth);
                     }
                 }
 
@@ -311,11 +309,11 @@ namespace DataFeed.Application.App.Rpf.Engine
         private async Task<MicrostructureResult> BuildMicrostructure(
             JsonObject rules, string symbol, GammaExposureResponse gex, StrikeEngineResult se, CancellationToken ct)
         {
-            var layer3Checks = VLH.GetPositionBuilderLayer(rules, 3)?["checks"]?.AsArray();
-            long shortLegMinOI = (long)(VLH.GetCheckThresholdValue(layer3Checks, "oi_short_leg") ?? 2000);
-            long longLegMinOI = (long)(VLH.GetCheckThresholdValue(layer3Checks, "oi_long_leg") ?? 2000);
-            double maxBidAskPct = VLH.GetCheckThresholdValue(layer3Checks, "bid_ask_spread") ?? 0.05;
-            double minCredit = VLH.GetCheckThresholdValue(layer3Checks, "credit_minimum") ?? 0.30;
+            var layer3Checks = CascadeUtils.GetPositionBuilderLayer(rules, 3)?["checks"]?.AsArray();
+            long shortLegMinOI = (long)(CascadeUtils.GetCheckThresholdValue(layer3Checks, "oi_short_leg") ?? 2000);
+            long longLegMinOI = (long)(CascadeUtils.GetCheckThresholdValue(layer3Checks, "oi_long_leg") ?? 2000);
+            double maxBidAskPct = CascadeUtils.GetCheckThresholdValue(layer3Checks, "bid_ask_spread") ?? 0.05;
+            double minCredit = CascadeUtils.GetCheckThresholdValue(layer3Checks, "credit_minimum") ?? 0.30;
 
             var atm = gex.Strikes.OrderBy(s => Math.Abs(s.Strike - gex.Spot)).FirstOrDefault();
 
@@ -326,10 +324,10 @@ namespace DataFeed.Application.App.Rpf.Engine
             bool allOIPassed = shortCallOI.Passed && shortPutOI.Passed && longCallOI.Passed && longPutOI.Passed;
 
             var legQuotes = await FetchLegQuotes(symbol, se, ct);
-            var bidAskChecks = VLH.BuildBidAskChecks(legQuotes, se, maxBidAskPct);
+            var bidAskChecks = CascadeUtils.BuildBidAskChecks(legQuotes, se, maxBidAskPct);
             bool allBidAskPassed = (bidAskChecks.ShortPut?.Passed ?? true) && (bidAskChecks.ShortCall?.Passed ?? true)
                 && (bidAskChecks.LongPut?.Passed ?? true) && (bidAskChecks.LongCall?.Passed ?? true);
-            var creditCheck = VLH.BuildCreditCheck(legQuotes, se, minCredit);
+            var creditCheck = CascadeUtils.BuildCreditCheck(legQuotes, se, minCredit);
 
             bool allPassed = allOIPassed && allBidAskPassed && creditCheck.Passed;
 
@@ -355,7 +353,7 @@ namespace DataFeed.Application.App.Rpf.Engine
         private async Task<RiskAndSizingResult> BuildSizing(
             JsonObject rules, string? accountNumber, int spreadWidth, double snapshotCredit, CancellationToken ct)
         {
-            var config = VLH.GetPositionBuilderLayer(rules, 4)?["config"];
+            var config = CascadeUtils.GetPositionBuilderLayer(rules, 4)?["config"];
             double riskPct = config?["risk_per_trade_pct"]?.GetValue<double>() ?? 0.015;
             int maxPositions = config?["max_positions"]?.GetValue<int>() ?? 3;
             double heatMaxPct = config?["max_heat_pct_net_liq"]?.GetValue<double>() ?? 0.045;
@@ -423,7 +421,7 @@ namespace DataFeed.Application.App.Rpf.Engine
                 Credit = micro.CreditMinimum?.MidCredit,
                 SpreadWidth = width ?? 0,
                 ShortPutDeltaAbs = se.ShortPutDelta.HasValue ? Math.Abs(se.ShortPutDelta.Value) : null,
-                Regime = VLH.ClassifyRegime(rules["definitions"]?["regime_classification"], iv.IV30_30d),
+                Regime = CascadeUtils.ClassifyRegime(rules["definitions"]?["regime_classification"], iv.IV30_30d),
             };
 
             return SignalGatesEvaluator.Evaluate(rules["signal_gates"], inputs, pop);
@@ -437,16 +435,16 @@ namespace DataFeed.Application.App.Rpf.Engine
 
             if (se.ShortPutStrike.HasValue)
                 tasks["shortPut"] = _mediator.Send(new MarketDataQuoteRequest
-                { Symbol = VLH.BuildOccSymbol(symbol, se.Expiration, se.ShortPutStrike.Value, 'P') }, ct);
+                { Symbol = CascadeUtils.BuildOccSymbol(symbol, se.Expiration, se.ShortPutStrike.Value, 'P') }, ct);
             if (se.LongPutStrike.HasValue)
                 tasks["longPut"] = _mediator.Send(new MarketDataQuoteRequest
-                { Symbol = VLH.BuildOccSymbol(symbol, se.Expiration, se.LongPutStrike.Value, 'P') }, ct);
+                { Symbol = CascadeUtils.BuildOccSymbol(symbol, se.Expiration, se.LongPutStrike.Value, 'P') }, ct);
             if (se.ShortCallStrike.HasValue)
                 tasks["shortCall"] = _mediator.Send(new MarketDataQuoteRequest
-                { Symbol = VLH.BuildOccSymbol(symbol, se.Expiration, se.ShortCallStrike.Value, 'C') }, ct);
+                { Symbol = CascadeUtils.BuildOccSymbol(symbol, se.Expiration, se.ShortCallStrike.Value, 'C') }, ct);
             if (se.LongCallStrike.HasValue)
                 tasks["longCall"] = _mediator.Send(new MarketDataQuoteRequest
-                { Symbol = VLH.BuildOccSymbol(symbol, se.Expiration, se.LongCallStrike.Value, 'C') }, ct);
+                { Symbol = CascadeUtils.BuildOccSymbol(symbol, se.Expiration, se.LongCallStrike.Value, 'C') }, ct);
 
             await Task.WhenAll(tasks.Values);
 

@@ -11,10 +11,7 @@
 > **Historia:** la línea previa v2.x (clasificador multi-factor, 8 regímenes, IC/CCS) fue
 > **invalidada** por BT-11 y está archivada en [`archive/`](archive/).
 >
-> **Diseño de referencia (no implementado):** este doc describe la **cascada lineal PCS-only que
-> corre hoy**. El diseño objetivo — máquina de estados (ARMED/TRIGGERED/…), dos tiers y push de
-> `TradeSuggestion` desde el backend — vive en [`rpf/galecore-estrategia-rpf.md`](rpf/galecore-estrategia-rpf.md)
-> y **aún no está en el código**.
+> **Alcance:** este doc describe la **cascada lineal PCS-only que corre hoy** (Main).
 
 ---
 
