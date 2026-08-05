@@ -1,366 +1,303 @@
-import React from 'react';
-import { useRulesStore } from '../../store/useRulesStore';
+import React, { useEffect, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
+import { fetchRpfRulesRaw } from '../../api/rules';
 import { tint } from '../../utils/formatters';
-
-/* ──────────────── helpers ──────────────── */
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <h2
-      className="text-xs font-semibold uppercase tracking-widest mb-2 pt-1"
-      style={{ color: 'var(--blue-gc)' }}
-    >
+    <div style={{
+      fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase',
+      color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif',
+      padding: '2px 0 8px', borderBottom: '1px solid var(--border-dark)', marginBottom: 10,
+    }}>
       {children}
-    </h2>
+    </div>
   );
 }
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className="rounded p-4 mb-4"
-      style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)' }}
-    >
+    <div style={{
+      backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)',
+      borderRadius: 8, padding: '14px 16px', marginBottom: 14,
+    }}>
       {children}
+    </div>
+  );
+}
+
+function CollapsibleCard({ title, titleColor = 'var(--text-muted)', defaultOpen = false, children }:
+  { title: React.ReactNode; titleColor?: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Card>
+      <button onClick={() => setOpen((o) => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', background: 'none', border: 'none',
+          padding: 0, cursor: 'pointer', color: titleColor, marginBottom: open ? 8 : 0 }}>
+        <ChevronRight size={12} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', fontFamily: 'Inter, sans-serif' }}>{title}</span>
+      </button>
+      {open && <div>{children}</div>}
+    </Card>
+  );
+}
+
+function Stat({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: 3, padding: '8px 10px',
+      backgroundColor: 'var(--bg-tertiary)', borderRadius: 6, minWidth: 0,
+    }}>
+      <span style={{ fontSize: 8.5, fontWeight: 600, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>{label}</span>
+      <span className="tabular-nums" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace', lineHeight: 1.1 }}>{value}</span>
+      {hint && <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>{hint}</span>}
     </div>
   );
 }
 
 function TH({ children }: { children: React.ReactNode }) {
   return (
-    <th
-      className="px-3 py-1.5 text-left text-xs uppercase tracking-wider font-medium"
-      style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--border-dark)' }}
-    >
+    <th style={{
+      padding: '5px 8px', textAlign: 'left', fontSize: 9, fontWeight: 600,
+      letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)',
+      borderBottom: '1px solid var(--border-dark)', fontFamily: 'Inter, sans-serif',
+    }}>
       {children}
     </th>
   );
 }
 
-function TD({ children, mono }: { children: React.ReactNode; mono?: boolean }) {
+function TD({ children, mono, color }: { children: React.ReactNode; mono?: boolean; color?: string }) {
   return (
-    <td
-      className="px-3 py-1.5 text-xs"
-      style={{
-        color: 'var(--text-primary)',
-        fontFamily: mono ? 'JetBrains Mono, monospace' : 'inherit',
-        borderBottom: '1px solid var(--border-dark)',
-      }}
-    >
+    <td style={{
+      padding: '5px 8px', fontSize: 11, color: color ?? 'var(--text-primary)',
+      fontFamily: mono ? 'JetBrains Mono, monospace' : 'Inter, sans-serif',
+      borderBottom: '1px solid var(--border-dark)',
+    }}>
       {children}
     </td>
   );
 }
 
-/* ──────────────── layer tables ──────────────── */
-
-function Layer1Table({ minGex, ivMin, ivMax }: { minGex: number; ivMin: number; ivMax: number }) {
-  const rows = [
-    { cond: 'VIX9D < VIX3M',   thresh: '—',              desc: 'Term structure sana (contango)' },
-    { cond: 'IV Rank',          thresh: `${ivMin}–${ivMax}`, desc: 'Volatilidad en zona vendible' },
-    { cond: 'GEX',              thresh: `≥ $${minGex}B`,   desc: 'Gamma positivo, mercado anclado' },
-    { cond: 'Spot > ZGL',       thresh: '—',              desc: 'Spot encima del Gamma Zero Level' },
-    { cond: 'Persistencia',     thresh: '≥ 2 días',        desc: 'No entrar en día 1' },
-    { cond: 'Sin FOMC/CPI',     thresh: '< 48hs',          desc: 'Evitar eventos de alta volatilidad' },
-  ];
-  return (
-    <table className="w-full" style={{ borderCollapse: 'collapse' }}>
-      <thead><tr><TH>Condición</TH><TH>Umbral</TH><TH>Descripción</TH></tr></thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.cond}>
-            <TD mono>{r.cond}</TD>
-            <TD mono>{r.thresh}</TD>
-            <TD>{r.desc}</TD>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function Layer2Table({ dte }: { dte: number }) {
-  const rows = [
-    { cond: 'Expected Move',  thresh: 'Spot × IV × √(DTE/365)', desc: `DTE objetivo: ${dte}d` },
-    { cond: 'Call Wall',      thresh: 'desde GEX API',           desc: 'Ajustar strikes si es necesario' },
-    { cond: 'Put Wall',       thresh: 'desde GEX API',           desc: 'No vender debajo del Put Wall' },
-  ];
-  return (
-    <table className="w-full" style={{ borderCollapse: 'collapse' }}>
-      <thead><tr><TH>Parámetro</TH><TH>Fórmula / Fuente</TH><TH>Descripción</TH></tr></thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.cond}>
-            <TD mono>{r.cond}</TD>
-            <TD mono>{r.thresh}</TD>
-            <TD>{r.desc}</TD>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function Layer3Table({ minOI, maxSpread, minCredit, minPop }: {
-  minOI: number; maxSpread: number; minCredit: number; minPop: number;
-}) {
-  const rows = [
-    { cond: 'Open Interest',   thresh: `≥ ${minOI.toLocaleString()}`,       desc: 'Liquidez suficiente' },
-    { cond: 'Bid-Ask Spread',  thresh: `≤ $${maxSpread.toFixed(2)}`,         desc: 'Deslizamiento controlado' },
-    { cond: 'Credit ratio',    thresh: `≥ ${(minCredit * 100).toFixed(0)}%`, desc: 'Del ancho del spread' },
-    { cond: 'POP',             thresh: `≥ ${minPop}%`,                        desc: 'Probabilidad de ganancia' },
-  ];
-  return (
-    <table className="w-full" style={{ borderCollapse: 'collapse' }}>
-      <thead><tr><TH>Condición</TH><TH>Umbral</TH><TH>Descripción</TH></tr></thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.cond}>
-            <TD mono>{r.cond}</TD>
-            <TD mono>{r.thresh}</TD>
-            <TD>{r.desc}</TD>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-/* ──────────────── exit rules cards ──────────────── */
-
-function ExitCard({
-  color,
-  emoji,
-  title,
-  detail,
-}: {
-  color: string;
-  emoji: string;
-  title: string;
-  detail: string;
-}) {
-  return (
-    <div
-      className="flex-1 rounded p-3"
-      style={{
-        border: `1px solid ${color}`,
-        backgroundColor: tint(color, 7),
-        minWidth: 160,
-      }}
-    >
-      <div className="text-base mb-1">{emoji}</div>
-      <div className="font-semibold text-xs mb-1" style={{ color }}>
-        {title}
-      </div>
-      <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-        {detail}
-      </div>
-    </div>
-  );
-}
-
-/* ──────────────── adjustment flow ──────────────── */
-
-function FlowStep({
-  label,
-  isDecision = false,
-  yes,
-  no,
-}: {
-  label: string;
-  isDecision?: boolean;
-  yes?: string;
-  no?: string;
-}) {
-  return (
-    <div className="flex flex-col items-center">
-      <div
-        className="px-4 py-2 rounded text-xs font-mono text-center"
-        style={{
-          backgroundColor: isDecision ? 'var(--bg-tertiary)' : 'var(--bg-primary)',
-          border: `1px solid ${isDecision ? 'var(--yellow-gc)' : 'var(--border-dark)'}`,
-          color: isDecision ? 'var(--yellow-gc)' : 'var(--text-primary)',
-          maxWidth: 260,
-        }}
-      >
-        {label}
-      </div>
-      {isDecision && (yes || no) && (
-        <div className="flex gap-8 mt-1">
-          {yes && <span className="text-xs" style={{ color: 'var(--green)' }}>Sí → {yes}</span>}
-          {no  && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>No ↓</span>}
-        </div>
-      )}
-      {!isDecision && (
-        <div className="text-xs my-0.5" style={{ color: 'var(--text-muted)' }}>↓</div>
-      )}
-    </div>
-  );
-}
-
-/* ──────────────── main component ──────────────── */
-
 export function StrategyReference() {
-  const { rules, loading, error } = useRulesStore();
+  const [rules, setRules] = useState<any | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
-  if (loading) {
-    return (
-      <div className="p-4 flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-        <span className="spinner" />
-        Cargando reglas…
-      </div>
-    );
-  }
+  useEffect(() => {
+    let cancelled = false;
+    const load = (attempt = 0) => {
+      fetchRpfRulesRaw()
+        .then((r) => { if (!cancelled) setRules(r); })
+        .catch((e) => {
+          if (cancelled) return;
+          if (attempt < 3) setTimeout(() => load(attempt + 1), 1000 * (attempt + 1));
+          else setErr(String(e?.message ?? e));
+        });
+    };
+    load();
+    return () => { cancelled = true; };
+  }, []);
 
-  if (error) {
-    return (
-      <div className="p-4 text-xs" style={{ color: 'var(--red-gc)' }}>
-        Error cargando reglas: {error}
-      </div>
-    );
-  }
-
-  // Map from actual CoreRules JSON structure
-  const tickers = rules?.universe?.tickers ?? [];
-  const gexMin  = rules?.gamma_regime?.gex_total?.min_billion_usd ?? 100;
-  const ivMin   = rules?.options_filters?.iv_rank?.min ?? 25;
-  const ivMax   = rules?.options_filters?.iv_rank?.max ?? 65;
-  const dte     = rules?.trade_construction?.dte_target?.ideal ?? 35;
-  const minOI   = rules?.options_filters?.liquidity?.open_interest_min_short_leg ?? 2000;
-  const maxBA   = rules?.options_filters?.liquidity?.bid_ask_spread_max_pct_mid ?? 0.05;
-  const creditTiers = rules?.trade_construction?.premium_capture?.tiers ?? [];
-  const minCredit = creditTiers[0]?.min_credit_width_ratio ?? 0.10;
-  const maxPos  = rules?.risk_limits?.max_concurrent_positions ?? 3;
-  const sizingPct = rules?.risk_limits?.risk_per_trade_pct ?? 0.02;
-  const maxTrade = rules?.risk_limits?.risk_per_trade_usd_max ?? 10000;
+  const meta = rules?._meta;
+  const scope = rules?.strategy_scope;
+  const universe = rules?.universe;
+  const l2cfg = rules?.position_builder?.layers?.find((l: any) => l.name === 'strike_engine')?.config;
+  const l3cfg = rules?.position_builder?.layers?.find((l: any) => l.name === 'microstructure');
+  const l4cfg = rules?.position_builder?.layers?.find((l: any) => l.name === 'risk_and_sizing')?.config;
+  const gatesDef = rules?.signal_gates?.gates ?? {};
+  const tm = rules?.trade_management ?? {};
+  const sm = rules?.state_machine;
+  const orch = rules?.orchestration;
+  const checks = rules?.macro_regime?.checks ?? [];
+  const edgeBars = gatesDef?.edge?.bars_by_regime;
+  const expectedMetrics = meta?.expected_metrics;
 
   return (
-    <div className="p-4 max-w-4xl">
+    <div style={{ padding: '14px 18px 40px', height: '100%', overflowY: 'auto', fontFamily: 'Inter, sans-serif' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>RPF Strategy Reference</span>
+        {meta && (
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4, letterSpacing: '0.06em',
+            color: 'var(--blue-gc)', backgroundColor: tint('var(--blue-gc)', 13), border: `1px solid ${tint('var(--blue-gc)', 27)}`, fontFamily: 'JetBrains Mono, monospace' }}>
+            v{meta.version} · {meta.status}
+          </span>
+        )}
+      </div>
 
-      {/* 1. Parámetros generales */}
+      {err && <div style={{ color: 'var(--red-gc)', fontSize: 11, marginBottom: 12, fontFamily: 'JetBrains Mono, monospace' }}>⚠ {err}</div>}
+
+      {/* A · Definition */}
+      <SectionTitle>A · Definition</SectionTitle>
       <Card>
-        <SectionTitle>1 · Parámetros Generales</SectionTitle>
-        <table className="w-full" style={{ borderCollapse: 'collapse' }}>
-          <thead><tr><TH>Parámetro</TH><TH>Valor</TH></tr></thead>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 4 }}>
+          <Stat label="Structure" value={scope?.default_structure === 'put_credit_spread' ? 'PCS-only' : scope?.default_structure ?? '—'} hint="put credit spread" />
+          <Stat label="Delta target" value={l2cfg?.delta_target?.put_short ?? '0.25'} />
+          <Stat label="Width (SPY)" value={l2cfg?.spread_width?.symbol_overrides?.SPY?.default != null ? `$${l2cfg.spread_width.symbol_overrides.SPY.default}` : '$5'} hint="points" />
+          <Stat label="DTE" value={l2cfg?.dte_selection?.target ?? 45} hint={l2cfg?.dte_selection ? `${l2cfg.dte_selection.min}–${l2cfg.dte_selection.max}` : ''} />
+          <Stat label="Universe" value={(universe?.tickers ?? ['SPY']).join(' · ')} />
+        </div>
+        {expectedMetrics && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginTop: 8 }}>
+            <Stat label="Trades / year" value={`~${expectedMetrics.trades_per_year}`} hint="interpolated" />
+            <Stat label="Win rate" value={`${(expectedMetrics.win_rate * 100).toFixed(0)}%`} />
+            <Stat label="Worst year" value={`$${expectedMetrics.worst_year_usd}`} />
+          </div>
+        )}
+      </Card>
+
+      {/* B · Macro Regime */}
+      <CollapsibleCard title="B · Macro regime (4 checks)" titleColor="var(--blue-gc)" defaultOpen>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr><TH>Check</TH><TH>Label</TH><TH>On fail</TH></tr></thead>
           <tbody>
-            <tr><TD>Tickers</TD><TD mono>{tickers.join(', ') || '—'}</TD></tr>
-            <tr><TD>Máx posiciones</TD><TD mono>{maxPos}</TD></tr>
-            <tr><TD>Sizing % Net Liq</TD><TD mono>{(sizingPct * 100).toFixed(2)}%</TD></tr>
-            <tr><TD>Máx por trade</TD><TD mono>${maxTrade.toLocaleString()}</TD></tr>
+            {checks.map((c: any) => (
+              <tr key={c.id}>
+                <TD mono>{c.id}</TD>
+                <TD>{c.label}</TD>
+                <TD mono color={c.on_fail === 'no_trade' ? 'var(--red-gc)' : 'var(--yellow-gc)'}>{c.on_fail}</TD>
+              </tr>
+            ))}
           </tbody>
         </table>
-      </Card>
+      </CollapsibleCard>
 
-      {/* 2. Las 4 capas */}
-      <Card>
-        <SectionTitle>2 · Capa 1 · Régimen Macro &amp; GEX</SectionTitle>
-        <Layer1Table minGex={gexMin} ivMin={ivMin} ivMax={ivMax} />
-      </Card>
+      {/* C · Signal Gates */}
+      <CollapsibleCard title="C · Signal gates (5 gates)" titleColor="#a78bfa">
+        {Object.entries(gatesDef).map(([id, def]: [string, any]) => {
+          const thr = def.min ?? (def.min_usd != null ? `$${def.min_usd}` : undefined) ?? (def.bars_by_regime ? 'by regime' : undefined);
+          return (
+            <div key={id} style={{ display: 'grid', gridTemplateColumns: '180px 1fr 80px', gap: 10, alignItems: 'center', padding: '5px 0', borderBottom: '1px solid var(--border-dark)' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace' }}>{id}</span>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{def.label ?? '—'}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, textAlign: 'right', fontFamily: 'JetBrains Mono, monospace',
+                color: def.enabled ? 'var(--green)' : 'var(--text-muted)' }}>
+                {def.enabled ? (thr ?? 'ON') : 'OFF'}
+              </span>
+            </div>
+          );
+        })}
+        {edgeBars && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Edge bars by regime</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {Object.entries(edgeBars).map(([regime, bar]: [string, any]) => (
+                <div key={regime} style={{
+                  padding: '4px 10px', borderRadius: 4, fontSize: 11, fontFamily: 'JetBrains Mono, monospace',
+                  backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-dark)',
+                }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{regime}: </span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>≥ {bar}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CollapsibleCard>
 
-      <Card>
-        <SectionTitle>2 · Capa 2 · Motor de Strikes</SectionTitle>
-        <Layer2Table dte={dte} />
-      </Card>
-
-      <Card>
-        <SectionTitle>2 · Capa 3 · Microestructura</SectionTitle>
-        <Layer3Table
-          minOI={minOI}
-          maxSpread={maxBA}
-          minCredit={minCredit}
-          minPop={66}
-        />
-      </Card>
-
-      <Card>
-        <SectionTitle>2 · Capa 4 · Sizing</SectionTitle>
-        <table className="w-full" style={{ borderCollapse: 'collapse' }}>
-          <thead><tr><TH>Regla</TH><TH>Valor</TH><TH>Descripción</TH></tr></thead>
-          <tbody>
-            <tr>
-              <TD>Tamaño por posición</TD>
-              <TD mono>{(sizingPct * 100).toFixed(2)}% Net Liq</TD>
-              <TD>Máximo ${maxTrade.toLocaleString()} por trade</TD>
-            </tr>
-            <tr>
-              <TD>Límite posiciones</TD>
-              <TD mono>{maxPos}</TD>
-              <TD>Concurrentes abiertas</TD>
-            </tr>
-          </tbody>
-        </table>
-      </Card>
-
-      {/* 3. Motor de strikes */}
-      <Card>
-        <SectionTitle>3 · Fórmula Expected Move</SectionTitle>
-        <div
-          className="font-mono text-sm py-2 text-center rounded"
-          style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}
-        >
-          EM = Spot × IV × √(DTE / 365)
+      {/* D · Trade Management */}
+      <CollapsibleCard title="D · Trade management" titleColor="var(--yellow-gc)">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
+          {tm.take_profit?.pct_of_initial_credit != null && <Stat label="Take profit" value={`${Math.round(tm.take_profit.pct_of_initial_credit * 100)}%`} hint="of initial credit" />}
+          {tm.hard_defense?.trigger_any?.short_leg_delta_abs_gt != null && <Stat label="Hard defense" value={`Δ ${tm.hard_defense.trigger_any.short_leg_delta_abs_gt}`} hint="short delta" />}
+          {tm.hard_defense?.trigger_any?.unrealized_loss_pct_of_initial_credit_gte != null && <Stat label="Loss trigger" value={`${Math.round(tm.hard_defense.trigger_any.unrealized_loss_pct_of_initial_credit_gte * 100)}%`} hint="unrealized / credit" />}
+          {tm.defensive_roll?.trigger_unrealized_loss_pct_of_initial_credit_gte != null && <Stat label="Defensive roll" value={`${Math.round(tm.defensive_roll.trigger_unrealized_loss_pct_of_initial_credit_gte * 100)}%`} hint={`min ${tm.defensive_roll.min_dte_remaining} DTE · max ${tm.defensive_roll.max_rolls_per_position} roll`} />}
+          {tm.daily_kill_switch?.daily_portfolio_mtm_loss_pct_net_liq_max != null && <Stat label="Kill switch" value={`${(tm.daily_kill_switch.daily_portfolio_mtm_loss_pct_net_liq_max * 100).toFixed(1)}%`} hint="MtM / NetLiq" />}
         </div>
-        <div className="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-          DTE objetivo: {dte} días · IV de <code>/App.Analytics/ImpliedVolatility</code>
-        </div>
-      </Card>
-
-      {/* 5. Reglas de salida */}
-      <Card>
-        <SectionTitle>5 · Reglas de Salida</SectionTitle>
-        <div className="flex gap-3 flex-wrap">
-          <ExitCard
-            emoji="🟢"
-            color="var(--green)"
-            title="Profit Target"
-            detail="50% del crédito recibido → cerrar posición"
-          />
-          <ExitCard
-            emoji="🔴"
-            color="var(--red-gc)"
-            title="Stop Loss"
-            detail="200% del crédito → cerrar posición sin excepción"
-          />
-          <ExitCard
-            emoji="🕐"
-            color="var(--yellow-gc)"
-            title="Time Exit"
-            detail="21 DTE → cerrar sin importar el P&L"
-          />
-        </div>
-      </Card>
-
-      {/* 6. Protocolo de ajuste */}
-      <Card>
-        <SectionTitle>6 · Protocolo de Ajuste</SectionTitle>
-        <div className="flex flex-col items-center gap-0 py-2">
-          <FlowStep label="Pérdida = 100% del crédito" />
-          <FlowStep
-            label="¿DTE ≥ 14 y crédito roll ≥ $0.20?"
-            isDecision
-            yes="ROLL de pata testada (máx 1 roll)"
-            no="siguiente"
-          />
-          <FlowStep label="↓" />
-          <FlowStep
-            label="¿Pata ganadora ≥ $0.05?"
-            isDecision
-            yes="Convertir a spread (cerrar pata ganadora)"
-            no="siguiente"
-          />
-          <FlowStep label="↓" />
-          <div
-            className="px-4 py-2 rounded text-xs font-mono text-center"
-            style={{
-              border: '1px solid var(--red-gc)',
-              backgroundColor: 'rgba(239,68,68,0.1)',
-              color: 'var(--red-gc)',
-            }}
-          >
-            Cerrar todo
+        {tm.time_exit && (
+          <div style={{ marginTop: 10, fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+            Time exit: {tm.time_exit.enabled ? 'enabled' : 'disabled'}{tm.time_exit.reason ? ` — ${tm.time_exit.reason.slice(0, 80)}…` : ''}
+          </div>
+        )}
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Evaluation priority</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {(tm.evaluation_priority ?? []).map((step: string, i: number) => (
+              <div key={step} style={{
+                display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 4,
+                fontSize: 10, fontFamily: 'JetBrains Mono, monospace',
+                backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-dark)', color: 'var(--text-primary)',
+              }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>{i + 1}</span> {step}
+              </div>
+            ))}
           </div>
         </div>
-      </Card>
+      </CollapsibleCard>
+
+      {/* E · Risk & Sizing */}
+      <CollapsibleCard title="E · Risk & sizing" titleColor="var(--green)">
+        {l4cfg && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+            <Stat label="Risk / trade" value={`${(l4cfg.risk_per_trade_pct * 100).toFixed(1)}%`} hint={`max ${(l4cfg.risk_per_trade_max_pct * 100).toFixed(0)}%`} />
+            <Stat label="Max positions" value={l4cfg.max_positions} hint={l4cfg.portfolio_variant ?? ''} />
+            <Stat label="Max heat" value={`${(l4cfg.max_heat_pct_net_liq * 100).toFixed(0)}%`} hint="of net liq" />
+            <Stat label="MaxDD cap" value={`${(l4cfg.maxdd_cap_pct * 100).toFixed(0)}%`} />
+            <Stat label="Capital base" value={`$${(l4cfg.capital?.base_reference_usd ?? 0).toLocaleString()}`} />
+            <Stat label="Live target" value={`$${(l4cfg.capital?.live_funding_target_usd ?? 0).toLocaleString()}`} />
+          </div>
+        )}
+      </CollapsibleCard>
+
+      {/* F · State Machine */}
+      <CollapsibleCard title="F · State machine (7 states)" titleColor="#f59e0b">
+        {sm && (
+          <>
+            <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>Precedence (top wins)</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+              {(sm.precedence ?? []).map((state: string, i: number) => {
+                const desc = sm.states?.[state] ?? '';
+                const colors: Record<string, string> = {
+                  VETOED: 'var(--red-gc)', TRIGGERED: 'var(--green)', ARMED: 'var(--blue-gc)',
+                  COOLDOWN: '#a78bfa', WAITING_CAPACITY: 'var(--yellow-gc)',
+                };
+                const c = colors[state] ?? 'var(--text-muted)';
+                return (
+                  <div key={state} style={{
+                    display: 'grid', gridTemplateColumns: '24px 150px 1fr', gap: 8, alignItems: 'center',
+                    padding: '4px 8px', borderRadius: 4, backgroundColor: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border-dark)',
+                  }}>
+                    <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>{i + 1}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: c, fontFamily: 'JetBrains Mono, monospace' }}>{state}</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{desc}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </CollapsibleCard>
+
+      {/* G · Microstructure */}
+      <CollapsibleCard title="G · Microstructure checks" titleColor="var(--text-muted)">
+        {l3cfg?.checks && (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr><TH>Check</TH><TH>Label</TH><TH>Threshold</TH><TH>On fail</TH></tr></thead>
+            <tbody>
+              {l3cfg.checks.map((c: any) => (
+                <tr key={c.id}>
+                  <TD mono>{c.id}</TD>
+                  <TD>{c.label}</TD>
+                  <TD mono>{c.threshold?.value ?? '—'}</TD>
+                  <TD mono color={c.on_fail === 'discard_side' ? 'var(--red-gc)' : 'var(--yellow-gc)'}>{c.on_fail}</TD>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </CollapsibleCard>
+
+      {/* H · Orchestration */}
+      {orch && (
+        <CollapsibleCard title="H · Orchestration" titleColor="var(--text-muted)">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+            <Stat label="Tier A refresh" value={`${orch.tier_a_refresh_seconds}s`} hint="macro + VRP + tail + GEX" />
+            <Stat label="Tier B tick" value={`${orch.tier_b_tick_seconds}s`} hint="strikes + edge + cupo" />
+            <Stat label="Cooldown" value={`${orch.cooldown_seconds}s`} hint="anti double-fire" />
+          </div>
+        </CollapsibleCard>
+      )}
     </div>
   );
 }

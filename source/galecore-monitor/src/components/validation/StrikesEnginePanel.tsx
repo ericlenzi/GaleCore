@@ -45,7 +45,14 @@ export function StrikesEnginePanel({ symbol }: Props) {
   const layers = vlData ? mapValidationToLayers(vlData) : EMPTY_LAYERS;
   const l2 = vlData?.positionBuilder?.strikeEngine;
 
-  const emDetail = layers.expectedMove != null ? `±${fmtPrice(layers.expectedMove, 1)}` : '—';
+  // EM: strikeEngine lo calcula, pero si no corrió se puede derivar de spot, dte (gexData) + ivAtm (structureInputs).
+  const si = cached?.structureInputs;
+  const gex = cached?.vlData?.gexData;
+  let em = layers.expectedMove;
+  if (em == null && gex && gex.spot > 0 && gex.dte > 0 && si?.priceZScore?.ivAtm) {
+    em = gex.spot * si.priceZScore.ivAtm * Math.sqrt(gex.dte / 365);
+  }
+  const emDetail = em != null ? `±${fmtPrice(em, 1)}` : '—';
 
   return (
     <div style={{ padding: 8 }}>
@@ -63,18 +70,10 @@ export function StrikesEnginePanel({ symbol }: Props) {
         <ListRow label="ZGL" value={layers.zglValue != null ? fmtPrice(layers.zglValue, 0) : '—'} />
         <ListRow label="Call Wall" value={layers.callWall != null ? fmtPrice(layers.callWall, 0) : '—'} />
         <ListRow label="Put Wall" value={layers.putWall != null ? fmtPrice(layers.putWall, 0) : '—'} />
-        {l2 && (
-          <>
-            <ListRow label="Estructura" value={structureLabels[l2.selectedStructure] ?? l2.selectedStructure} />
-            {l2.shortPutStrike != null && (
-              <ListRow label="Short Put" value={`${fmtPrice(l2.shortPutStrike, 0)} (Δ${l2.shortPutDelta?.toFixed(2) ?? '?'})`} />
-            )}
-            {l2.shortCallStrike != null && (
-              <ListRow label="Short Call" value={`${fmtPrice(l2.shortCallStrike, 0)} (Δ${l2.shortCallDelta?.toFixed(2) ?? '?'})`} />
-            )}
-            <ListRow label="Dentro de muros" value={l2.strikesInsideWalls ? '✓' : '✗'} />
-          </>
-        )}
+        <ListRow label="Estructura" value={l2 ? (structureLabels[l2.selectedStructure] ?? l2.selectedStructure) : '—'} />
+        <ListRow label="Short Put" value={l2?.shortPutStrike != null ? `${fmtPrice(l2.shortPutStrike, 0)} (Δ${l2.shortPutDelta?.toFixed(2) ?? '?'})` : '—'} />
+        <ListRow label="Short Call" value={l2?.shortCallStrike != null ? `${fmtPrice(l2.shortCallStrike, 0)} (Δ${l2.shortCallDelta?.toFixed(2) ?? '?'})` : '—'} />
+        <ListRow label="Dentro de muros" value={l2 ? (l2.strikesInsideWalls ? '✓' : '✗') : '—'} />
         <ListRow label="Expected Move" value={emDetail !== '—' ? `${emDetail} pts` : '—'} />
       </div>
     </div>

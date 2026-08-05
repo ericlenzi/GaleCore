@@ -14,7 +14,7 @@ const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number 
   { id: 'monitor',         label: 'Monitor',           Icon: Activity        },
   { id: 'estrategia-live', label: 'Strategy v1.4',     Icon: Target          },
   { id: 'rpf',             label: 'RPF',               Icon: Zap             },
-  { id: 'estrategia',      label: 'Strategy',          Icon: BookOpen        },
+  { id: 'estrategia',      label: 'References',        Icon: BookOpen        },
 ];
 
 export function TabNav({ active, onChange, onLogout }: Props) {

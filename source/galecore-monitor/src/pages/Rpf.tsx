@@ -59,6 +59,11 @@ const panelStyle: React.CSSProperties = {
   backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-dark)', borderRadius: 10, padding: '14px 16px',
 };
 
+// Sub-etiqueta de sección dentro de un panel (ej: "Macro · capa 1", "Prima y cola").
+const subLabelStyle: React.CSSProperties = {
+  fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '0 0 2px',
+};
+
 const fmt = (n: number | null | undefined, d = 2) =>
   n == null ? '—' : Number.isInteger(n) ? `${n}` : n.toFixed(d);
 
@@ -186,7 +191,7 @@ function Connector({ label }: { label?: string }) {
 // Motor: el nodo raíz del flujo. El loop corre la cascada cada tick y la reparte en los dos ejes.
 function MotorStrip({ online, lastTick }: { online: boolean; lastTick: string | null }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderRadius: 8, ...panelStyle, marginBottom: 0 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, borderRadius: 8, ...panelStyle, padding: '10px 14px', width: '60%', margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <RefreshCw size={15} style={{ color: online ? 'var(--green)' : 'var(--text-muted)' }} />
         <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.05em', color: 'var(--text-secondary)', fontFamily: 'Inter, sans-serif' }}>MOTOR</span>
@@ -212,14 +217,22 @@ function ArmaPanel({ st, armed, vetoed }: { st: RpfStateUpdate; armed: boolean; 
   return (
     <div style={panelStyle}>
       <PanelHeader title="Arma · ¿el entorno es seguro?" right={right} rightColor={rightColor} />
-      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '0 0 2px' }}>Macro · capa 1</div>
-      {macro.length > 0
-        ? macro.map((c) => <CheckRow key={c.id} c={c} />)
-        : <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '6px 0' }}>Macro no evaluado.</div>}
-      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '10px 0 2px' }}>Prima y cola</div>
-      {gates.length > 0
-        ? gates.map((c) => <CheckRow key={c.id} c={c} />)
-        : <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '6px 0' }}>No evaluado — la cascada cortó en macro.</div>}
+      {/* Macro · capa 1 y Prima y cola lado a lado (cada uno = un tercio del ancho total de la fila),
+          separados por un divisor vertical */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+        <div style={{ paddingRight: 22 }}>
+          <div style={subLabelStyle}>Macro · capa 1</div>
+          {macro.length > 0
+            ? macro.map((c) => <CheckRow key={c.id} c={c} />)
+            : <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '6px 0' }}>Macro no evaluado.</div>}
+        </div>
+        <div style={{ paddingLeft: 22, borderLeft: '1px solid var(--border-dark)' }}>
+          <div style={subLabelStyle}>Prima y cola</div>
+          {gates.length > 0
+            ? gates.map((c) => <CheckRow key={c.id} c={c} />)
+            : <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '6px 0' }}>No evaluado — la cascada cortó en macro.</div>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -272,7 +285,7 @@ function StateResolution({ state }: { state: RpfStateName }) {
   const meta = STATE_META[state] ?? STATE_META.DORMANT;
   const { Icon } = meta;
   return (
-    <div style={{ borderRadius: 10, padding: '14px 16px', backgroundColor: tint(meta.color, 9), border: `1px solid ${tint(meta.color, 30)}` }}>
+    <div style={{ borderRadius: 10, padding: '14px 16px', backgroundColor: tint(meta.color, 9), border: `1px solid ${tint(meta.color, 30)}`, width: '60%', margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{ width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: tint(meta.color, 15), flexShrink: 0 }}>
           <Icon size={22} style={{ color: meta.color }} />
@@ -453,8 +466,8 @@ function SymbolPanel({ symbol, st, suggestion, onAccept, onDismiss, subscribeLeg
         )}
       </div>
 
-      {/* Flujo: dos ejes */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
+      {/* Flujo: Arma (2/3, con Macro y Prima en tercios) + Dispara (1/3) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 12 }}>
         <ArmaPanel st={stFull} armed={armed} vetoed={vetoed} />
         <DisparaPanel st={stFull} active={active} />
       </div>
