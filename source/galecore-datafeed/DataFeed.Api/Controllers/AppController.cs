@@ -81,6 +81,19 @@ namespace DataFeed.Controllers
 
         #endregion
 
+        #region Rpf
+
+        // Convención: cada estrategia cuelga de su propio prefijo de primer nivel — RPF de /App/Rpf.
+        // Los endpoints existentes bajo /App/GaleCore quedan como están hasta que se revisen.
+        // RPF no usa overlays (live/paper) — su JSON se sirve tal cual, sin DeepMerge.
+
+        [Tags("App.Rpf")]
+        [HttpGet("Rpf/Rules")]
+        public async Task<IActionResult> RpfRulesAsync()
+            => await ServeRulesFileAsync("galecore_rules_rpf.json");
+
+        #endregion
+
         private async Task<string?> LoadFileOrNullAsync(string fileName)
         {
             var path = Path.Combine(_env.ContentRootPath, "Files", fileName);

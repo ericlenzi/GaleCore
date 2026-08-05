@@ -16,3 +16,8 @@ export async function fetchCoreRulesRaw(): Promise<any> {
   const { data } = await apiClient.get<unknown>('/App/GaleCore/Rules/Core');
   return typeof data === 'string' ? JSON.parse(data) : data;
 }
+
+export async function fetchRpfRulesRaw(): Promise<any> {
+  const { data } = await apiClient.get<unknown>('/App/Rpf/Rules');
+  return typeof data === 'string' ? JSON.parse(data) : data;
+}

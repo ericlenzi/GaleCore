@@ -99,6 +99,17 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
     - `Subscribe(symbol, includeGreeks)` → `ReceiveTrade`, `ReceiveQuote` (precio); con `includeGreeks=true` también `ReceiveGreeks` (delta/gamma/theta/vega/IV por opción). Los legs del Monitor se suscriben con `includeGreeks=true`.
     - `SubscribeFlow(symbol)` → `ReceiveFlow` cada 30s (flow de opciones via `FlowBroadcastService`)
 
+- Convención de rutas HTTP por estrategia
+  Cada estrategia expone sus endpoints bajo su propio prefijo de primer nivel: `/App/<Estrategia>/*`.
+  * RPF → `/App/Rpf/*`. Hoy: `GET /App/Rpf/Rules` sirve `galecore_rules_rpf.json` tal cual
+    (RPF no tiene overlays `live`/`paper`, así que no pasa por el DeepMerge de `LoadMergedRulesJsonAsync`).
+  Los endpoints existentes bajo `/App/GaleCore/*` quedan como están hasta que se revisen; toda estrategia
+  nueva arranca con su prefijo propio. En `AppController.cs` cada estrategia tiene su `#region` y su tag
+  de Swagger (`App.Rpf`), para que la separación se vea tanto en el código como en la UI de Swagger.
+  **Aplica solo a HTTP.** La orquestación de RPF viaja por SignalR sobre el hub compartido
+  `/hubs/marketdata` (`SubscribeRpf` / `AcceptSuggestion` / `DismissSuggestion` → `ReceiveRpfState`,
+  `ReceiveTradeSuggestion`); son métodos de hub, no rutas, y la convención de path no les aplica.
+
 - Lógica compartida
   Los métodos estáticos internos de `ValidationLayerHandler.cs` son compartidos por `PositionBuilderHandler.cs` (alias `VLH`):
   * `ComputeGexSkew(callGex, putGex)` — calcula `callGEX / (callGEX + |putGEX|)`, devuelve `"call_dominant"`, `"put_dominant"` o `"symmetric"`
