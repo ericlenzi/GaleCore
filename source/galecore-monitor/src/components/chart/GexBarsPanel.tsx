@@ -12,7 +12,7 @@ interface Props {
   height:   number;
 }
 
-const PANEL_W  = 176;
+const PANEL_W  = 352;
 const LABEL_W  = 38;  // px for strike labels on left
 const BAR_AREA = PANEL_W - LABEL_W - 4; // total horizontal space for bars
 const HALF_BAR = BAR_AREA / 2;          // each side (put left, call right)
