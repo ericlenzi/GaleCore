@@ -91,6 +91,26 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   The API runs on local http://localhost:7001 (IIS Express) and opens Swagger UI at /swagger.
   The API runs on production: https://datafeed-g5b4dkfccda5hkdh.chilecentral-01.azurewebsites.net/swagger/index.html
 
+- Taxonomía de la API — controllers y tags de Swagger
+  Dos controllers, cada uno con su prefijo de ruta; dentro, los endpoints se agrupan por tag de Swagger.
+
+  `AppController` → `/App`
+  * `App.Analytics` — cálculos matemáticos compartidos por varias estrategias: `GammaExposure`,
+    `IVRank`, `ImpliedVolatility`, `PutSkew`. Ojo: son rutas **absolutas**, la URL real es
+    `/App.Analytics/<X>` (con punto), no `/App/Analytics/<X>`.
+  * `App.GaleCore` — endpoints de la aplicación en general: `Rules/{Core,Live,Paper}`,
+    `ValidationLayer`, `PositionBuilder`.
+  * `App.<Prefijo>` — un prefijo por estrategia. Hoy: `App.Rpf` → `/App/Rpf/*`.
+    Ver "Convención de rutas HTTP por estrategia" más abajo.
+
+  `DataController` → `/Data`
+  * `Data.Api` — datos REST de la cuenta: `Tastytrade/MarketData/ByType`, `Tastytrade/OptionChains`,
+    `Tastytrade/Market-metrics/VolatilityData`.
+  * `Data.Stream` — datos vía socket/streaming: `Tastytrade/MarketData/{Candle,Trade,Quote,Greeks,TradeQuoteGreeks}`.
+  * `Data.Account` — cuenta: `Tastytrade/Account/{Balances,Positions}`.
+  Hoy el proveedor (`Tastytrade`) vive en la **ruta**, no en el tag: los tags son planos (`Data.Api`),
+  no `Data.Api.<Cuenta>`. El sub-prefijo por cuenta recién hace falta cuando se sume un segundo bróker.
+
 - Endpoints GaleCore
   * `GET /App/GaleCore/MacroRegime` — corre Layer 1 (macro_regime). Responde `macroRegime` con checks de VIX, IV Rank, GEX total, spot vs ZGL.
   * `GET /App/GaleCore/ValidationLayer` — corre las 4 capas en cascada con shortcircuit. Response: `macroRegime` + `positionBuilder`. Handler: `ValidationLayerHandler.cs`.
