@@ -34,7 +34,8 @@
     "mode": "whitelist",
     "tickers": [
       "SPY",
-      "QQQ"
+      "QQQ",
+      "SKM"
     ],
     "min_avg_daily_volume_underlying": 5000000
   },

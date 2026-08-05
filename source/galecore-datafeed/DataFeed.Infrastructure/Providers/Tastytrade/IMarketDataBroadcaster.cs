@@ -24,5 +24,11 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         /// El sistema sugiere, nunca ejecuta: la apertura sigue siendo manual.
         /// </summary>
         Task BroadcastTradeSuggestionAsync(string symbol, object suggestion);
+
+        /// <summary>
+        /// Emite ReceiveRpfWorkers al grupo "rpf" cuando el operador toca el switch de workers.
+        /// Al apagar, el tablero vuelve al estado inicial en el acto en vez de esperar el staleness.
+        /// </summary>
+        Task BroadcastRpfWorkersAsync(bool enabled);
     }
 }

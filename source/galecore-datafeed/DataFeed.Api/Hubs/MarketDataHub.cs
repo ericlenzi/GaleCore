@@ -296,7 +296,7 @@ namespace DataFeed.Api.Hubs
         {
             try
             {
-                var path = Path.Combine(_env.ContentRootPath, "Files", "galecore_rules_rpf.json");
+                var path = Path.Combine(_env.ContentRootPath, "Files", "Rpf", "galecore_rules_rpf.json");
                 var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
                 return (int?)root["orchestration"]?["cooldown_seconds"] ?? 120;
             }

@@ -17,11 +17,20 @@ namespace DataFeed.Controllers
     public class AppController : DataFeedControllerBase
     {
         private readonly IWebHostEnvironment _env;
+        private readonly DataFeed.Api.Infrastructure.RpfWorkerSwitch _rpfWorkerSwitch;
+        private readonly DataFeed.Application.App.Rpf.RpfStateStore _rpfStore;
+        private readonly DataFeed.Infrastructure.Providers.Tastytrade.IMarketDataBroadcaster _broadcaster;
 
-        public AppController(IMediator mediator, IWebHostEnvironment env)
+        public AppController(IMediator mediator, IWebHostEnvironment env,
+            DataFeed.Api.Infrastructure.RpfWorkerSwitch rpfWorkerSwitch,
+            DataFeed.Application.App.Rpf.RpfStateStore rpfStore,
+            DataFeed.Infrastructure.Providers.Tastytrade.IMarketDataBroadcaster broadcaster)
             : base(mediator)
         {
             _env = env;
+            _rpfWorkerSwitch = rpfWorkerSwitch;
+            _rpfStore = rpfStore;
+            _broadcaster = broadcaster;
         }
 
         #region Analytics
@@ -90,7 +99,56 @@ namespace DataFeed.Controllers
         [Tags("App.Rpf")]
         [HttpGet("Rpf/Rules")]
         public async Task<IActionResult> RpfRulesAsync()
-            => await ServeRulesFileAsync("galecore_rules_rpf.json");
+            => await ServeRulesFileAsync("Rpf/galecore_rules_rpf.json");
+
+        /// <summary>
+        /// Estado del switch de workers de RPF. `source` dice quién manda: "override" si el operador
+        /// ya usó el switch, "rules" si todavía manda state_machine.enabled del JSON.
+        /// </summary>
+        [Tags("App.Rpf")]
+        [HttpGet("Rpf/Workers")]
+        public async Task<IActionResult> RpfWorkersGetAsync()
+        {
+            var ovr = _rpfWorkerSwitch.ReadOverride();
+            return Ok(new
+            {
+                enabled = ovr ?? await ReadRpfRulesEnabledAsync(),
+                source = ovr.HasValue ? "override" : "rules",
+            });
+        }
+
+        /// <summary>
+        /// Prende o apaga los workers de RPF. Escribe un archivo de estado aparte — no toca
+        /// galecore_rules_rpf.json. `RpfLoopService` lo relee en cada tick.
+        /// </summary>
+        [Tags("App.Rpf")]
+        [HttpPost("Rpf/Workers")]
+        public async Task<IActionResult> RpfWorkersSetAsync([FromBody] RpfWorkersRequest body)
+        {
+            _rpfWorkerSwitch.Set(body.Enabled);
+
+            // Al apagar, el estado en memoria se descarta: con el loop inerte nadie lo actualiza, y un
+            // tablero que se conecte después vería datos viejos como si fueran vigentes.
+            if (!body.Enabled) _rpfStore.Clear();
+
+            // Aviso al grupo "rpf" para que los tableros abiertos reaccionen en el acto.
+            await _broadcaster.BroadcastRpfWorkersAsync(body.Enabled);
+
+            return Ok(new { enabled = body.Enabled, source = "override" });
+        }
+
+        public class RpfWorkersRequest
+        {
+            public bool Enabled { get; set; }
+        }
+
+        private async Task<bool> ReadRpfRulesEnabledAsync()
+        {
+            var json = await LoadFileOrNullAsync("Rpf/galecore_rules_rpf.json");
+            if (json == null) return false;
+            var root = System.Text.Json.Nodes.JsonNode.Parse(json)?.AsObject();
+            return (bool?)root?["state_machine"]?["enabled"] ?? false;
+        }
 
         #endregion
 

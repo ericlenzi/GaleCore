@@ -36,6 +36,17 @@ namespace DataFeed.Application.App.Rpf
 
         public IReadOnlyCollection<RpfSymbolStatus> All() => _states.Values.ToList().AsReadOnly();
 
+        /// <summary>
+        /// Borra todo el estado — se usa al apagar los workers: con el loop inerte, un estado viejo
+        /// en memoria haría que un tablero que se conecta después vea datos que ya nadie actualiza.
+        /// Al reactivar, el primer tick lo reconstruye.
+        /// </summary>
+        public void Clear()
+        {
+            _states.Clear();
+            _suggestionIndex.Clear();
+        }
+
         /// <summary>Fija el estado. Devuelve true si cambió (el loop emite RpfStateUpdate solo en cambio).</summary>
         public bool SetState(string symbol, RpfState state)
         {

@@ -130,6 +130,58 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   `/hubs/marketdata` (`SubscribeRpf` / `AcceptSuggestion` / `DismissSuggestion` → `ReceiveRpfState`,
   `ReceiveTradeSuggestion`); son métodos de hub, no rutas, y la convención de path no les aplica.
 
+- Regla — archivos por estrategia en `Files/<Prefix>/`
+  Los archivos propios de una estrategia (JSON de reglas, estado de runtime, etc.) van en una
+  subcarpeta `DataFeed.Api/Files/<Prefix>/`, con el **mismo `<Prefix>` que su ruta HTTP** (`/App/Rpf`
+  → `Files/Rpf/`). Así se ve de un vistazo qué archivo pertenece a qué estrategia.
+  * RPF → `Files/Rpf/galecore_rules_rpf.json`, `Files/Rpf/rpf_workers_state.json`.
+
+  **Los archivos compartidos entre estrategias quedan en la raíz de `Files/`.** Hoy son
+  `pop_calibration.json` (tabla POP del gate `edge`) y `skew25_history.json` (serie para el RoC de
+  `tail_score`): los leen tanto `RpfLoopService` como `ValidationLayerHandler`. Meterlos en la
+  carpeta de una estrategia rompería a la otra.
+
+  **Al agregar una subcarpeta hay que revisar el `.csproj`.** `DataFeed.Api.csproj` copia los JSON al
+  output con `<Content Update="Files\**\*.json">` — el `**` es lo que hace que las subcarpetas se
+  copien. Con el glob de un solo nivel (`Files\*.json`) el archivo compila pero desaparece del
+  output, y el fallo aparece recién en runtime como "archivo no encontrado".
+
+- Regla — switch "Workers" por estrategia
+  Toda estrategia que corra procesos en la API (workers / `BackgroundService`) o mantenga conexiones
+  socket propias **debe** exponer en el frontend un switch llamado **"Workers"** que permita prenderlos
+  y apagarlos manualmente, sin reiniciar la API ni editar archivos a mano.
+  Motivo: son procesos que corren solos y emiten sin que nadie los pida; el operador tiene que poder
+  cortarlos en el acto.
+  Workers actuales: `RpfLoopService`, `FlowBroadcastService`, `SkewSnapshotService`
+  (todos en `DataFeed.Api/Infrastructure`).
+
+  **RPF — implementado.** Switch en la cabecera del tab RPF (`WorkersSwitch` en `pages/Rpf.tsx`).
+  * `GET /App/Rpf/Workers` → `{ enabled, source }`. `source` es `"override"` si el operador ya usó el
+    switch, `"rules"` si todavía manda `state_machine.enabled` del JSON.
+  * `POST /App/Rpf/Workers` con `{ enabled }` → prende/apaga.
+  El estado se guarda en `Files/rpf_workers_state.json`, **no** dentro de `galecore_rules_rpf.json`:
+  el JSON de reglas es fuente de verdad y se edita deliberadamente, no en runtime. El archivo de
+  estado es un override; si no existe, manda lo que declara el JSON. Persiste a disco a propósito —
+  un kill switch que vuelve solo a ON después de un restart es un agujero de seguridad.
+  `RpfLoopService.LoadConfig()` lo relee en cada tick, así que apagar corta el loop dentro de un tick
+  sin reiniciar la API. Dueño del estado: `RpfWorkerSwitch` (singleton).
+
+  **En OFF el sistema no hace nada y el tablero vuelve al estado inicial:**
+  * El loop no corre la cascada ni emite (rama inerte de `ExecuteAsync`).
+  * Se limpia `RpfStateStore` — desde el POST y también al entrar en inerte, así queda cubierto el
+    apagado por fuera del switch. Sin esto, un tablero que se conectara después recibiría por
+    `SubscribeRpf` un estado congelado como si fuera vigente.
+  * Se emite `ReceiveRpfWorkers(enabled)` al grupo `rpf`; el front hace `setWorkers(false)`, que
+    vacía `states` y `suggestions`.
+  * El semáforo `LOOP ONLINE` sale de dos fuentes: `workersEnabled !== false` **y** frescura del
+    último timestamp (`STALE_MS` = 75s ≈ 2 ticks + margen). La frescura hace que un loop crasheado
+    también se vea offline, no solo uno apagado a propósito; antes `loopOnline` era un latch que
+    nunca volvía a false.
+  El switch **no** toca DXLink, el hub, ni los otros workers.
+
+  **`FlowBroadcastService` y `SkewSnapshotService` no tienen switch todavía** — no son de una
+  estrategia en particular, así que falta decidir dónde vive su estado y en qué pantalla se controlan.
+
 - Lógica compartida
   Los métodos estáticos internos de `ValidationLayerHandler.cs` son compartidos por `PositionBuilderHandler.cs` (alias `VLH`):
   * `ComputeGexSkew(callGex, putGex)` — calcula `callGEX / (callGEX + |putGEX|)`, devuelve `"call_dominant"`, `"put_dominant"` o `"symmetric"`

@@ -36,7 +36,8 @@ public class RpfRulesJsonTests
     private static JsonObject Load(string file)
         => JsonNode.Parse(File.ReadAllText(Path.Combine(FilesDir(), file)))!.AsObject();
 
-    private static JsonObject Rpf() => Load("galecore_rules_rpf.json");
+    // RPF vive en su subcarpeta (regla "archivos por estrategia"); el core sigue en la raiz de Files/.
+    private static JsonObject Rpf() => Load(Path.Combine("Rpf", "galecore_rules_rpf.json"));
     private static JsonObject Core() => Load("galecore_rules_core.json");
 
     private static JsonObject StrikeEngine(JsonObject rules)

@@ -73,6 +73,8 @@ namespace DataFeed
             // Orquestación RPF (Fase 6a) — store in-memory + loop. El loop arranca INERTE:
             // no corre la cascada ni emite hasta state_machine.enabled=true en galecore_rules_rpf.json.
             builder.Services.AddSingleton<DataFeed.Application.App.Rpf.RpfStateStore>();
+            // Switch manual de workers: el operador puede cortar el loop desde el front sin reiniciar.
+            builder.Services.AddSingleton<RpfWorkerSwitch>();
             builder.Services.AddHostedService<RpfLoopService>();
 
             // MCP Server

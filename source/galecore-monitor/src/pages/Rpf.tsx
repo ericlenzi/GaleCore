@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   WifiOff, Check, X, Circle, AlertTriangle, Clock, ChevronDown, RefreshCw,
   Moon, Target, Zap, Ban, Hourglass, Layers, Briefcase, LucideIcon,
@@ -10,6 +10,7 @@ import { RpfSuggestionCard } from '../components/rpf/RpfSuggestionCard';
 import { RpfStateUpdate, RpfCheck, RpfCandidate, RpfStateName } from '../types/rpf';
 import { ConnectionStatus } from '../socket/useMarketSocket';
 import { LegMeta } from '../types/api';
+import { fetchRpfWorkers, setRpfWorkers } from '../api/rpf';
 import { tint, fmtPrice, fmtOI, fmtExpiry } from '../utils/formatters';
 
 interface Props {
@@ -491,16 +492,93 @@ function SymbolPanel({ symbol, st, suggestion, onAccept, onDismiss, subscribeLeg
   );
 }
 
+/**
+ * Switch manual de los workers de RPF (regla "switch Workers por estrategia" de CLAUDE.md).
+ * Apagarlo corta el loop del backend dentro de un tick, sin reiniciar la API. El estado persiste
+ * a disco, así que un restart no lo vuelve a prender solo.
+ */
+function WorkersSwitch() {
+  const enabled = useRpfStore((s) => s.workersEnabled);
+  const setWorkers = useRpfStore((s) => s.setWorkers);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    fetchRpfWorkers()
+      .then((s) => { setWorkers(s.enabled); setError(false); })
+      .catch(() => setError(true));
+  }, [setWorkers]);
+
+  const toggle = useCallback(() => {
+    if (enabled == null || busy) return;
+    const next = !enabled;
+    setBusy(true);
+    setRpfWorkers(next)
+      .then((s) => { setWorkers(s.enabled); setError(false); })
+      .catch(() => setError(true))
+      .finally(() => setBusy(false));
+  }, [enabled, busy, setWorkers]);
+
+  const unknown = enabled == null || error;
+  const color = unknown ? 'var(--text-muted)' : enabled ? 'var(--green)' : 'var(--red-gc)';
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={unknown || busy}
+      title={error ? 'No se pudo leer el estado de los workers' : 'Prender / apagar los workers de RPF'}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 7,
+        padding: '3px 9px', borderRadius: 20,
+        backgroundColor: tint(color, 10), border: `1px solid ${tint(color, 30)}`,
+        color, cursor: unknown || busy ? 'default' : 'pointer',
+        fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
+        fontFamily: 'JetBrains Mono, monospace', opacity: busy ? 0.6 : 1,
+      }}
+    >
+      {/* Riel del switch */}
+      <span style={{
+        width: 22, height: 12, borderRadius: 20, flexShrink: 0,
+        backgroundColor: tint(color, 30), position: 'relative', transition: 'background-color 150ms',
+      }}>
+        <span style={{
+          position: 'absolute', top: 2, left: enabled ? 12 : 2,
+          width: 8, height: 8, borderRadius: '50%', backgroundColor: color,
+          transition: 'left 150ms',
+        }} />
+      </span>
+      WORKERS {unknown ? '—' : enabled ? 'ON' : 'OFF'}
+    </button>
+  );
+}
+
+// Sin estado nuevo por más de este tiempo, el loop se considera caído. tier_b_tick_seconds es 30s;
+// dos ticks más un margen evita que un tick lento lo marque offline de más.
+const STALE_MS = 75_000;
+
 export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubscribeLeg, socketStatus }: Props) {
-  const { states, suggestions, loopOnline } = useRpfStore();
+  const { states, suggestions, workersEnabled } = useRpfStore();
+
+  // Reloj propio: sin esto el semáforo solo se recalcularía cuando llega un evento, que es
+  // justamente lo que deja de pasar cuando el loop se cae.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 5_000);
+    return () => clearInterval(id);
+  }, []);
 
   // Solo los símbolos que el loop RPF emitió — NO el universo del core. RPF define su propio
   // universo (SPY-only) en galecore_rules_rpf.json; caer al ticker list del core mostraría QQQ como
   // si fuera parte de RPF, que es engañoso. Mientras el loop no emite, se muestra solo el banner.
   const symbols = Object.keys(states);
-  const lastTick = tickTime(
-    symbols.map((s) => states[s]?.timestamp).filter(Boolean).sort().slice(-1)[0]
-  );
+  const lastTs = symbols.map((s) => states[s]?.timestamp).filter(Boolean).sort().slice(-1)[0];
+  const lastTick = tickTime(lastTs);
+
+  // El semáforo sale de dos cosas distintas: si los workers están apagados el loop está parado a
+  // propósito; si están prendidos pero hace rato que no llega estado, se cayó o se colgó.
+  const workersOff = workersEnabled === false;
+  const fresh = !!lastTs && now - new Date(lastTs).getTime() < STALE_MS;
+  const loopOnline = !workersOff && fresh;
 
   return (
     <div style={{ padding: '14px 18px 40px', height: '100%', overflowY: 'auto', fontFamily: 'Inter, sans-serif' }}>
@@ -511,10 +589,13 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
           color: '#a78bfa', backgroundColor: tint('#a78bfa', 13), border: `1px solid ${tint('#a78bfa', 30)}`, fontFamily: 'JetBrains Mono, monospace' }}>
           Disparo por prima real · paper
         </span>
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace',
-          color: loopOnline ? 'var(--green)' : 'var(--text-muted)' }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: loopOnline ? 'var(--green)' : 'var(--text-muted)' }} />
-          {loopOnline ? 'LOOP ONLINE' : 'LOOP OFFLINE'}
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+          <WorkersSwitch />
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace',
+            color: loopOnline ? 'var(--green)' : 'var(--text-muted)' }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: loopOnline ? 'var(--green)' : 'var(--text-muted)' }} />
+            {loopOnline ? 'LOOP ONLINE' : 'LOOP OFFLINE'}
+          </span>
         </span>
       </div>
 
@@ -525,12 +606,18 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
       {!loopOnline && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', marginTop: 8, marginBottom: 16, borderRadius: 8,
           backgroundColor: 'var(--bg-secondary)', border: '1px dashed var(--border)' }}>
-          <WifiOff size={16} style={{ color: 'var(--text-muted)', flexShrink: 0, marginTop: 1 }} />
+          {workersOff
+            ? <Ban size={16} style={{ color: 'var(--red-gc)', flexShrink: 0, marginTop: 1 }} />
+            : <WifiOff size={16} style={{ color: 'var(--text-muted)', flexShrink: 0, marginTop: 1 }} />}
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 3 }}>Loop offline</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: workersOff ? 'var(--red-gc)' : 'var(--text-secondary)', marginBottom: 3 }}>
+              {workersOff ? 'Workers apagados' : 'Loop offline'}
+            </div>
             <div style={{ fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              El backend no está empujando por el grupo <code style={{ fontFamily: 'JetBrains Mono, monospace' }}>rpf</code>. El tablero se llena en cuanto el loop emite.
-              No se corre la cascada localmente: una sola fuente de verdad.
+              {workersOff
+                ? <>El loop está parado a propósito: no corre la cascada ni emite. El tablero vuelve a llenarse al prender el switch.</>
+                : <>El backend no está empujando por el grupo <code style={{ fontFamily: 'JetBrains Mono, monospace' }}>rpf</code>. El tablero se llena en cuanto el loop emite.
+                   No se corre la cascada localmente: una sola fuente de verdad.</>}
             </div>
           </div>
         </div>

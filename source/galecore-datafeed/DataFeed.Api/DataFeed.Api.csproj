@@ -21,7 +21,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Update="Files\*.json">
+    <!-- ** recursivo: los archivos por estrategia viven en subcarpetas (Files\Rpf\...). Con un glob
+         de un solo nivel compilan pero no se copian al output, y falla recién en runtime. -->
+    <Content Update="Files\**\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

@@ -28,9 +28,11 @@ namespace DataFeed.Api.Infrastructure
         private readonly IWebHostEnvironment _env;
         private readonly IMarketDataBroadcaster _broadcaster;
         private readonly RpfStateStore _store;
+        private readonly RpfWorkerSwitch _workerSwitch;
         private readonly ILogger<RpfLoopService> _logger;
 
-        private const string RulesFile = "galecore_rules_rpf.json";
+        // Archivos propios de RPF bajo Files/Rpf/ (regla "archivos por estrategia" de CLAUDE.md).
+        private const string RulesFile = "Rpf/galecore_rules_rpf.json";
         private bool _inertLogged;
 
         public RpfLoopService(
@@ -38,12 +40,14 @@ namespace DataFeed.Api.Infrastructure
             IWebHostEnvironment env,
             IMarketDataBroadcaster broadcaster,
             RpfStateStore store,
+            RpfWorkerSwitch workerSwitch,
             ILogger<RpfLoopService> logger)
         {
             _scopeFactory = scopeFactory;
             _env = env;
             _broadcaster = broadcaster;
             _store = store;
+            _workerSwitch = workerSwitch;
             _logger = logger;
         }
 
@@ -65,7 +69,11 @@ namespace DataFeed.Api.Infrastructure
                     {
                         if (!_inertLogged)
                         {
-                            _logger.LogInformation("RpfLoopService INERTE: state_machine.enabled=false — no se corre la cascada ni se emite.");
+                            // Al entrar en inerte se descarta el estado en memoria: con el loop parado
+                            // nadie lo actualiza. Cubre también el apagado por fuera del switch (edición
+                            // directa del archivo de estado o del JSON de reglas).
+                            _store.Clear();
+                            _logger.LogInformation("RpfLoopService INERTE: workers apagados — no se corre la cascada ni se emite.");
                             _inertLogged = true;
                         }
                     }
@@ -93,7 +101,10 @@ namespace DataFeed.Api.Infrastructure
             var rulesJson = File.ReadAllText(Path.Combine(filesDir, RulesFile));
             var root = JsonNode.Parse(rulesJson)!.AsObject();
 
-            bool enabled = (bool?)root["state_machine"]?["enabled"] ?? false;
+            // El switch manual del operador (Files/Rpf/rpf_workers_state.json) pisa lo que declara el
+            // JSON de reglas. Si nunca se tocó, manda state_machine.enabled. Se relee en cada tick, así
+            // que apagar desde el front corta el loop dentro de un tick, sin reiniciar la API.
+            bool enabled = _workerSwitch.ReadOverride() ?? (bool?)root["state_machine"]?["enabled"] ?? false;
             var orch = root["orchestration"]?.AsObject();
             int tickB = (int?)orch?["tier_b_tick_seconds"] ?? 30;
             int cooldown = (int?)orch?["cooldown_seconds"] ?? 120;
@@ -102,6 +113,8 @@ namespace DataFeed.Api.Infrastructure
                 .Select(x => (string?)x).Where(s => !string.IsNullOrEmpty(s)).Select(s => s!).ToList()
                 ?? new List<string> { "SPY" };
 
+            // Compartidos con la cascada de GaleCore (ValidationLayerHandler): quedan en la raíz de
+            // Files/, no en Files/Rpf/. Moverlos rompería la otra estrategia.
             string? pop = ReadOrNull(Path.Combine(filesDir, "pop_calibration.json"));
             string? skew = ReadOrNull(Path.Combine(filesDir, "skew25_history.json"));
 

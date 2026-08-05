@@ -46,5 +46,10 @@ namespace DataFeed.Api.Infrastructure
         {
             await _hubContext.Clients.Group("rpf").SendAsync("ReceiveTradeSuggestion", symbol, suggestion);
         }
+
+        public async Task BroadcastRpfWorkersAsync(bool enabled)
+        {
+            await _hubContext.Clients.Group("rpf").SendAsync("ReceiveRpfWorkers", enabled);
+        }
     }
 }
