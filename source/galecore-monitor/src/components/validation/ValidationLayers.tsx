@@ -165,6 +165,15 @@ export function ValidationLayers({ layers, vlData }: Props) {
   const checks = vlData?.macroRegime?.checks;
   const l3 = vlData?.positionBuilder?.microstructure;
 
+  // Microestructura: el bloque queda siempre visible. Cada fila cae a '—' si la capa 3 no corrió
+  // (la cascada cortó antes) o si el dato puntual no vino — así el cuadro no cambia de alto.
+  const bidAskDetail = l3?.bidAskChecks
+    ? [l3.bidAskChecks.shortPut, l3.bidAskChecks.shortCall]
+        .filter(Boolean)
+        .map(c => c!.spreadPct != null ? `${(c!.spreadPct * 100).toFixed(1)}%` : '—')
+        .join(' / ') || '—'
+    : '—';
+
   return (
     <div style={{
       padding: '10px 12px 12px',
@@ -250,39 +259,24 @@ export function ValidationLayers({ layers, vlData }: Props) {
       </div>
 
       {/* ── Microestructura ── */}
-      {l3 && (
-        <div style={{
-          backgroundColor: 'var(--bg-tertiary)',
-          borderRadius: 6,
-          padding: '8px 10px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 6,
-        }}>
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--yellow-gc)', fontFamily: 'Inter, sans-serif' }}>
-            Microstructure
-          </span>
-          <ListRow label="ATM Strike" value={fmtPrice(l3.atmStrike, 0)} />
-          {l3.oiChecks?.shortCall && (
-            <ListRow label="Short Call OI" value={fmtOI(l3.oiChecks.shortCall.value)} />
-          )}
-          <ListRow label="Short Put OI" value={l3.oiChecks?.shortPut ? fmtOI(l3.oiChecks.shortPut.value) : '—'} />
-          {l3.bidAskChecks && (
-            <ListRow label="Bid-Ask" value={
-              [l3.bidAskChecks.shortPut, l3.bidAskChecks.shortCall]
-                .filter(Boolean)
-                .map(c => c!.spreadPct != null ? `${(c!.spreadPct * 100).toFixed(1)}%` : '—')
-                .join(' / ') || '—'
-            } />
-          )}
-          {l3.creditMinimum && (
-            <ListRow label="Credit" value={`$${l3.creditMinimum.midCredit.toFixed(2)} (min $${l3.creditMinimum.minRequired.toFixed(2)})`} />
-          )}
-          {l3.atmCallDelta != null && (
-            <ListRow label="ATM Delta" value={l3.atmCallDelta.toFixed(2)} />
-          )}
-        </div>
-      )}
+      <div style={{
+        backgroundColor: 'var(--bg-tertiary)',
+        borderRadius: 6,
+        padding: '8px 10px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+      }}>
+        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--yellow-gc)', fontFamily: 'Inter, sans-serif' }}>
+          Microstructure
+        </span>
+        <ListRow label="ATM Strike" value={l3?.atmStrike != null ? fmtPrice(l3.atmStrike, 0) : '—'} />
+        <ListRow label="Short Call OI" value={l3?.oiChecks?.shortCall ? fmtOI(l3.oiChecks.shortCall.value) : '—'} />
+        <ListRow label="Short Put OI" value={l3?.oiChecks?.shortPut ? fmtOI(l3.oiChecks.shortPut.value) : '—'} />
+        <ListRow label="Bid-Ask" value={bidAskDetail} />
+        <ListRow label="Credit" value={l3?.creditMinimum ? `$${l3.creditMinimum.midCredit.toFixed(2)} (min $${l3.creditMinimum.minRequired.toFixed(2)})` : '—'} />
+        <ListRow label="ATM Delta" value={l3?.atmCallDelta != null ? l3.atmCallDelta.toFixed(2) : '—'} />
+      </div>
 
     </div>
   );
