@@ -1,5 +1,6 @@
 import React from 'react';
 import { ValidationLayers } from './ValidationLayers';
+import { MicrostructurePanel } from './MicrostructurePanel';
 import { MarketDiagnostics } from '../ticker/MarketDiagnostics';
 import { useValidationStore } from '../../store/useValidationStore';
 import { mapValidationToLayers, EMPTY_LAYERS } from '../../utils/validationLayers';
@@ -35,10 +36,14 @@ export function ValidationLayersPanel({ symbol }: Props) {
         {symbol} · Details
       </div>
 
-      {/* Body: dos columnas en mitades iguales */}
+      {/* Body: tres columnas — capa 1, capa 3 y contexto de mercado.
+          Validaciones va más ancha porque adentro tiene una grilla de 3 celdas por fila. */}
       <div style={{ display: 'flex', alignItems: 'stretch' }}>
-        <div style={{ flex: 1, minWidth: 0, borderRight: '1px solid var(--border-dark)' }}>
+        <div style={{ flex: 1.4, minWidth: 0, borderRight: '1px solid var(--border-dark)' }}>
           <ValidationLayers layers={layers} vlData={vlData} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0, borderRight: '1px solid var(--border-dark)' }}>
+          <MicrostructurePanel vlData={vlData} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <MarketDiagnostics inputs={structureInputs} />

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { LayerStatus } from '../../types/market';
 import { ValidationLayerApiResponse } from '../../types/api';
-import { fmtPrice, fmtGex } from '../../utils/formatters';
+import { fmtGex } from '../../utils/formatters';
 
 interface Props {
   layers: LayerStatus;
@@ -133,46 +133,8 @@ function MetricCell({ label, value, sub, ok, tooltip }: MetricCellProps) {
 }
 
 
-function ListRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: '2px 0',
-      borderBottom: '1px solid var(--border-dark)',
-    }}>
-      <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-        {label}
-      </span>
-      <span className="tabular-nums" style={{
-        fontSize: 11,
-        color: 'var(--text-secondary)',
-        fontFamily: 'JetBrains Mono, monospace',
-        fontWeight: 600,
-      }}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function fmtOI(v: number): string {
-  return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${v}`;
-}
-
 export function ValidationLayers({ layers, vlData }: Props) {
   const checks = vlData?.macroRegime?.checks;
-  const l3 = vlData?.positionBuilder?.microstructure;
-
-  // Microestructura: el bloque queda siempre visible. Cada fila cae a '—' si la capa 3 no corrió
-  // (la cascada cortó antes) o si el dato puntual no vino — así el cuadro no cambia de alto.
-  const bidAskDetail = l3?.bidAskChecks
-    ? [l3.bidAskChecks.shortPut, l3.bidAskChecks.shortCall]
-        .filter(Boolean)
-        .map(c => c!.spreadPct != null ? `${(c!.spreadPct * 100).toFixed(1)}%` : '—')
-        .join(' / ') || '—'
-    : '—';
 
   return (
     <div style={{
@@ -189,7 +151,7 @@ export function ValidationLayers({ layers, vlData }: Props) {
           Capa de Validaciones
         </span>
         <span style={{ fontSize: 8.5, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif', marginBottom: 4, lineHeight: 1.3 }}>
-          Chequeos de la cascada — régimen macro (capa 1) y microestructura del candidato (capa 3).
+          Régimen macro de la cascada (capa 1) — si falla, no se evalúa nada más.
         </span>
       </div>
 
@@ -256,26 +218,6 @@ export function ValidationLayers({ layers, vlData }: Props) {
             { label: 'Buffer', value: `${(checks.spotVsZgl.bufferPct * 100).toFixed(1)}%` },
           ] : undefined}
         />
-      </div>
-
-      {/* ── Microestructura ── */}
-      <div style={{
-        backgroundColor: 'var(--bg-tertiary)',
-        borderRadius: 6,
-        padding: '8px 10px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-      }}>
-        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--yellow-gc)', fontFamily: 'Inter, sans-serif' }}>
-          Microstructure
-        </span>
-        <ListRow label="ATM Strike" value={l3?.atmStrike != null ? fmtPrice(l3.atmStrike, 0) : '—'} />
-        <ListRow label="Short Call OI" value={l3?.oiChecks?.shortCall ? fmtOI(l3.oiChecks.shortCall.value) : '—'} />
-        <ListRow label="Short Put OI" value={l3?.oiChecks?.shortPut ? fmtOI(l3.oiChecks.shortPut.value) : '—'} />
-        <ListRow label="Bid-Ask" value={bidAskDetail} />
-        <ListRow label="Credit" value={l3?.creditMinimum ? `$${l3.creditMinimum.midCredit.toFixed(2)} (min $${l3.creditMinimum.minRequired.toFixed(2)})` : '—'} />
-        <ListRow label="ATM Delta" value={l3?.atmCallDelta != null ? l3.atmCallDelta.toFixed(2) : '—'} />
       </div>
 
     </div>
