@@ -42,10 +42,12 @@ publish/
 # Estado de runtime del backend (se acumula día a día vía SkewSnapshotService)
 source/galecore-datafeed/DataFeed.Api/Files/skew25_history.json
 
-# Switch de workers de RPF — decisión del operador, no configuración. Versionarlo haría que un
-# deploy pise el switch (unos workers apagados a propósito volverían a arrancar solos) y que cada
-# toggle ensucie el working tree. El default lo declara state_machine.enabled en el JSON de reglas.
-source/galecore-datafeed/DataFeed.Api/Files/Rpf/rpf_workers_state.json
+# Switch de workers, de CUALQUIER estrategia — decisión del operador, no configuración.
+# Versionarlo haría que un deploy pise el switch (unos workers apagados a propósito volverían a
+# arrancar solos) y que cada toggle ensucie el working tree. El default lo declara el JSON de reglas
+# de cada estrategia (state_machine.enabled en RPF, gex.enabled en GEX).
+# Glob y no una línea por estrategia: la próxima que sume switch queda cubierta sola.
+source/galecore-datafeed/DataFeed.Api/Files/**/*_workers_state.json
 
 # Backtesting datasets — se versiona research/data/ (derived/ + vvix) EXCEPTO
 # las carpetas de cadenas crudas, pesadas y re-descargables:
