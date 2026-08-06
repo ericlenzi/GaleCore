@@ -2,7 +2,7 @@ using System.Text.Json.Nodes;
 using DataFeed.Application.App.Rpf;
 using DataFeed.Application.App.Rpf.Engine;
 using DataFeed.Application.App.SignalGates;
-using DataFeed.Application.App.ValidationLayer;
+using DataFeed.Application.App.Shared.Dtos;
 using DataFeed.Infrastructure.Providers.Tastytrade;
 using MediatR;
 
@@ -113,8 +113,8 @@ namespace DataFeed.Api.Infrastructure
                 .Select(x => (string?)x).Where(s => !string.IsNullOrEmpty(s)).Select(s => s!).ToList()
                 ?? new List<string> { "SPY" };
 
-            // Compartidos con la cascada de GaleCore (ValidationLayerHandler): quedan en la raíz de
-            // Files/, no en Files/Rpf/. Moverlos rompería la otra estrategia.
+            // Quedan en la raíz de Files/, no en Files/Rpf/: hoy los lee solo RPF, pero quien
+            // ESCRIBE skew25_history.json es SkewSnapshotService, que no es de ninguna estrategia.
             string? pop = ReadOrNull(Path.Combine(filesDir, "pop_calibration.json"));
             string? skew = ReadOrNull(Path.Combine(filesDir, "skew25_history.json"));
 

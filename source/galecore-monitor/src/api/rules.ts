@@ -1,20 +1,17 @@
 import apiClient from './client';
-import { CoreRules } from '../types/api';
-
-export async function fetchCoreRules(): Promise<CoreRules> {
-  const { data } = await apiClient.get<unknown>('/App/GaleCore/Rules/Core');
-  const rules: CoreRules = typeof data === 'string' ? JSON.parse(data) : data;
-  console.debug('[Rules/Core] tickers:', rules?.universe?.tickers);
-  return rules;
-}
+import { AppConfig } from '../types/api';
 
 /**
- * Reglas v1.4.0 crudas (estructura completa del JSON, sin tipar por CoreRules que está en v1.3.1).
- * La usa la pestaña Strategy para renderizar la definición tal como la declara el JSON.
+ * Configuración de la aplicación. El endpoint conserva el path histórico
+ * (`/App/GaleCore/Rules/Core`) pero desde 2026-08-06 sirve config de plataforma, no reglas de
+ * una estrategia: universo de streaming, `strategies[]` y el nodo `monitor`.
  */
-export async function fetchCoreRulesRaw(): Promise<any> {
+export async function fetchAppConfig(): Promise<AppConfig> {
   const { data } = await apiClient.get<unknown>('/App/GaleCore/Rules/Core');
-  return typeof data === 'string' ? JSON.parse(data) : data;
+  const config: AppConfig = typeof data === 'string' ? JSON.parse(data) : data;
+  console.debug('[AppConfig] tickers:', config?.universe?.tickers,
+    'estrategias:', config?.strategies?.map((s) => s.id));
+  return config;
 }
 
 export async function fetchRpfRulesRaw(): Promise<any> {

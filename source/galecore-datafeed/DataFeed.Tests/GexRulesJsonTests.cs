@@ -10,7 +10,7 @@ namespace DataFeed.Tests;
 /// Congela los invariantes de galecore_rules_gex.json (estrategia GEX, informativa).
 ///
 /// El JSON no es documentacion: GexAnalysisHandler lee `gex.*` para configurar el barrido de la
-/// cadena, y ValidationLayerHandler.EvaluateLayer1 lee `macro_regime.checks[].threshold` +
+/// cadena, y CascadeUtils.EvaluateLayer1 lee `macro_regime.checks[].threshold` +
 /// `definitions.gex_threshold_by_symbol` + `definitions.zgl_with_buffer` para armar los 6 checks
 /// del cuadro Details. Un path que se renombre o se caiga no rompe el build: falla en runtime con
 /// el valor por defecto, en silencio. Estos tests son la red.
@@ -117,7 +117,7 @@ public class GexRulesJsonTests
     }
 
     /// <summary>
-    /// Contrato con ValidationLayerHandler.EvaluateLayer1: los 6 checks que renderiza el cuadro
+    /// Contrato con CascadeUtils.EvaluateLayer1: los 6 checks que renderiza el cuadro
     /// Details y los dos nodos de definitions de los que salen sus umbrales.
     /// </summary>
     [Fact]

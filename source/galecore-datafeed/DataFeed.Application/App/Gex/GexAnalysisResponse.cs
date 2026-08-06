@@ -1,5 +1,4 @@
-using DataFeed.Application.App.PositionBuilder;
-using DataFeed.Application.App.ValidationLayer;
+using DataFeed.Application.App.Shared.Dtos;
 
 namespace DataFeed.Application.App.Gex
 {

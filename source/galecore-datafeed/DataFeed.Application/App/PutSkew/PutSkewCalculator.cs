@@ -6,7 +6,7 @@ namespace DataFeed.Application.App.PutSkew
 {
     /// <summary>
     /// Calcula el snapshot del skew 25Δ put a partir de una respuesta de GammaExposure ya obtenida.
-    /// Compartido por PutSkewHandler (endpoint standalone) y ValidationLayerHandler (embebido en su
+    /// Compartido por PutSkewHandler (endpoint standalone) y RpfTickHandler (embebido en su
     /// respuesta, para no disparar una segunda llamada pesada a GammaExposure).
     /// </summary>
     public static class PutSkewCalculator

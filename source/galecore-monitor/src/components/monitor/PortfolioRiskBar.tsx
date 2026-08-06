@@ -1,7 +1,7 @@
 import React from 'react';
 import { LiveSpread } from '../../types/position';
 import { useAccountStore } from '../../store/useAccountStore';
-import { useRulesStore } from '../../store/useRulesStore';
+import { useAppConfigStore } from '../../store/useAppConfigStore';
 import { fmtCurrency, fmtPct } from '../../utils/formatters';
 import { computeCurrentNetCredit } from '../../utils/streamerSymbol';
 
@@ -13,23 +13,16 @@ interface Props {
 
 export function PortfolioRiskBar({ spreads, onRefresh, refreshing }: Props) {
   const { balances } = useAccountStore();
-  const { rules }    = useRulesStore();
+  const { config }   = useAppConfigStore();
 
   const netLiq    = balances?.netLiquidatingValue ?? 0;
   const buyingPwr = balances?.buyingPower ?? 0;
 
-  // Risk limits from JSON structure
-  const maxPositions = rules?.position_builder?.layers
-    ?.find(l => l.name === 'risk_and_sizing')?.config?.max_positions
-    ?? rules?.risk_limits?.max_concurrent_positions
-    ?? 3;
+  // Límites de riesgo del portafolio — nodo `monitor` del config de la app
+  const maxPositions = config?.monitor?.risk_limits?.max_concurrent_positions ?? 3;
+  const heatMaxPct   = config?.monitor?.risk_limits?.portfolio_heat_max_pct ?? 0.045;
 
-  const heatMaxPct = rules?.position_builder?.layers
-    ?.find(l => l.name === 'risk_and_sizing')?.config?.max_heat_pct_net_liq
-    ?? rules?.risk_limits?.portfolio_heat_max_pct
-    ?? 0.045;
-
-  const killSwitchThreshold = rules?.trade_management?.daily_kill_switch
+  const killSwitchThreshold = config?.monitor?.trade_management?.daily_kill_switch
     ?.daily_portfolio_mtm_loss_pct_net_liq_max ?? 0.015;
 
   // ── Portfolio totals (sum across ALL open positions) ─────────────────────

@@ -117,7 +117,7 @@
     "regime_classification": {
       "type": "lookup_by_range",
       "input": "IV30 (nivel), rango [min, max)",
-      "reader_code": "DataFeed.Application/App/ValidationLayer/ValidationLayerHandler.ClassifyRegime",
+      "reader_code": "DataFeed.Application/App/Shared/CascadeUtils.ClassifyRegime",
       "ranges": [
         { "min": 0, "max": 15, "value": "low_vol" },
         { "min": 15, "max": 25, "value": "normal" },

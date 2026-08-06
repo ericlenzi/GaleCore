@@ -1,5 +1,5 @@
 using DataFeed.Application.App.SignalGates;
-using DataFeed.Application.App.ValidationLayer;
+using DataFeed.Application.App.Shared.Dtos;
 
 namespace DataFeed.Application.App.Rpf.Engine
 {

@@ -1,7 +1,7 @@
 import React from 'react';
 import { LiveSpread, AlertType } from '../../types/position';
 import { useMarketStore } from '../../store/useMarketStore';
-import { useRulesStore } from '../../store/useRulesStore';
+import { useAppConfigStore } from '../../store/useAppConfigStore';
 import { StrikeLadder } from './StrikeLadder';
 import { GammaExposureResponse } from '../../types/api';
 import { fmtPrice, fmtPnl } from '../../utils/formatters';
@@ -26,15 +26,16 @@ const ALERT_CFG: Record<NonNullable<AlertType>, { label: string; bg: string; tex
 };
 
 export function PositionCard({ spread: s, gexData }: Props) {
-  const { rules }     = useRulesStore();
+  const { config }    = useAppConfigStore();
   const spotPrice     = useMarketStore(st => st.tickers[s.underlyingSymbol]?.price ?? 0);
   const tickers       = useMarketStore(st => st.tickers);
 
-  // Rule thresholds
-  const takeProfitPct  = rules?.trade_management?.take_profit?.pct_of_initial_credit ?? 0.5;
-  const stopLossPct    = rules?.trade_management?.hard_defense?.trigger_any?.unrealized_loss_pct_of_initial_credit_gte ?? 2.0;
-  const rollTrigPct    = rules?.trade_management?.defensive_roll?.trigger_unrealized_loss_pct_of_initial_credit_gte ?? 1.0;
-  const timeExitDte    = rules?.trade_management?.time_exit?.dte_threshold ?? 21;
+  // Rule thresholds — nodo `monitor` del config de la app (transversal a estrategias)
+  const tm = config?.monitor?.trade_management;
+  const takeProfitPct  = tm?.take_profit?.pct_of_initial_credit ?? 0.5;
+  const stopLossPct    = tm?.hard_defense?.trigger_any?.unrealized_loss_pct_of_initial_credit_gte ?? 2.0;
+  const rollTrigPct    = tm?.defensive_roll?.trigger_unrealized_loss_pct_of_initial_credit_gte ?? 1.0;
+  const timeExitDte    = tm?.time_exit?.dte_threshold ?? 21;
 
   // GEX walls + chain
   const gex      = gexData[s.underlyingSymbol];

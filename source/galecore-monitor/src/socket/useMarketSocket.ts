@@ -14,8 +14,9 @@ export function useMarketSocket(tickers: string[] = []) {
   const { updatePrice, updateQuote, updateGreeks, setStreaming } = useMarketStore();
 
   useEffect(() => {
-    if (!tickers.length) return;
-
+    // La conexión NO depende de tener universo. El hub transporta mucho más que precios de
+    // subyacentes: la orquestación de RPF, los quotes/Greeks de los legs del Monitor y el flow.
+    // Con un `if (!tickers.length) return` acá, un config sin universo dejaba todo eso muerto.
     const hubUrl = process.env.REACT_APP_SIGNALR_HUB_URL;
     if (!hubUrl) {
       console.error('REACT_APP_SIGNALR_HUB_URL is not set');

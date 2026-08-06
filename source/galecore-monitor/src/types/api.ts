@@ -1,127 +1,66 @@
-// ─── Rules API ────────────────────────────────────────────────────────────────
-// Matches the actual structure returned by /App/GaleCore/Rules/Core
-export interface CoreRules {
-  _meta: {
-    version: string;
-    strategy: string;
-    last_updated: string;
+// ─── App Config ───────────────────────────────────────────────────────────────
+// Estructura de /App/GaleCore/Rules/Core — la configuración de la APLICACIÓN.
+// Hasta v1.4.0 este endpoint servía las reglas de la estrategia core (tipo CoreRules); esa
+// estrategia se eliminó y el archivo pasó a describir la plataforma. Las reglas de cada
+// estrategia viven en su propio endpoint (/App/Rpf/Rules, /App/Gex/Rules).
+
+/** Una estrategia implementada. Es lo que Main renderiza como card. */
+export interface StrategyEntry {
+  id: string;
+  /** Prefijo de la estrategia: manda la ruta HTTP (/App/<prefix>/*) y la carpeta Files/<prefix>/. */
+  prefix: string;
+  /** Id de la pestaña del TabNav a la que navega la card. */
+  tab: string;
+  label: string;
+  name?: string;
+  kind?: string;
+  description?: string;
+  rules_endpoint: string;
+  workers_endpoint: string;
+}
+
+export interface AppConfig {
+  _meta?: {
+    version?: string;
+    name?: string;
+    description?: string;
+    last_updated?: string;
   };
-  universe: {
-    tickers: string[];
-    min_avg_daily_volume: number;
+  /** Símbolos que el front suscribe por SignalR. No es el universo de ninguna estrategia. */
+  universe?: {
+    tickers?: string[];
   };
-  macro_regime: {
-    vix_structure: {
-      max_vix_absolute: number;
-    };
-    event_buffer: {
-      days_to_fomc_min: number;
-      days_to_cpi_min: number;
-      event_alert_days: number;
-    };
-    sentiment_canary: {
-      max_abs_change_pct: number;
-    };
-  };
-  gamma_regime: {
-    gex_total: {
-      min_billion_usd: number;
-    };
-    spot_vs_zero_gamma: {
-      buffer_pct: number;
-      confirm_bars: number;
-    };
-    persistence: {
-      consecutive_days_min: number;
-    };
-  };
-  options_filters: {
-    iv_rank: {
-      min: number;
-      max: number;
-      lookback_days: number;
-    };
-    liquidity: {
-      open_interest_min_short_leg: number;
-      open_interest_min_long_leg: number;
-      bid_ask_spread_max_pct_mid: number;
-    };
-  };
-  trade_construction: {
-    dte_target: {
-      min: number;
-      max: number;
-      ideal: number;
-    };
-    short_leg_delta: {
-      max_abs: number;
-    };
-    spread_width: {
-      default_points: number;
-      symbol_overrides: Record<string, number>;
-    };
-    premium_capture: {
-      tiers: Array<{
-        iv_rank_min?: number;
-        iv_rank_max?: number;
-        min_credit_width_ratio: number;
-      }>;
-    };
-  };
-  risk_limits: {
-    risk_per_trade_pct: number;
-    risk_per_trade_usd_max: number;
-    portfolio_heat_max_pct: number;
-    max_concurrent_positions: number;
-    max_positions_per_symbol: number;
-  };
-  // Actual v1.3.1 JSON structure for trade_management
-  trade_management: {
-    daily_kill_switch?: {
-      daily_portfolio_mtm_loss_pct_net_liq_max: number;
-    };
-    take_profit?: {
-      pct_of_initial_credit: number;
-    };
-    hard_defense?: {
-      trigger_any: {
-        short_leg_delta_abs_gt: number;
-        unrealized_loss_pct_of_initial_credit_gte: number;
+  strategies?: StrategyEntry[];
+  /** Config de la pestaña Monitor — transversal a las estrategias. */
+  monitor?: {
+    trade_management?: {
+      daily_kill_switch?: {
+        daily_portfolio_mtm_loss_pct_net_liq_max: number;
+      };
+      take_profit?: {
+        pct_of_initial_credit: number;
+      };
+      hard_defense?: {
+        trigger_any: {
+          short_leg_delta_abs_gt: number;
+          unrealized_loss_pct_of_initial_credit_gte: number;
+        };
+      };
+      defensive_roll?: {
+        trigger_unrealized_loss_pct_of_initial_credit_gte: number;
+        min_dte_remaining: number;
+        min_net_credit_for_roll: number;
+        max_rolls_per_position: number;
+      };
+      time_exit?: {
+        dte_threshold: number;
       };
     };
-    defensive_roll?: {
-      trigger_unrealized_loss_pct_of_initial_credit_gte: number;
-      min_dte_remaining: number;
-      min_net_credit_for_roll: number;
-      max_rolls_per_position: number;
+    risk_limits?: {
+      max_concurrent_positions?: number;
+      portfolio_heat_max_pct?: number;
+      risk_per_trade_pct?: number;
     };
-    time_exit?: {
-      dte_threshold: number;
-    };
-    // Legacy flat fields (kept for backward compat with older type)
-    take_profit_pct_credit?: number;
-    stop_loss_pct_credit?: number;
-    time_exit_dte?: number;
-    adjustment_protocol?: {
-      min_dte_to_roll: number;
-      min_credit_for_roll: number;
-      trigger_loss_pct_credit: number;
-    };
-    hard_defense_legacy?: {
-      short_leg_delta_max_abs: number;
-    };
-  };
-  // Partial position_builder type for risk config access
-  position_builder?: {
-    layers?: Array<{
-      id: number;
-      name: string;
-      config?: {
-        risk_per_trade_pct?: number;
-        max_positions?: number;
-        max_heat_pct_net_liq?: number;
-      };
-    }>;
   };
 }
 
@@ -200,7 +139,8 @@ export interface ImpliedVolatilityResponse {
 }
 
 // ─── ValidationLayer API ─────────────────────────────────────────────────────
-// Response from GET /App/GaleCore/ValidationLayer
+// Shape de los checks de régimen macro. Hoy lo produce /App/Gex/Analysis (la pestaña GEX lo adapta
+// en `asValidationShape`); el endpoint /App/GaleCore/ValidationLayer que lo originó ya no existe.
 export interface ValidationLayerApiResponse {
   symbol: string;
   profile: string;
@@ -497,48 +437,9 @@ export interface PositionResponse {
   updatedAt: string;
 }
 
-// ─── PositionBuilder API ─────────────────────────────────────────────────────
-// Response from GET /App/GaleCore/PositionBuilder
-// Reutiliza StrikeEngineResult, MicrostructureResult, RiskAndSizingResult de ValidationLayer.
-
-/** Candidato de strikes alternativo. Rank 1 coincide con strikeEngine (óptimo). */
-export interface StrikeEngineCandidate {
-  rank: number;
-  shortPutStrike: number | null;
-  shortCallStrike: number | null;
-  shortPutDelta: number | null;
-  shortCallDelta: number | null;
-  longPutStrike: number | null;
-  longCallStrike: number | null;
-  strikesInsideWalls: boolean;
-  pop: number | null;
-  /** Null para rank 2-3; el frontend lo calcula con live quote del socket. */
-  creditRatio: number | null;
-  /** Rank 1: score completo (pop + credit). Rank 2-3: solo componente pop. */
-  priorityScore: number | null;
-  legSymbols: LegSymbols | null;
-  /** OI + cierre anterior por leg. Fuente: definitions.leg_open_interest / leg_prev_close. */
-  legMeta: LegMetaSet | null;
-}
-
-export interface PositionBuilderApiResponse {
-  symbol: string;
-  profile: string;
-  timestamp: string;
-  spotPrice: number;
-  overallSignal: string;
-  /** GEX total neto en billions USD. Ver definitions.gex_total. */
-  netGexBillions: number | null;
-  /** Gamma Zero Level. Ver definitions.gamma_zero_level. */
-  gammaZeroLevel: number | null;
-  structureInputs: StructureInputs;
-  selectedStructure: SelectedStructureResult;
-  strikeEngine: StrikeEngineResult | null;
-  /** Top 3 candidatos de strikes. Rank 1 = strikeEngine (más cercano al dinero). */
-  strikeCandidates: StrikeEngineCandidate[] | null;
-  microstructure: MicrostructureResult | null;
-  riskAndSizing: RiskAndSizingResult | null;
-}
+// ─── Structure Inputs ────────────────────────────────────────────────────────
+// Factores de contexto de mercado (z-score, skew GEX, tendencia, vol realizada) que computa
+// CascadeUtils en el backend. Hoy los expone /App/Gex/Analysis y los renderiza MarketDiagnostics.
 
 export interface StructureInputs {
   priceZScore: PriceZScoreInput;
@@ -574,13 +475,6 @@ export interface RealizedVolInput {
   rv30d: number | null;
   signal: string;
   interpretation: string;
-}
-
-export interface SelectedStructureResult {
-  output: string;
-  ruleId: number | null;
-  ruleName: string | null;
-  ruleLabel: string | null;
 }
 
 // ─── SignalR Payloads ─────────────────────────────────────────────────────────

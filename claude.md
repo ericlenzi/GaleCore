@@ -1,12 +1,17 @@
 # GaleCore 
 
 ## Resumen del proyecto
-Crear una plataforma tecnológica para automatización y análisis de estrategias con opciones financieras.
+GaleCore es una **plataforma** tecnológica para automatización y análisis de estrategias con opciones
+financieras. **GaleCore no es una estrategia**: es el contexto sobre el que se implementan proyectos de
+estrategias — cada uno con su prefijo, su JSON de reglas, sus endpoints y su pestaña.
 
-Tres productos fundamentales a desarrollar para implementar el proyecto: 
-  * Estrategias financieras rentables con opciones
-  * Backend api
-  * Frontend dashboard
+La plataforma provee:
+  * **Backend api** (`galecore-datafeed`) — datos de mercado y de cuenta, analytics compartidos, hub de tiempo real
+  * **Frontend monitor** (`galecore-monitor`) — tablero: Main (índice de estrategias), Monitor (posiciones), una pestaña por estrategia
+  * **Config de aplicación** — `galecore_rules_core.json`, que declara qué estrategias existen
+
+Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **RPF** (operativa) y
+**GEX** (informativa). Cómo se agrega una: ver "Estrategias — convención".
 
 ## Stack
 
@@ -17,53 +22,75 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   /galecore-monitor (carpeta del código frontend monitor)
 
 
-### Estrategia con opciones
-- Resumen de la estrategia
-  Estrategia sistemática de venta de prima, consiste en vender volatilidad en entornos estables. 
-  La idea es capturar el decay temporal (theta) de opciones sobre índices líquidos usando la estructura de gamma del mercado como soporte.
-  Cuando el mercado tiene GEX (gamma exposure) positivo, el precio spot está arriba del Gamma Zero Level, y la volatilidad implícita está en 
-  un rango medio sin expandirse, las opciones OTM pierden valor predeciblemente. El algoritmo vende esa prima con riesgo definido y reglas mecánicas de gestión.
-  
-  Inicialmente se procederá sobre estos índices del mercado que tienen líquidez:
-  * SPY — S&P 500 ETF
-  * QQQ — Nasdaq 100 ETF
+### Config de la aplicación — `galecore_rules_core.json`
 
-  Estructura en producción (reglas v1.4.0): **Put Credit Spread (PCS) únicamente.**
-  * Put Credit Spread — vende prima por abajo. Única estructura activa.
-  * Iron Condor / Call Credit Spread — `enabled:false`. BT-11 mostró que no dan edge honesto
-    (el delta subestima el riesgo call ~1,5×); revivirlos exige un ciclo de research nuevo.
-  Observación: Prohibido terminantemente: naked shorts de cualquier tipo, ratio spreads, y cualquier posición long direccional.
-  Detalle conceptual: `docs/galecore-estrategia-definicion.md`; racional por nodo: `docs/galecore-rules-reference.md`.
+  Es la configuración de la **plataforma**, no de una estrategia. Vive en `DataFeed.Api/Files/` y se
+  sirve tal cual por `GET /App/GaleCore/Rules/Core`. **Nada de trading vive ahí** — ni gates, ni
+  strikes, ni sizing. Contrato:
 
-  Operación de la estrategia: 
-  La señal pasa por 4 capas de validación en cascada. Si cualquier capa falla, no se abre nada. La cascada es cortocircuitante, si la Capa 1 falla, las demás ni se evalúan.
-  Definición de capas: 
-  * Capa 1 — Régimen macro y GEX
-  * Capa 2 — Motor de strikes
-  * Capa 3 — Microestructura
-  * Capa 4 — Sizing y riesgo
+  * `strategies[]` — las estrategias implementadas. Cada entrada: `id`, `prefix`, `tab`, `label`,
+    `name`, `kind` (`operativa` / `informativa`), `description`, `rules_endpoint`, `workers_endpoint`.
+    Es lo que **Main** renderiza como cards. Una estrategia que no figura acá existe en la API pero
+    es invisible en el tablero.
+  * `monitor` — config de la pestaña Monitor, que es transversal (monitorea las posiciones de la
+    cuenta sin importar quién las abrió): `monitor.trade_management` (take_profit, defensive_roll,
+    time_exit, hard_defense, daily_kill_switch) y `monitor.risk_limits` (max_concurrent_positions,
+    portfolio_heat_max_pct, risk_per_trade_pct).
 
-  Configuración:
-  La estrategia se configura con 3 archivos JSON que estarán disponibles en la api y serán procesados por la operación de la estrategia:
-  * `rules.core.json` — reglas base, parámetros completos
-  * `rules.live.json` — overlay conservador para trading real
-  * `rules.paper.json` — overlay para paper trading con más observabilidad
+  Lo consume `useAppConfigStore` en el front. Congelado por `DataFeed.Tests/RulesJsonTests.cs`:
+  el front lee todo con optional chaining y defaults hardcodeados, así que un nodo renombrado no
+  rompe el build — muestra umbrales que nadie configuró.
+
+  **Historia:** hasta v1.4.0 este archivo (con sus overlays `live` / `paper`) era el JSON de reglas
+  de la estrategia `gale_core_gamma_premium` (PCS-only, 4 capas en cascada). Esa estrategia se
+  eliminó el 2026-08-06 — su evaluación en vivo ya se había mudado a RPF. Definición conceptual
+  archivada en `docs/archive/`.
+
+### Estrategias — convención
+
+  Toda estrategia es un proyecto propio dentro de la plataforma, identificado por un `<Prefijo>`
+  (`Rpf`, `Gex`, …) que manda en TODOS lados: ruta HTTP, carpeta de archivos, tag de Swagger.
+
+  **Checklist para agregar una estrategia nueva:**
+  1. Elegir `<Prefijo>`.
+  2. `DataFeed.Api/Files/<Prefijo>/galecore_rules_<prefijo>.json` — su fuente de verdad.
+     Revisar que el `.csproj` copie la subcarpeta (ver "archivos por estrategia").
+  3. Endpoints bajo `/App/<Prefijo>/*` en `AppController.cs`, con su `#region` y su tag de Swagger
+     `App.<Prefijo>`. Mínimo: `GET /App/<Prefijo>/Rules` sirviendo el JSON tal cual.
+  4. **Entrada en `strategies[]` de `galecore_rules_core.json`.** Sin esto no aparece en Main.
+  5. Pestaña propia en `TabNav.tsx`, con el mismo id que declara `tab` en el config.
+  6. Switch **Workers** si corre procesos o mantiene sockets propios (ver "switch Workers"), con su
+     `<prefijo>_workers_state.json` en su carpeta — gitignoreado.
+  7. Test que congele los invariantes de su JSON, al estilo `GexRulesJsonTests.cs`.
+
+  **Lo que las estrategias comparten:** los primitivos de cálculo de `App/Shared/CascadeUtils.cs` y
+  los contratos de `App/Shared/Dtos/CascadeContracts.cs`. Cada una le pasa SU propio JSON — los
+  primitivos no saben de qué estrategia son.
+
+  **Prohibido terminantemente en cualquier estrategia:** naked shorts de cualquier tipo, ratio
+  spreads, y cualquier posición long direccional. Solo estructuras de riesgo definido.
 
 
 ### Backend DataFeed
 
 - Fuente de verdad — JSON de reglas
-  El archivo `galecore_rules_core.json` (y sus overlays `live` / `paper`) es la fuente de verdad del sistema.
-  Toda la lógica de validación, selección de estructura, cálculos de strikes y parámetros de riesgo están definidos ahí.
+  **Cada estrategia tiene su propio JSON** en `Files/<Prefijo>/`, y ese archivo es su fuente de verdad:
+  ahí viven su lógica de validación, sus umbrales, su universo y sus parámetros de riesgo.
+  `galecore_rules_core.json` **no** es de ninguna estrategia — es la config de la aplicación (ver arriba).
   **Regla de trabajo:** ante cualquier cambio de lógica o parámetro, primero se actualiza el JSON y luego se ajustan
   los endpoints o handlers del backend para reflejar ese cambio. Nunca al revés.
-  El backend expone el JSON tal cual vía `/App/GaleCore/Rules/*` — no lo interpreta ni lo transforma.
+  El backend expone los JSON tal cual — no los interpreta ni los transforma. La ruta es fija por
+  estrategia, no el nombre del archivo: `GET /App/<Prefijo>/Rules` sirve
+  `Files/<Prefijo>/galecore_rules_<prefijo>.json` (`/App/Rpf/Rules`, `/App/Gex/Rules`), y
+  `GET /App/GaleCore/Rules/Core` sirve la config de la app.
+  Ya no hay overlays ni `DeepMerge`: se fueron con la estrategia v1.4.0.
 
 - Resumen del proyecto
   Solución .NET Core Web API API DataFeed (ASP.NET Core/.NET 8) que provee acceso a datos del mercado y cuenta de trading vía Tastytrade/DXLink.
+  Esta api desarrolla el código necesario para el funcionamiento de cada estrategia. 
   
 - Arquitectura
-  This is a .NET 8 ASP.NET Core Web API that serves as a **financial market data feed**, 
+  This is a .NET 8 ASP.NET Core Web API that serves as a **financial market data feed and processes**, 
   primarily consuming the Tastytrade API and DXLink WebSocket feed for options and equity data.
 
   Three-Layer Clean Architecture:
@@ -79,10 +106,10 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   * dxFeed
 
 - Testing y CI
-  * `DataFeed.Tests` (xUnit, net8.0) — `RulesJsonTests.cs` congela los invariantes de la estrategia
-    v1.4.0 (PCS-only, paper_only, gates presentes) y valida que los overlays `live`/`paper` solo
-    overrideen paths que existen en el core (espejo del DeepMerge de `AppController`; un override en
-    un path inexistente es un bug silencioso). Correr: `dotnet test DataFeed.Tests/DataFeed.Tests.csproj`.
+  * `DataFeed.Tests` (xUnit, net8.0). Un archivo de test por JSON, que congela su contrato:
+    `RulesJsonTests.cs` (config de app: `strategies[]` completo, prefijo ↔ rutas ↔ carpeta,
+    nodo `monitor`, y que no vuelvan a entrar nodos de estrategia), `RpfRulesJsonTests.cs` y
+    `GexRulesJsonTests.cs`. Correr: `dotnet test DataFeed.Tests/DataFeed.Tests.csproj`.
   * CI: `.github/workflows/ci.yml` corre restore + build (Release) + test en cada push/PR a master.
 
 - Origen de datos
@@ -98,8 +125,7 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   * `App.Analytics` — cálculos matemáticos compartidos por varias estrategias: `GammaExposure`,
     `IVRank`, `ImpliedVolatility`, `PutSkew`. Ojo: son rutas **absolutas**, la URL real es
     `/App.Analytics/<X>` (con punto), no `/App/Analytics/<X>`.
-  * `App.GaleCore` — endpoints de la aplicación en general: `Rules/{Core,Live,Paper}`,
-    `ValidationLayer`, `PositionBuilder`.
+  * `App.GaleCore` — endpoints de la aplicación en general. Hoy solo `Rules/Core` (config de app).
   * `App.<Prefijo>` — un prefijo por estrategia. Hoy: `App.Rpf` → `/App/Rpf/*` y
     `App.Gex` → `/App/Gex/*`. Ver "Convención de rutas HTTP por estrategia" más abajo.
 
@@ -112,9 +138,10 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   no `Data.Api.<Cuenta>`. El sub-prefijo por cuenta recién hace falta cuando se sume un segundo bróker.
 
 - Endpoints GaleCore
-  * `GET /App/GaleCore/MacroRegime` — corre Layer 1 (macro_regime). Responde `macroRegime` con checks de VIX, IV Rank, GEX total, spot vs ZGL.
-  * `GET /App/GaleCore/ValidationLayer` — corre las 4 capas en cascada con shortcircuit. Response: `macroRegime` + `positionBuilder`. Handler: `ValidationLayerHandler.cs`.
-  * `GET /App/GaleCore/PositionBuilder` — corre capas 2-4 solo (presupone que el caller ya validó macro). Expone `structureInputs` completos (priceZScore, gexSkew, trend, realizedVol). Handler: `PositionBuilderHandler.cs`.
+  * `GET /App/GaleCore/Rules/Core` — config de la aplicación (`Files/galecore_rules_core.json`, tal cual).
+    Es el único endpoint de `/App/GaleCore/*`: `MacroRegime`, `ValidationLayer`, `PositionBuilder` y
+    `Rules/{Live,Paper}` se eliminaron con la estrategia v1.4.0 (2026-08-06). Lo que hacía
+    `ValidationLayer` en vivo hoy lo hace el loop de RPF; los `structureInputs` los expone `/App/Gex/Analysis`.
   * WebSocket `/hubs/marketdata`:
     - `Subscribe(symbol, includeGreeks)` → `ReceiveTrade`, `ReceiveQuote` (precio); con `includeGreeks=true` también `ReceiveGreeks` (delta/gamma/theta/vega/IV por opción). Los legs del Monitor se suscriben con `includeGreeks=true`.
     - `SubscribeFlow(symbol)` → `ReceiveFlow` cada 30s (flow de opciones via `FlowBroadcastService`)
@@ -123,18 +150,18 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   Estrategia sin trades: su único producto es información de gamma exposure para decidir.
   No propone estructura, no calcula strikes ni sizing, no emite señales.
   * **El GEX de GEX es global.** `GET /App/Gex/Analysis` agrega TODOS los strikes de TODOS los
-    vencimientos de la cadena dentro de `gex.max_dte` (50), incluido 0DTE y las weeklies. El GEX de
-    `/App/GaleCore/*` sigue siendo de **un solo** vencimiento: son números distintos a propósito y
-    no se comparan. La respuesta trae `gex.global` (agregado), `gex.byExpiry[]` (desglose por
+    vencimientos de la cadena dentro de `gex.max_dte` (50), incluido 0DTE y las weeklies. El de
+    `/App.Analytics/GammaExposure` sigue siendo de **un solo** vencimiento: son números distintos a
+    propósito y no se comparan. La respuesta trae `gex.global` (agregado), `gex.byExpiry[]` (desglose por
     vencimiento con su propio ZGL, muros, IV ATM y expected move) y el contexto de mercado
     (`macroRegime` + `structureInputs`).
   * **Modo global de `GammaExposureHandler`** — opt-in vía `AllExpirations` / `IncludeByExpiry` /
     `ExpirationTypes` / `IncludeZeroDte` / `GreeksBatchSize` en `GammaExposureRequest`. Con los
-    defaults el handler se comporta igual que siempre, así que `ValidationLayer`, `PositionBuilder`,
-    `PutSkew`, RPF y `SkewSnapshotService` no cambian. En el agregado, GEX y OI **se suman** por
-    strike; delta/gamma/IV se toman de la expiración más cercana (sumarlos no significaría nada).
-  * **Capa 1 compartida** — `ValidationLayerHandler.EvaluateLayer1` es `internal static` y la usa
-    también `GexAnalysisHandler` con el JSON de GEX: por eso el JSON espeja `macro_regime.checks`,
+    defaults el handler se comporta igual que siempre, así que `PutSkew`, RPF, `SkewSnapshotService`
+    y el `/App.Analytics/GammaExposure` del Monitor no cambian. En el agregado, GEX y OI **se suman**
+    por strike; delta/gamma/IV se toman de la expiración más cercana (sumarlos no significaría nada).
+  * **Capa 1 compartida** — `CascadeUtils.EvaluateLayer1` (en `App/Shared/`) la usa `GexAnalysisHandler`
+    con el JSON de GEX: por eso ese JSON espeja `macro_regime.checks`,
     `definitions.gex_threshold_by_symbol` y `definitions.zgl_with_buffer`. Ahí los checks son
     lectura (`on_fail: inform_only`), no gatean nada.
   * **Latencia** — medido 2026-08-05 con la cadena completa de SPY a 50 DTE (17 vencimientos,
@@ -145,7 +172,7 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
     `refresh_seconds` quedaron en **600**. Palancas, todas en el JSON (sin
     recompilar): `gex.max_dte`, `gex.oi_delta_band`, `gex.greeks_batch_size`, `gex.greeks_retries`,
     `gex.cache_seconds`. El OI reusa el cache diario por símbolo del handler, compartido con el GEX
-    de Main.
+    de vencimiento único que pide el Monitor.
   * **Los Greeks se reintentan** (`gex.greeks_retries`) — `RequestSnapshotAsync` devuelve lo que
     juntó al vencer su timeout, así que un lote lento deja símbolos sin Greeks y esos strikes se
     caen del GEX en silencio. Sin reintentos, dos corridas seguidas dieron 271B con 12 vencimientos
@@ -168,8 +195,7 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
     declara un umbral por símbolo; el que no figura **no se valida**: `EvaluateLayer1` devuelve
     `gexTotal.thresholdDeclared:false` y el tablero pinta esa celda en gris con "sin umbral", en vez
     de rojo. Sumar un símbolo a `universe.tickers` no alcanza para que su check de GEX signifique
-    algo — hay que declararle el umbral. Aplica igual al JSON del core (por eso SKM, que está en el
-    universo del core sin umbral, se ve apagado también en Main).
+    algo — hay que declararle el umbral.
   * **Switch "Workers"** — GEX no corre `BackgroundService`, pero sí tiene algo que anda solo y
     compite por el feed: el barrido de la cadena. El switch es un **kill switch** de eso.
     - `GET /App/Gex/Workers` → `{ enabled, source }`; `POST /App/Gex/Workers` con `{ enabled }`.
@@ -182,12 +208,11 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
 
 - Convención de rutas HTTP por estrategia
   Cada estrategia expone sus endpoints bajo su propio prefijo de primer nivel: `/App/<Estrategia>/*`.
-  * RPF → `/App/Rpf/*`. Hoy: `GET /App/Rpf/Rules` sirve `galecore_rules_rpf.json` tal cual
-    (RPF no tiene overlays `live`/`paper`, así que no pasa por el DeepMerge de `LoadMergedRulesJsonAsync`).
-  * GEX → `/App/Gex/*`. `GET /App/Gex/Rules` (JSON tal cual, sin overlays) y
+  * RPF → `/App/Rpf/*`. Hoy: `GET /App/Rpf/Rules` sirve `galecore_rules_rpf.json` tal cual.
+  * GEX → `/App/Gex/*`. `GET /App/Gex/Rules` (JSON tal cual) y
     `GET /App/Gex/Analysis?Symbol=` (GEX global + desglose por vencimiento + contexto).
-  Los endpoints existentes bajo `/App/GaleCore/*` quedan como están hasta que se revisen; toda estrategia
-  nueva arranca con su prefijo propio. En `AppController.cs` cada estrategia tiene su `#region` y su tag
+  `/App/GaleCore/*` queda reservado para la plataforma (hoy solo `Rules/Core`); ninguna estrategia
+  cuelga de ahí. En `AppController.cs` cada estrategia tiene su `#region` y su tag
   de Swagger (`App.Rpf`), para que la separación se vea tanto en el código como en la UI de Swagger.
   **Aplica solo a HTTP.** La orquestación de RPF viaja por SignalR sobre el hub compartido
   `/hubs/marketdata` (`SubscribeRpf` / `AcceptSuggestion` / `DismissSuggestion` → `ReceiveRpfState`,
@@ -198,12 +223,13 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   subcarpeta `DataFeed.Api/Files/<Prefix>/`, con el **mismo `<Prefix>` que su ruta HTTP** (`/App/Rpf`
   → `Files/Rpf/`). Así se ve de un vistazo qué archivo pertenece a qué estrategia.
   * RPF → `Files/Rpf/galecore_rules_rpf.json`, `Files/Rpf/rpf_workers_state.json`.
-  * GEX → `Files/Gex/galecore_rules_gex.json`.
+  * GEX → `Files/Gex/galecore_rules_gex.json`, `Files/Gex/gex_workers_state.json`.
 
-  **Los archivos compartidos entre estrategias quedan en la raíz de `Files/`.** Hoy son
-  `pop_calibration.json` (tabla POP del gate `edge`) y `skew25_history.json` (serie para el RoC de
-  `tail_score`): los leen tanto `RpfLoopService` como `ValidationLayerHandler`. Meterlos en la
-  carpeta de una estrategia rompería a la otra.
+  **En la raíz de `Files/` quedan la config de app y lo que no es de ninguna estrategia:**
+  `galecore_rules_core.json` (config de la aplicación), `pop_calibration.json` (tabla POP del gate
+  `edge`) y `skew25_history.json` (serie para el RoC de `tail_score`). Los dos últimos hoy los lee
+  solo RPF, pero quien **escribe** `skew25_history.json` es `SkewSnapshotService`, que no es de
+  ninguna estrategia — por eso no se mudan a `Files/Rpf/`.
 
   **Al agregar una subcarpeta hay que revisar el `.csproj`.** `DataFeed.Api.csproj` copia los JSON al
   output con `<Content Update="Files\**\*.json">` — el `**` es lo que hace que las subcarpetas se
@@ -219,11 +245,16 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   Workers actuales: `RpfLoopService`, `FlowBroadcastService`, `SkewSnapshotService`
   (todos en `DataFeed.Api/Infrastructure`).
 
+  **El estado de los switches se ve también en Main**, que renderiza una card por estrategia leyendo
+  `strategies[]` del config de la app; cada card monta el mismo `WorkersSwitch` apuntando al
+  `workers_endpoint` que la estrategia declara. Por eso el contrato tiene que ser uniforme:
+  `GET <workers_endpoint>` → `{ enabled, source }` y `POST <workers_endpoint>` con `{ enabled }`.
+
   **RPF — implementado.** Switch en la cabecera del tab RPF (`WorkersSwitch` en `pages/Rpf.tsx`).
   * `GET /App/Rpf/Workers` → `{ enabled, source }`. `source` es `"override"` si el operador ya usó el
     switch, `"rules"` si todavía manda `state_machine.enabled` del JSON.
   * `POST /App/Rpf/Workers` con `{ enabled }` → prende/apaga.
-  El estado se guarda en `Files/rpf_workers_state.json`, **no** dentro de `galecore_rules_rpf.json`:
+  El estado se guarda en `Files/Rpf/rpf_workers_state.json`, **no** dentro de `galecore_rules_rpf.json`:
   el JSON de reglas es fuente de verdad y se edita deliberadamente, no en runtime. El archivo de
   estado es un override; si no existe, manda lo que declara el JSON. Persiste a disco a propósito —
   un kill switch que vuelve solo a ON después de un restart es un agujero de seguridad.
@@ -243,21 +274,33 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
     nunca volvía a false.
   El switch **no** toca DXLink, el hub, ni los otros workers.
 
-  **GEX no tiene switch porque no tiene workers** — es REST on-demand, sin `BackgroundService` ni
-  sockets propios. La regla aplica a estrategias que corren procesos solos, no a las que responden
-  cuando se les pide.
+  **GEX — implementado.** No corre `BackgroundService`, pero el barrido de la cadena anda solo (el
+  auto-refresh del front) y compite por la conexión DXLink, así que también tiene switch: es un kill
+  switch de ese barrido. Detalle en la sección "Estrategia GEX" más arriba.
 
   **`FlowBroadcastService` y `SkewSnapshotService` no tienen switch todavía** — no son de una
   estrategia en particular, así que falta decidir dónde vive su estado y en qué pantalla se controlan.
 
-- Lógica compartida
-  Los métodos estáticos internos de `ValidationLayerHandler.cs` son compartidos por `PositionBuilderHandler.cs` (alias `VLH`):
-  * `ComputeGexSkew(callGex, putGex)` — calcula `callGEX / (callGEX + |putGEX|)`, devuelve `"call_dominant"`, `"put_dominant"` o `"symmetric"`
-  * `ComputePriceZScore(ret5d, ivAtm)` — normaliza retorno en unidades de vol diaria
-  * `ComputeTrend(candles)` — EMA 20 vs EMA 50, señal `"up"` / `"down"` / `"flat"`
-  * `ComputeRealizedVol(candles, window)` — RV en base anualizada
-  * `EvaluateStructureRules(config, priceZScore, gexSkew, trend, flow)` — evalúa las 5 reglas del JSON en orden, devuelve la primera que matchea
-  * `EvaluateCondition(condition, priceZScore, gexSkew, trend, flow)` — evalúa una condición individual
+- Lógica compartida — `App/Shared/`
+  Lo que comparten los motores de decisión de las estrategias. Separado en dos: **lógica** en
+  `App/Shared/CascadeUtils.cs` y **contratos** en `App/Shared/Dtos/CascadeContracts.cs`.
+
+  Los contratos NO van al `Dtos/` de la raíz: esa carpeta es de la capa `Data/` (`BaseResponse`,
+  `PriceQuoteDTO`, que consumen los handlers de `Data/Tastytrade/*`), y en `App/` cada contrato vive
+  con su dominio (`App/Gex/GexAnalysisResponse.cs`).
+
+  `CascadeUtils` — funciones puras, sin I/O ni estado. Cada estrategia le pasa **su** JSON:
+  * `EvaluateLayer1(rules, symbol, gex, ivr, iv)` — los 6 checks de régimen macro. La usan RPF (como gate) y GEX (como lectura)
+  * `ComputeGexSkew(callGex, putGex)` — `callGEX / (callGEX + |putGEX|)` → `"call_dominant"` / `"put_dominant"` / `"symmetric"`
+  * `ComputePriceZScore(candles, ivAtm)` — normaliza retorno en unidades de vol diaria
+  * `ComputeTrend(candles)` — EMA 20 vs EMA 50, señal `"up"` / `"down"` / `"neutral"`
+  * `ComputeRealizedVol(candles)` — RV 10d/30d en base anualizada
+  * `ClassifyRegime(regimeClassification, vix)` — banda de régimen (`low_vol` / `normal` / `elevated` / `caution`)
+  * `ResolveStructure` / `EvaluateStructureRules` / `EvaluateCondition` — motor multi-factor declarado en el JSON
+  * `BuildOccSymbol`, `SnapToNearestStrike`, `BuildBidAskChecks`, `BuildCreditCheck` y los helpers de JSON
+
+  `CascadeContracts.cs` — `MacroRegimeResult` + sus 6 checks, `StrikeEngineResult` + `LegSymbols`/`LegMeta`,
+  `MicrostructureResult` + sus checks, `RiskAndSizingResult`, `StructureInputs` + sus factores.
 
 - FlowAggregatorService
   Singleton que clasifica trades de opciones por agresión (ask-side = bullish, bid-side = bearish).
@@ -265,18 +308,20 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   `FlowBroadcastService` lee el agregador y emite `ReceiveFlow` al hub cada 30s o en cambio de signo de `netDeltaFlow`.
 
 - gex_skew (reemplaza gex_sign)
-  La capa macro_regime requiere `netGEX >= 50B`, por lo tanto el GEX es siempre positivo en operación.
-  `gex_sign: "negative"` es inalcanzable. Se reemplazó por `gex_skew` que mide la asimetría de muros:
+  Cuando una estrategia exige GEX positivo en su `macro_regime.gex_total`, `gex_sign: "negative"` es
+  inalcanzable — el signo no informa nada. Se reemplazó por `gex_skew`, que mide la asimetría de muros:
   `gex_skew = callGEX / (callGEX + |putGEX|)` → `call_dominant` (>0.6), `put_dominant` (<0.4), `symmetric` (0.4-0.6)
+  El umbral de GEX lo declara cada estrategia en `definitions.gex_threshold_by_symbol.values`
+  (RPF: 0 para SPY). No hay un umbral global de plataforma.
 
-- Ranking de oportunidades (position_builder.ranking)
+- Ranking de oportunidades (`position_builder.ranking`)
   Cuando hay múltiples tickers operables, el orden de prioridad viene del JSON → API → frontend.
   Criterio: regla 1/3 Tastytrade como métrica de calidad del spread.
-  El nodo `position_builder.ranking` declara: `priorityScore = (pop/100)*0.6 + (credit/width)*0.4`.
-  El backend computa `strikeEngine.creditRatio` (= credit/width×100, target ≥ 33.3%) y `strikeEngine.priorityScore`
-  en `PositionBuilderHandler.cs`, después de tener el crédito snapshot de microstructure.
-  El frontend ordena `sortedSymbols` por `priorityScore desc` y muestra `creditRatio` en columna "1/3 Rule"
-  con semáforo: verde ≥ 33.3%, amarillo 25–33%, rojo < 25%.
+  El nodo `position_builder.ranking` del JSON de la estrategia declara:
+  `priorityScore = (pop/100)*0.6 + (credit/width)*0.4`.
+  Hoy quien lo computa es `RpfTickHandler.cs`: llena `strikeEngine.creditRatio` (= credit/width×100,
+  target ≥ 33.3%) y `strikeEngine.priorityScore` después de tener el crédito snapshot de microstructure.
+  El frontend muestra `creditRatio` con semáforo: verde ≥ 33.3%, amarillo 25–33%, rojo < 25%.
 
 - legSymbols — formato DXLink streamer (no OCC)
   `strikeEngine.legSymbols` contiene símbolos en formato DXLink (ej: `.SPY260717P695`), NO formato OCC.
@@ -329,18 +374,23 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
 
 ### Frontend Monitor
 
-- Fuente de verdad — JSON de reglas
-  El archivo `galecore_rules_core.json` es el contrato que guía qué debe mostrar el frontend y cómo.
-  La estructura `macro_regime` y sus checks corresponden a la pantalla de inicio (Home / TickerCard).
-  La estructura `position_builder` y sus layers corresponden al portfolio manager (Positions).
-  **Regla de trabajo:** ante cualquier cambio de lógica, labels o estructura de validación, primero se actualiza
-  el JSON y luego se ajusta el frontend para reflejar ese cambio. El frontend lee el JSON vía
-  `/App/GaleCore/Rules/Core` y debe renderizar lo que el JSON declara, sin hardcodear lógica de negocio.
+- Fuente de verdad — JSON
+  Dos niveles, y no se mezclan:
+  * **Config de app** (`/App/GaleCore/Rules/Core` → `useAppConfigStore`) — arma las pantallas
+    transversales: `strategies[]` son las cards de **Main**, `monitor` son los umbrales de **Monitor**,
+    `universe.tickers` es lo que se suscribe al hub.
+  * **JSON de cada estrategia** (`/App/<Prefijo>/Rules`) — arma su pestaña. GEX lee su universo, sus
+    checks y su `display_config` de `/App/Gex/Rules`; References lee `/App/Rpf/Rules`.
+
+  **Regla de trabajo:** ante cualquier cambio de lógica, labels o estructura de validación, primero se
+  actualiza el JSON y luego se ajusta el frontend para reflejar ese cambio. El frontend debe renderizar
+  lo que el JSON declara, sin hardcodear lógica de negocio.
 
 - Resumen del proyecto:
-  Dashboard de trading en **React + TypeScript + Create React App** para el sistema GaleCore.
-  Es un monitor de decisión de operaciones: muestra el estado del sistema, el análisis
-  de los tickers configurados y el seguimiento de posiciones abiertas
+  Dashboard de trading en **React + TypeScript + Create React App** para la plataforma GaleCore.
+  Pestañas: **Main** (índice de estrategias implementadas + estado de sus workers), **Monitor**
+  (posiciones abiertas de la cuenta, transversal a estrategias), una pestaña por estrategia
+  (**RPF**, **GEX**) y **References**.
 
 - Tecnología:
   | Elemento          | Tecnología                                            |
@@ -360,7 +410,7 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   |----------|------------------------------------------------------|------------------|
   | `socket` | Precios y Greeks en tiempo real via SignalR          | WebSocket        |
   | `data`   | Analytics: GEX, IV Rank, Account, posiciones         | REST HTTP GET    |
-  | `rules`  | Reglas y tickers de la estrategia GaleCore           | REST HTTP GET (json files)   |
+  | `rules`  | Config de la app y reglas de cada estrategia         | REST HTTP GET (json files)   |
 
   Consultar definición de endpoints de la api en ../swagger/index.html
   
@@ -378,8 +428,11 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   src/
   ├── api/
   │   ├── client.ts           # axios instance con X-API-KEY interceptor
-  │   ├── rules.ts            # /App/GaleCore/Rules/*
-  │   ├── analytics.ts        # /App.Analytics/* + fetchPositionBuilder()
+  │   ├── rules.ts            # fetchAppConfig() (/App/GaleCore/Rules/Core) + fetchRpfRulesRaw()
+  │   ├── strategies.ts       # fetchWorkers(endpoint) / setWorkers(endpoint, enabled) — genéricos por endpoint
+  │   ├── analytics.ts        # /App.Analytics/* (GammaExposure, IVRank, ImpliedVolatility)
+  │   ├── gex.ts              # /App/Gex/{Rules,Analysis,Workers}
+  │   ├── rpf.ts              # /App/Rpf/Workers
   │   ├── marketdata.ts       # /Data/Tastytrade/MarketData/*
   │   └── account.ts          # /Data/Account/*
   ├── socket/
@@ -387,26 +440,33 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   ├── store/
   │   ├── useMarketStore.ts   # Estado en tiempo real (Zustand): precio/bid/ask + Greeks por símbolo (updateGreeks: delta/gamma/theta/vega/iv) + ivRank
   │   ├── useAccountStore.ts  # Balances y posiciones
-  │   ├── useRulesStore.ts    # Rules/tickers cargados desde /App/GaleCore/Rules/Core
+  │   ├── useAppConfigStore.ts # Config de la app: universe.tickers, strategies[], monitor. Fuente: /App/GaleCore/Rules/Core
   │   ├── useGexStore.ts      # Estrategia GEX: reglas propias (/App/Gex/Rules) + cache de /App/Gex/Analysis por símbolo + vencimiento seleccionado
+  │   ├── useRpfStore.ts      # Estrategia RPF: estados por símbolo + sugerencias (SignalR)
   │   └── useFlowStore.ts     # Snapshots de flow de opciones (ReceiveFlow → FlowPayload)
   ├── components/
   │   ├── layout/
+  │   │   ├── Sidebar.tsx         # Barra lateral con AccountSummary
   │   │   ├── StatusBar.tsx       # Barra superior: estado sistema, estado mercado, hora
-  │   │   └── TabNav.tsx          # Tabs: Main / Monitor / Strategy v1.4 / RPF / GEX / References
+  │   │   └── TabNav.tsx          # Tabs: Main / Monitor / RPF / GEX / References
+  │   ├── common/
+  │   │   └── WorkersSwitch.tsx   # Switch Workers reusable: recibe fetchState/setState, no conoce la estrategia
+  │   ├── strategies/             # Tab Main
+  │   │   └── StrategyCard.tsx    # Card por estrategia: identidad + WorkersSwitch a su workers_endpoint + "Abrir"
   │   ├── ticker/
-  │   │   ├── TickerCard.tsx      # Card por ticker: precio, variación, capas de validación
-  │   │   ├── TickerGrid.tsx      # Grid de TickerCards
-  │   │   └── TickerDetail.tsx    # Panel expandible con gráfico combinado
+  │   │   ├── TickerCard.tsx      # Card por ticker: precio, variación, bid/ask/vol
+  │   │   ├── TickerGrid.tsx      # Grid de TickerCards. `symbols` es obligatorio: lo pasa la estrategia dueña de la pantalla
+  │   │   └── MarketDiagnostics.tsx # Contexto de mercado (z-score, skew GEX, tendencia, RV) desde structureInputs
   │   ├── chart/
-  │   │   └── GexChart.tsx        # Gráfico LW-Charts: precio + GEX barras + muros + std dev
+  │   │   ├── GexChart.tsx        # Gráfico LW-Charts: precio + GEX barras + muros + std dev
+  │   │   └── GexBarsPanel.tsx    # Panel de barras de gamma por strike
   │   ├── account/
   │   │   └── AccountSummary.tsx  # Net Liq, Buying Power, Cash
   │   ├── positions/
-  │   │   ├── PositionMonitor.tsx # Tabla de posiciones abiertas
-  │   │   ├── PositionRow.tsx     # Fila individual con P&L, Greeks, alertas
-  │   │   ├── NewPositionForm.tsx # Formulario de ingreso de posición manual
-  │   │   └── SuggestedCard.tsx   # Card de operación sugerida con badge de flow en tiempo real
+  │   │   └── PositionMonitor.tsx # Tab Monitor: posiciones abiertas de la cuenta (transversal a estrategias)
+  │   ├── rpf/                    # Tab RPF
+  │   │   ├── RpfStateBadge.tsx    # Badge del estado de la máquina
+  │   │   └── RpfSuggestionCard.tsx # Sugerencia de trade con accept/dismiss
   │   ├── gex/                    # Tab GEX
   │   │   ├── OptionsChainList.tsx # Lista de vencimientos (0DTE primero); elegir uno acota Expiry Engine + gráfico
   │   │   └── ExpiryEngine.tsx     # Strike Engine sin las filas de estructura: ZGL, muros, EM, Net GEX del vencimiento
@@ -415,24 +475,28 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   │   │   ├── PositionCard.tsx     # Card por spread: header (strikes/exp/DTE), StrikeLadder, métricas (Credit/P&L/Max), strip de stats (Net Delta/Theta/Vega/Gamma agregados de Greeks live + POP/Prob.+50%/IV Rank), management triggers c/ acción concreta ligada (el más imminente = "NEXT" con la ejecución: cerrar a costo X, rollear a strikes Y/Z por delta de la cadena GEX), legs con entry/valor/variación
   │   │   └── StrikeLadder.tsx     # Barra de zonas MAX LOSS / RISK / PROFIT AT EXP con spot, strikes y muros GEX
   │   ├── validation/
-  │   │   └── ValidationLayers.tsx # macroRegime (6 checks) + positionBuilder layers con semáforo
+  │   │   └── ValidationLayers.tsx # macroRegime (6 checks) con semáforo. Lo usa la pestaña GEX
   │   └── strategy/
-  │       └── StrategyReference.tsx # Tab Estrategia: reglas, umbrales, protocolo de ajuste
+  │       └── StrategyReference.tsx # Tab References: reglas, umbrales, protocolo de ajuste (lee /App/Rpf/Rules)
   ├── pages/
-  │   ├── Gex.tsx             # Tab GEX: espeja el layout de Main con el JSON propio (/App/Gex/*).
-  │   │                       #   Details = checks + diagnóstico (sin Microstructure) con GEX global;
-  │   │                       #   Graph = Options Chain + Expiry Engine + velas 1h×100 + barras del vencimiento.
-  │   │                       #   Sin setup candidato. Se monta recién al entrar a la pestaña.
-  │   ├── Home.tsx            # Tab Inicio
-  │   ├── PortfolioManager.tsx # Tab Portfolio: PositionBuilder API + flow en tiempo real
-  │   ├── Positions.tsx       # Tab Posiciones abiertas
-  │   └── Strategy.tsx        # Tab Estrategia
+  │   ├── Home.tsx            # Tab Main: índice de estrategias implementadas (cards desde strategies[]) + estado de workers
+  │   ├── Monitor.tsx         # Tab Monitor: wrapper de PositionMonitor
+  │   ├── Rpf.tsx             # Tab RPF: tablero de orquestación (motor→ejes→estados→candidato→sugerencia) por SignalR
+  │   ├── Gex.tsx             # Tab GEX: universo + Details (checks + diagnóstico, GEX global) +
+  │   │                       #   Graph (Options Chain + Expiry Engine + velas 1h×100 + barras del vencimiento).
+  │   │                       #   Se monta recién al entrar a la pestaña (el barrido es caro).
+  │   └── Strategy.tsx        # Tab References (ojo con el nombre del archivo)
   ├── types/
-  │   ├── api.ts              # Tipos de respuesta: PositionBuilderApiResponse, FlowPayload, FlowSide, FlowTrade
+  │   ├── api.ts              # AppConfig/StrategyEntry, ValidationLayerApiResponse, StructureInputs, FlowPayload
   │   ├── market.ts           # Tipos de mercado (ticker state, capas, señal)
-  │   └── position.ts         # Tipos de posiciones y P&L
+  │   ├── position.ts         # Tipos de posiciones y P&L
+  │   ├── gex.ts              # Tipos de /App/Gex/*
+  │   └── rpf.ts              # Tipos de la orquestación RPF
   ├── utils/
-  │   └── formatters.ts       # Formateo de números, fechas, colores semáforo
+  │   ├── formatters.ts       # Formateo de números, fechas, colores semáforo, tint()
+  │   ├── validationLayers.ts # mapValidationToLayers: adapta la respuesta al panel de checks
+  │   ├── spreadBuilder.ts    # Arma spreads live desde las posiciones de la cuenta
+  │   └── streamerSymbol.ts   # Símbolos DXLink y crédito neto actual
   └── App.tsx
 
 - Manejo del tiempo real
@@ -444,12 +508,17 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
     .withAutomaticReconnect()
     .build();
 
-  // Suscribir a tickers del rules.json al conectar
+  // Suscribir al universo de la plataforma (universe.tickers del config de app)
   tickers.forEach(symbol => connection.invoke('Subscribe', symbol, false));
 
   // Handlers
   connection.on('ReceiveTrade', (symbol, data) => updatePrice(symbol, data));
   connection.on('ReceiveQuote', (symbol, data) => updateQuote(symbol, data));
+  ```
+  **La conexión NO depende de tener universo.** El hub transporta mucho más que precios de
+  subyacentes: la orquestación de RPF (`SubscribeRpf`), los quotes/Greeks de los legs del Monitor y
+  el flow. Un `if (!tickers.length) return` antes de conectar dejaba todo eso muerto cuando el config
+  no declaraba universo. Se conecta siempre; `Subscribe` es lo único condicional.
 
   * Estado en Zustand
   ```typescript

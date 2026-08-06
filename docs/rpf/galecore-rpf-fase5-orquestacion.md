@@ -51,6 +51,7 @@ La señal completa ya corre. Fase 5 es una **capa de coordinación** encima de p
 | `SignalGates/SignalGatesEvaluator` (estático) | Motor de señal: VRP, edge, tail, put_wall, credit. | No |
 | `SignalGates/PopCalibrationTable`, `SkewHistory` | Insumos del edge y del tail. | No |
 | `ValidationLayer/ValidationLayerHandler` + `PositionBuilder/PositionBuilderHandler` | Cascada macro→gates→strike/micro/sizing. El loop la invoca vía MediatR. | No |
+| ⚠️ **Desactualizado desde 2026-08-06:** esos dos handlers se eliminaron con la estrategia v1.4.0. RPF ya no depende de ellos — corre su propio `Rpf/Engine/RpfTickHandler` sobre los primitivos de `App/Shared/CascadeUtils`. | | |
 | `Api/Infrastructure/FlowBroadcastService : BackgroundService` | **Molde** del loop (timer, singleton hosted, broadcast SignalR). | No (se clona el patrón) |
 | `Infrastructure/…/IMarketDataBroadcaster` | Transporte. Se le **agregan** 2 métodos (§5.4). | Sí (extensión) |
 | `Api/Hubs/MarketDataHub` | Se le **agregan** métodos de suscripción `rpf` y ack (§6). | Sí (extensión) |

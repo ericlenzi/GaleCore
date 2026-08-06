@@ -1,7 +1,9 @@
 import React from 'react';
-import { LayoutDashboard, Activity, BookOpen, Target, Zap, BarChart3, LogOut } from 'lucide-react';
+import { LayoutDashboard, Activity, BookOpen, Zap, BarChart3, LogOut } from 'lucide-react';
 
-export type Tab = 'inicio' | 'monitor' | 'estrategia' | 'estrategia-live' | 'rpf' | 'gex';
+// Los ids de las pestañas de estrategia ('rpf', 'gex') son los que declara `tab` en strategies[]
+// del config de la app: las cards de Main navegan por ese valor.
+export type Tab = 'inicio' | 'monitor' | 'estrategia' | 'rpf' | 'gex';
 
 interface Props {
   active: Tab;
@@ -12,7 +14,6 @@ interface Props {
 const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
   { id: 'inicio',          label: 'Main',              Icon: LayoutDashboard },
   { id: 'monitor',         label: 'Monitor',           Icon: Activity        },
-  { id: 'estrategia-live', label: 'Strategy v1.4',     Icon: Target          },
   { id: 'rpf',             label: 'RPF',               Icon: Zap             },
   { id: 'gex',             label: 'GEX',               Icon: BarChart3       },
   { id: 'estrategia',      label: 'References',        Icon: BookOpen        },

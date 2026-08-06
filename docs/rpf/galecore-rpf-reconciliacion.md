@@ -204,7 +204,8 @@ Valor por valor, el `signal_gates` del core + `SignalGatesEvaluator` coinciden c
 VRP 1.2 · tail VVIX 110/130 & skew 0.05/0.08 score≥2 · edge `(cr/w)/pLoss` barras 1.05/1.10/1.10/1.20
 · credit_min $0.30 & ratio 10% · short≤put_wall · POP trailing sin shrinkage · PCS. **El gap de los
 cortes de etiqueta de régimen quedó CERRADO:** `definitions.regime_classification` ya existe
-(0-15 low_vol / 15-25 normal / 25-30 elevated / 30+ caution) y la lee `ValidationLayerHandler.ClassifyRegime`.
+(0-15 low_vol / 15-25 normal / 25-30 elevated / 30+ caution) y la lee `CascadeUtils.ClassifyRegime`
+(en `App/Shared/`; hasta 2026-08-06 vivía en `ValidationLayerHandler`).
 
 ### 12.2 Decisiones de Fase 4
 

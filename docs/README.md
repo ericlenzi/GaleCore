@@ -7,14 +7,14 @@ superado va a [`archive/`](archive/) con cabecera que lo marca.
 
 | Doc | Rol |
 |---|---|
-| [`../CLAUDE.md`](../CLAUDE.md) | **Contrato de arquitectura** (backend, front, endpoints, stack). |
+| [`../CLAUDE.md`](../CLAUDE.md) | **Contrato de arquitectura** (plataforma, backend, front, endpoints, convención de estrategias). |
 | [`GaleCore-ways-of-working.md`](GaleCore-ways-of-working.md) | **Sistema de trabajo**: git, harness, agentes IA, cadencia. |
-| [`galecore-estrategia-definicion.md`](galecore-estrategia-definicion.md) | Definición conceptual de lo **implementado**: cascada lineal **v1.4.0 PCS-only**. |
-| [`galecore-rules-reference.md`](galecore-rules-reference.md) | **Racional por nodo** del JSON de reglas (el *porqué* de cada parámetro). |
-| [`galecore-research-backtesting.md`](galecore-research-backtesting.md) | Bitácora del backtesting BT-0..BT-17 (las *validaciones*). |
+| [`rpf/`](rpf/) | Estrategia **RPF** ("disparo por prima real"): definición, research, reconciliación. |
 | [`gex_endpoint.md`](gex_endpoint.md) | Referencia del endpoint de GEX. |
 
-**Fuente de verdad operativa** (no es doc): `../source/galecore-datafeed/DataFeed.Api/Files/galecore_rules_core.json` (+ overlays `live`/`paper`).
+**Fuentes de verdad operativas** (no son docs), en `../source/galecore-datafeed/DataFeed.Api/Files/`:
+`galecore_rules_core.json` (config de la **aplicación**: universo, `strategies[]`, `monitor`) y un
+JSON por estrategia en su subcarpeta (`Rpf/`, `Gex/`).
 
 ## Referencia externa (Tastylive)
 
@@ -24,5 +24,8 @@ superado va a [`archive/`](archive/) con cabecera que lo marca.
 ## Archivo (superado, solo registro histórico)
 
 Ver [`archive/`](archive/): definición v2.1.5 (línea multi-factor invalidada por BT-11), mapa
-v215-vs-backtest, y el candidato `v1.4.0` ya promovido a `Files/`.
+v215-vs-backtest, el candidato `v1.4.0`, y — desde el 2026-08-06 — toda la documentación de la
+estrategia **v1.4.0 PCS-only**, eliminada cuando GaleCore pasó a ser plataforma:
+`galecore-estrategia-definicion.md`, `galecore-rules-reference.md` y `galecore-research-backtesting.md`.
+Su research vive replicado y vigente en [`rpf/`](rpf/), que es la estrategia que la sucedió.
 

@@ -1,58 +1,61 @@
-import React, { useState } from 'react';
-import { TickerGrid } from '../components/ticker/TickerGrid';
-import { TickerDetail } from '../components/ticker/TickerDetail';
-import { ValidationLayersPanel } from '../components/validation/ValidationLayersPanel';
-import { PortfolioManager } from './PortfolioManager';
-import { useRulesStore } from '../store/useRulesStore';
-import { ConnectionStatus } from '../socket/useMarketSocket';
+import React from 'react';
+import { StrategyCard } from '../components/strategies/StrategyCard';
+import { useAppConfigStore } from '../store/useAppConfigStore';
 
 interface Props {
-  subscribeLeg: (occ: string) => void;
-  unsubscribeLeg: (occ: string) => void;
-  socketStatus: ConnectionStatus;
+  /** Navega a la pestaña de la estrategia. El dueño del estado `tab` es App.tsx. */
+  onNavigate: (tab: string) => void;
 }
 
-export function Home({ subscribeLeg, unsubscribeLeg, socketStatus }: Props) {
-  const firstTicker = useRulesStore((s) => s.tickers[0] ?? null);
-  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
-  const active = selectedSymbol ?? firstTicker;
+/**
+ * Main — pantalla de inicio de la plataforma.
+ *
+ * GaleCore no es una estrategia: es el contexto (API, feed, cuenta, tablero) sobre el que corren
+ * proyectos de estrategias. Main es el índice de ese contexto — qué estrategias hay implementadas
+ * y si están corriendo. La lista sale de `strategies[]` del config de la app: una estrategia que
+ * no figura ahí existe en la API pero es invisible acá.
+ */
+export function Home({ onNavigate }: Props) {
+  const { strategies, loading, error } = useAppConfigStore();
 
   return (
-    <div className="flex flex-col">
-      <div className="p-3">
-        <TickerGrid
-          selectedSymbol={active}
-          onSelect={setSelectedSymbol}
-        />
+    <div style={{ padding: '16px 18px 40px', fontFamily: 'Inter, sans-serif' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 16 }}>
+        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+          Estrategias implementadas
+        </span>
+        <span style={{
+          fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase',
+          color: 'var(--text-muted)',
+        }}>
+          estado de sus workers
+        </span>
       </div>
 
-      {/* Capas de validación del símbolo activo — cuadro propio, antes del gráfico gamma */}
-      {active && (
-        <div style={{ margin: '0 12px 12px' }}>
-          <ValidationLayersPanel symbol={active} />
+      {loading && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Cargando configuración…</div>
+      )}
+
+      {error && (
+        <div style={{ fontSize: 12, color: 'var(--red-gc)', fontFamily: 'JetBrains Mono, monospace' }}>
+          ⚠ Error cargando la configuración de la app: {error}
         </div>
       )}
 
-      {/* TickerDetail panel (gráfico gamma) */}
-      {active && (
-        <TickerDetail
-          symbol={active}
-          onClose={() => setSelectedSymbol(null)}
-        />
-      )}
-
-      {/* Setup candidato del símbolo activo (Portfolio Manager scopeado) */}
-      {active && (
-        <div className="p-3">
-          <PortfolioManager
-            symbols={[active]}
-            embedded
-            subscribeLeg={subscribeLeg}
-            unsubscribeLeg={unsubscribeLeg}
-            socketStatus={socketStatus}
-          />
+      {!loading && !error && strategies.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          No hay estrategias declaradas en <code>strategies[]</code> del config de la app.
         </div>
       )}
+
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}
+      >
+        {strategies.map((s) => (
+          <StrategyCard key={s.id} strategy={s} onOpen={() => onNavigate(s.tab)} />
+        ))}
+      </div>
     </div>
   );
 }

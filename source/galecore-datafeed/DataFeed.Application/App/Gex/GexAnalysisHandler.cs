@@ -5,9 +5,9 @@ using System.Text.Json.Nodes;
 using DataFeed.Application.App.GammaExposure;
 using DataFeed.Application.App.ImpliedVolatility;
 using DataFeed.Application.App.IVRank;
-using DataFeed.Application.App.PositionBuilder;
+using DataFeed.Application.App.Shared.Dtos;
 using DataFeed.Application.Data.Tastytrade.MarketDataCandle;
-using VLH = DataFeed.Application.App.ValidationLayer.ValidationLayerHandler;
+using VLH = DataFeed.Application.App.Shared.CascadeUtils;
 
 namespace DataFeed.Application.App.Gex
 {
@@ -252,7 +252,7 @@ namespace DataFeed.Application.App.Gex
         };
 
         // ═══════════════════════════════════════════════════════════════════════
-        // Contexto de mercado — mismos factores y estáticos que PositionBuilderHandler,
+        // Contexto de mercado — los mismos primitivos compartidos que usa RPF (App/Shared/CascadeUtils),
         // sin la parte de selección de estructura (esta estrategia no elige nada).
         // ═══════════════════════════════════════════════════════════════════════
 

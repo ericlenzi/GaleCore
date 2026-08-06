@@ -176,11 +176,11 @@ public class SignalGatesTests
     [InlineData(28, "elevated")]
     [InlineData(35, "caution")]
     public void ClassifyRegime_MapeaBandasDeVix(double vix, string esperado)
-        => Assert.Equal(esperado, DataFeed.Application.App.ValidationLayer.ValidationLayerHandler.ClassifyRegime(RegimeClassification(), vix));
+        => Assert.Equal(esperado, DataFeed.Application.App.Shared.CascadeUtils.ClassifyRegime(RegimeClassification(), vix));
 
     [Fact]
     public void ClassifyRegime_SinVix_DevuelveNormal()
-        => Assert.Equal("normal", DataFeed.Application.App.ValidationLayer.ValidationLayerHandler.ClassifyRegime(RegimeClassification(), null));
+        => Assert.Equal("normal", DataFeed.Application.App.Shared.CascadeUtils.ClassifyRegime(RegimeClassification(), null));
 
     // ── Historia de skew25 / RoC 5d (tail_score) ──
     private static SkewHistory Skew5() => SkewHistory.Parse("""

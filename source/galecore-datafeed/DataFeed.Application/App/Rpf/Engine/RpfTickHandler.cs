@@ -6,7 +6,7 @@ using DataFeed.Application.App.IVRank;
 using DataFeed.Application.App.PutSkew;
 using DataFeed.Application.App.Shared;
 using DataFeed.Application.App.SignalGates;
-using DataFeed.Application.App.ValidationLayer;
+using DataFeed.Application.App.Shared.Dtos;
 using DataFeed.Application.Data.Tastytrade.AccountBalances;
 using DataFeed.Application.Data.Tastytrade.AccountPositions;
 using DataFeed.Application.Data.Tastytrade.MarketDataCandle;
@@ -24,7 +24,7 @@ namespace DataFeed.Application.App.Rpf.Engine
     ///      cascada, para que el estado que consume RpfStateMachine no cambie.
     ///
     /// Reusa los primitivos compartidos (CascadeUtils.*, SignalGatesEvaluator, PutSkewCalculator);
-    /// NO toca ValidationLayerHandler ni PositionBuilderHandler (Main queda intacto).
+    /// Motor propio de RPF: no depende de ningún handler de otra estrategia.
     /// </summary>
     public class RpfTickHandler : IRequestHandler<RpfTickRequest, RpfTickResult>
     {
@@ -64,7 +64,7 @@ namespace DataFeed.Application.App.Rpf.Engine
             var strikeEngine = BuildStrikeEngine(rules, symbol, gex, iv, candles, out int spreadWidth);
             var microstructure = await BuildMicrostructure(rules, symbol, gex, strikeEngine, ct);
 
-            // Regla 1/3 + priority score sobre el crédito snapshot (espejo de PositionBuilderHandler).
+            // Regla 1/3 + priority score sobre el crédito snapshot (position_builder.ranking del JSON).
             double snapshotCredit = microstructure.CreditMinimum?.MidCredit ?? 0;
             if (spreadWidth > 0 && snapshotCredit > 0)
             {

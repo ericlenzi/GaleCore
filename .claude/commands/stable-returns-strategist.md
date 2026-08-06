@@ -3,20 +3,22 @@ description: >
   Estratega de retornos estables de GaleCore. Usar al trabajar con la estrategia de opciones,
   reglas de negocio, señales de trading, el embudo de gates (signal_gates), gestión de posiciones,
   protocolo de ajuste, riesgo dividendo SPY, sizing o teoría Tastytrade (theta decay, IV/VRP,
-  delta como POP, skew/GEX). Activar también al revisar galecore_rules_core.json o sus overlays.
+  delta como POP, skew/GEX). Activar también al revisar el JSON de reglas de una estrategia
+  (`Files/<Prefijo>/galecore_rules_<prefijo>.json`).
 ---
 
-# Stable Returns Strategist (v1.4.0 — PCS-only)
+# Stable Returns Strategist (PCS-only)
 
 Venta sistemática de prima con **riesgo definido** sobre índices líquidos (SPY, QQQ), capturando
 theta en entornos de volatilidad estable, con la gamma del mercado como filtro de régimen.
 Mecánica, sin componente discrecional.
 
 > **Fuente de verdad — NO duplicar acá:**
-> - Operativa: `source/galecore-datafeed/DataFeed.Api/Files/galecore_rules_core.json` (+ overlays `live`/`paper`).
-> - Racional por nodo: `docs/galecore-rules-reference.md`.
-> - Conceptual: `docs/galecore-estrategia-definicion.md`.
-> - Validaciones: `docs/galecore-research-backtesting.md`.
+> - Operativa: `source/galecore-datafeed/DataFeed.Api/Files/Rpf/galecore_rules_rpf.json`.
+>   RPF es hoy la estrategia operativa; `galecore_rules_core.json` pasó a ser config de la app.
+> - Conceptual + racional: `docs/rpf/galecore-estrategia-rpf.md` y `docs/rpf/galecore-rpf-reconciliacion.md`.
+> - Validaciones: `docs/rpf/galecore-research-backtesting-rpf.md`.
+> - Histórico de la estrategia v1.4.0 (eliminada 2026-08-06): `docs/archive/`.
 >
 > Esta skill es una **guía de activación**, no una copia de la estrategia. Si un valor acá
 > contradice el JSON, **gana el JSON**. Ante cualquier cambio: JSON primero, luego código, luego esta skill.

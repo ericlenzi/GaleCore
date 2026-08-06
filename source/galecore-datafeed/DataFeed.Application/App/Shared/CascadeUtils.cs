@@ -1,16 +1,18 @@
 using System.Text.Json.Nodes;
 using DataFeed.Application.App.GammaExposure;
-using DataFeed.Application.App.ValidationLayer;
+using DataFeed.Application.App.ImpliedVolatility;
+using DataFeed.Application.App.IVRank;
+using DataFeed.Application.App.Shared.Dtos;
 using DataFeed.Application.Data.Tastytrade.MarketDataCandle;
 using DataFeed.Application.Data.Tastytrade.MarketDataQuote;
 
 namespace DataFeed.Application.App.Shared
 {
     /// <summary>
-    /// Primitivos de cálculo compartidos entre motores de decisión (RPF, ValidationLayer, PositionBuilder).
+    /// Primitivos de cálculo compartidos entre motores de decisión (hoy RPF y GEX).
     /// Funciones puras sobre datos de mercado y nodos JSON de reglas — sin I/O ni estado.
-    /// Copia íntegra de los estáticos de ValidationLayerHandler; coexisten para no romper la estrategia
-    /// original mientras RPF se desacopla.
+    /// Cada estrategia le pasa SU propio JSON: los primitivos no saben de qué estrategia son.
+    /// Contratos de salida en <see cref="Dtos"/>.
     /// </summary>
     public static class CascadeUtils
     {
@@ -35,6 +37,130 @@ namespace DataFeed.Application.App.Shared
         {
             var check = FindCheck(checks, checkId);
             return check?["threshold"]?["value"]?.GetValue<double>();
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // Layer 1 — macro_regime
+        // Lee de: rules["macro_regime"]["checks"] + rules["definitions"]
+        // ═══════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Evalúa los 6 checks de régimen macro contra el JSON de la estrategia que se le pase.
+        /// Es el mismo cálculo para todas: lo que cambia son los umbrales del JSON. RPF lo usa como
+        /// gate de estado; GEX lo usa como lectura (sus checks declaran on_fail: inform_only).
+        /// </summary>
+        public static MacroRegimeResult EvaluateLayer1(
+            JsonObject rules, string symbol,
+            GammaExposureResponse gex, IVRankResponse ivr, ImpliedVolatilityResponse iv)
+        {
+            var macroChecks = rules["macro_regime"]?["checks"]?.AsArray();
+            var definitions = rules["definitions"];
+
+            // --- VIX Absolute (proxy: IV30_30d) ---
+            var vixAbsDef = FindCheck(macroChecks, "vix_absolute");
+            double maxVix = vixAbsDef?["threshold"]?["value"]?.GetValue<double>() ?? 30.0;
+            bool vixAbsPassed = iv.IV30_30d.HasValue && iv.IV30_30d.Value < maxVix;
+
+            var vixAbsoluteCheck = new VixAbsoluteCheck
+            {
+                Passed = vixAbsPassed,
+                Value = iv.IV30_30d,
+                Threshold = maxVix
+            };
+
+            // --- VIX Term Structure (proxy: IV30_9d < IV30_30d = contango normal) ---
+            bool vixTSPassed = iv.IV30_9d.HasValue && iv.IV30_30d.HasValue
+                && iv.IV30_9d.Value < iv.IV30_30d.Value;
+
+            var vixTSCheck = new VixTermStructureCheck
+            {
+                Passed = vixTSPassed,
+                Iv9d = iv.IV30_9d,
+                Iv30d = iv.IV30_30d
+            };
+
+            // --- IV Rank ---
+            var ivRankDef = FindCheck(macroChecks, "iv_rank");
+            double ivMin = ivRankDef?["threshold"]?["min"]?.GetValue<double>() ?? 25;
+            double ivMax = ivRankDef?["threshold"]?["max"]?.GetValue<double>() ?? 65;
+            bool ivRankPassed = ivr.IVRank >= ivMin && ivr.IVRank <= ivMax;
+
+            var ivRankCheck = new IVRankCheck
+            {
+                Passed = ivRankPassed,
+                Value = ivr.IVRank,
+                Min = ivMin,
+                Max = ivMax
+            };
+
+            // --- IV Momentum ---
+            var ivMomDef = FindCheck(macroChecks, "iv_momentum");
+            double ivMomentumThreshold = ivMomDef?["threshold"]?["value"]?.GetValue<double>() ?? 12.0;
+            bool ivMomentumPassed = iv.IV30RocPct.HasValue && Math.Abs(iv.IV30RocPct.Value) <= ivMomentumThreshold;
+
+            var ivMomentumCheck = new IVMomentumCheck
+            {
+                Passed = ivMomentumPassed,
+                Value = iv.IV30RocPct,
+                Threshold = ivMomentumThreshold
+            };
+
+            // --- GEX Total (threshold por símbolo desde definitions) ---
+            // Sin umbral declarado no hay contra qué comparar: el check no pasa y se informa
+            // Threshold = null. No hay default — un default inventado hacía que un símbolo sin
+            // configurar diera un veredicto (verde o rojo) que nadie definió. El tablero muestra
+            // esa celda apagada; el JSON es el único que decide qué símbolos se evalúan.
+            var gexThresholdNode = definitions?["gex_threshold_by_symbol"]?["values"]?[symbol];
+            double? gexThreshold = gexThresholdNode?.GetValue<double>();
+            double gexValue = gex.NetGEX;
+            bool gexPassed = gexThreshold.HasValue && gexValue >= gexThreshold.Value;
+
+            var gexCheck = new GexTotalCheck
+            {
+                Passed = gexPassed,
+                Value = gexValue,
+                Metric = "billions_usd",
+                Threshold = gexThreshold,
+                ThresholdDeclared = gexThreshold.HasValue
+            };
+
+            // --- Spot vs ZGL (buffer desde definitions) ---
+            double bufferPct = definitions?["zgl_with_buffer"]?["buffer_pct"]?.GetValue<double>() ?? 0.005;
+            bool spotPassed = gex.GammaZeroLevel.HasValue
+                && gex.Spot >= gex.GammaZeroLevel.Value * (1 + bufferPct);
+
+            var spotCheck = new SpotVsZglCheck
+            {
+                Passed = spotPassed,
+                Spot = gex.Spot,
+                ZGL = gex.GammaZeroLevel,
+                BufferPct = bufferPct
+            };
+
+            // --- Signal ---
+            var checks = new[] { vixAbsPassed, vixTSPassed, ivRankPassed, ivMomentumPassed, gexPassed, spotPassed };
+            int passed = checks.Count(c => c);
+            int total = checks.Length;
+
+            string signal = passed == total ? "OPERAR"
+                : passed >= total - 1 ? "ESPERAR"
+                : "NO_OPERAR";
+
+            return new MacroRegimeResult
+            {
+                Signal = signal,
+                PassedCount = passed,
+                TotalChecks = total,
+                Checks = new MacroRegimeChecks
+                {
+                    VixAbsolute = vixAbsoluteCheck,
+                    VixTermStructure = vixTSCheck,
+                    IVRank = ivRankCheck,
+                    IVMomentum = ivMomentumCheck,
+                    GexTotal = gexCheck,
+                    SpotVsZgl = spotCheck
+                }
+            };
         }
 
         // ═══════════════════════════════════════════════════════════════════════

@@ -10,9 +10,10 @@ Documento vivo. Somos 2, con 8 hs de laburo ajeno: todo lo que se pueda delegar 
 | Tema | Fuente | Regla |
 |---|---|---|
 | Arquitectura (backend/front/endpoints) | `CLAUDE.md` | Se actualiza ante cada cambio de arquitectura/endpoint/componente. |
-| **Operativa** de la estrategia | `.../Files/galecore_rules_core.json` (+ overlays) | **JSON primero**, luego código, luego docs. Nunca al revés. |
-| Racional (*por qué* de cada parámetro) | `docs/galecore-rules-reference.md` | Acompaña al JSON. |
-| Validaciones empíricas | `docs/galecore-research-backtesting.md` | Bitácora del backtesting. |
+| Config de la **aplicación** | `.../Files/galecore_rules_core.json` | Universo, `strategies[]`, `monitor`. **Nada de trading.** |
+| **Operativa** de cada estrategia | `.../Files/<Prefijo>/galecore_rules_<prefijo>.json` | **JSON primero**, luego código, luego docs. Nunca al revés. |
+| Racional (*por qué* de cada parámetro) | `docs/<estrategia>/` (hoy `docs/rpf/`) | Acompaña al JSON de esa estrategia. |
+| Validaciones empíricas | `docs/rpf/galecore-research-backtesting-rpf.md` | Bitácora del backtesting BT-0..BT-17. |
 | Skills de IA | `.claude/commands/*.md` | Guías de activación, **no** copias de la estrategia (eso genera drift). |
 
 Todo lo superado → `docs/archive/` con cabecera "superado". Índice en `docs/README.md`.
@@ -38,16 +39,17 @@ Todo lo superado → `docs/archive/` con cabecera "superado". Índice en `docs/R
 Herramientas disponibles: Claude Code (`/schedule`, `/loop`, agentes), connectors MCP
 (AlphaVantage con `HISTORICAL_OPTIONS`, IoL, Gmail, Drive).
 
-### 4.1 Agente pre-market (DISEÑO — sin activar hasta v1.4.0 en backend)
+### 4.1 Agente pre-market (DISEÑO — sin activar)
 
-- **Qué hace:** cada día hábil ~1h antes de la apertura, corre `GET /App/GaleCore/ValidationLayer`
-  sobre SPY y QQQ contra el DataFeed productivo.
+- **Qué hace:** cada día hábil ~1h antes de la apertura, lee el estado de la estrategia operativa
+  (hoy RPF) sobre SPY contra el DataFeed productivo.
 - **Salida:** un resumen accionable — "HAY señal PCS en SPY: vender put $X / comprar put $Y, crédito
   $Z, delta W, edge E" o "SIN señal (murió en gate: VRP)". Lo manda por **Gmail** (MCP) o lo deja en Drive.
-- **Cómo montarlo:** `/schedule` (routine cron) con un prompt fijo que: (1) hace el GET, (2) formatea
-  el veredicto del embudo, (3) envía el mail. Cron sugerido: L-V 09:00 ART (~pre-open NY).
-- **Por qué "sin activar":** hoy el backend sirve v1.3.1 y los handlers no leen `signal_gates`.
-  Activar recién cuando el PR de handlers v1.4.0 esté mergeado y verificado en Swagger.
+- **Cómo montarlo:** `/schedule` (routine cron) con un prompt fijo que: (1) consulta el estado,
+  (2) formatea el veredicto del embudo, (3) envía el mail. Cron sugerido: L-V 09:00 ART (~pre-open NY).
+- **Pendiente de diseño:** el endpoint REST que usaba (`GET /App/GaleCore/ValidationLayer`) se
+  eliminó con la estrategia v1.4.0. RPF publica su estado por SignalR (`ReceiveRpfState`), no por
+  REST — hay que decidir si se le expone un `GET /App/Rpf/State` o si el agente se cuelga del hub.
 - **Guardarraíl:** el agente **informa**, no opera. La ejecución (aunque sea en paper) es humana.
 
 ### 4.2 AlphaVantage para históricos de opciones

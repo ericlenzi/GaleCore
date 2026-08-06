@@ -4,7 +4,7 @@ import { PositionCard } from '../monitor/PositionCard';
 import { GammaExposureResponse } from '../../types/api';
 import { LiveSpread } from '../../types/position';
 import { useAccountStore } from '../../store/useAccountStore';
-import { useRulesStore } from '../../store/useRulesStore';
+import { useAppConfigStore } from '../../store/useAppConfigStore';
 import { useMarketStore } from '../../store/useMarketStore';
 import { buildLiveSpreads } from '../../utils/spreadBuilder';
 import { fetchGammaExposure, fetchIVRank } from '../../api/analytics';
@@ -20,7 +20,7 @@ interface Props {
 }
 
 export function PositionMonitor({ subscribeLeg, unsubscribeLeg, socketStatus }: Props) {
-  const { rules }          = useRulesStore();
+  const { config }         = useAppConfigStore();
   const { positions, setPositions, setBalances } = useAccountStore();
   const marketTickers      = useMarketStore(s => s.tickers);
   const setIVRank          = useMarketStore(s => s.setIVRank);
@@ -30,12 +30,16 @@ export function PositionMonitor({ subscribeLeg, unsubscribeLeg, socketStatus }: 
   const subscribedLegsRef           = useRef<Set<string>>(new Set());
 
   // ── Rule thresholds ──────────────────────────────────────────────────────
+  // Fuente: nodo `monitor` del config de la app. Monitor es transversal — muestra las posiciones
+  // abiertas de la cuenta sin importar qué estrategia las abrió, así que sus umbrales de gestión
+  // son de la plataforma, no de una estrategia.
+  const tm = config?.monitor?.trade_management;
   const ruleThresholds = {
-    takeProfitPct: rules?.trade_management?.take_profit?.pct_of_initial_credit ?? 0.5,
-    stopLossPct:   rules?.trade_management?.hard_defense?.trigger_any?.unrealized_loss_pct_of_initial_credit_gte ?? 2.0,
-    rollTrigPct:   rules?.trade_management?.defensive_roll?.trigger_unrealized_loss_pct_of_initial_credit_gte ?? 1.0,
-    rollMinDte:    rules?.trade_management?.defensive_roll?.min_dte_remaining ?? 28,
-    timeExitDte:   rules?.trade_management?.time_exit?.dte_threshold ?? 21,
+    takeProfitPct: tm?.take_profit?.pct_of_initial_credit ?? 0.5,
+    stopLossPct:   tm?.hard_defense?.trigger_any?.unrealized_loss_pct_of_initial_credit_gte ?? 2.0,
+    rollTrigPct:   tm?.defensive_roll?.trigger_unrealized_loss_pct_of_initial_credit_gte ?? 1.0,
+    rollMinDte:    tm?.defensive_roll?.min_dte_remaining ?? 28,
+    timeExitDte:   tm?.time_exit?.dte_threshold ?? 21,
   };
 
   // ── Build live spreads from account positions ────────────────────────────

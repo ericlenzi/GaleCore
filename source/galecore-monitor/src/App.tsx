@@ -7,13 +7,12 @@ import { TabNav, Tab } from './components/layout/TabNav';
 import { Home } from './pages/Home';
 import { Monitor } from './pages/Monitor';
 import { Strategy } from './pages/Strategy';
-import { StrategyLive } from './pages/StrategyLive';
 import { Rpf } from './pages/Rpf';
 import { Gex } from './pages/Gex';
 import { useMarketSocket, ConnectionStatus } from './socket/useMarketSocket';
-import { useRulesStore } from './store/useRulesStore';
+import { useAppConfigStore } from './store/useAppConfigStore';
 import { useAccountStore } from './store/useAccountStore';
-import { fetchCoreRules } from './api/rules';
+import { fetchAppConfig } from './api/rules';
 import { fetchBalances, fetchPositions } from './api/account';
 
 interface DashboardProps {
@@ -24,16 +23,16 @@ function Dashboard({ onLogout }: DashboardProps) {
   const [tab, setTab] = useState<Tab>('inicio');
   const [socketStatus, setSocketStatus] = useState<ConnectionStatus>('disconnected');
 
-  const { setRules, setLoading: setRulesLoading, setError: setRulesError, tickers } = useRulesStore();
+  const { setConfig, setLoading: setConfigLoading, setError: setConfigError, tickers } = useAppConfigStore();
   const { setBalances, setPositions, setLoadingBalances, setLoadingPositions, setErrorBalances, lastUpdate } = useAccountStore();
 
   useEffect(() => {
-    // Rules
-    setRulesLoading(true);
-    fetchCoreRules()
-      .then(setRules)
-      .catch((e) => setRulesError(e.message ?? 'Error cargando reglas'))
-      .finally(() => setRulesLoading(false));
+    // Config de la app (universo, estrategias, monitor)
+    setConfigLoading(true);
+    fetchAppConfig()
+      .then(setConfig)
+      .catch((e) => setConfigError(e.message ?? 'Error cargando la configuración'))
+      .finally(() => setConfigLoading(false));
 
     // Balances
     setLoadingBalances(true);
@@ -60,12 +59,11 @@ function Dashboard({ onLogout }: DashboardProps) {
         <StatusBar connectionStatus={socketStatus} lastUpdate={lastUpdate} />
         <TabNav active={tab} onChange={setTab} onLogout={onLogout} />
         <main className="flex-1 overflow-auto" style={{ position: 'relative' }}>
-          <div style={{ display: tab === 'inicio' ? 'block' : 'none', height: '100%', overflow: 'auto' }}><Home subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} /></div>
+          <div style={{ display: tab === 'inicio' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
+            <Home onNavigate={(t) => setTab(t as Tab)} />
+          </div>
           <div style={{ display: tab === 'monitor' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
             <Monitor subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} />
-          </div>
-          <div style={{ display: tab === 'estrategia-live' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
-            <StrategyLive subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} />
           </div>
           <div style={{ display: tab === 'rpf' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
             <Rpf acceptSuggestion={acceptSuggestion} dismissSuggestion={dismissSuggestion}

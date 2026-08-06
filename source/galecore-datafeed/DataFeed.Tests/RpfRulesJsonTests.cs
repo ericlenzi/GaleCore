@@ -2,8 +2,8 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
+using DataFeed.Application.App.Shared;
 using DataFeed.Application.App.SignalGates;
-using DataFeed.Application.App.ValidationLayer;
 using Xunit;
 
 namespace DataFeed.Tests;
@@ -36,9 +36,8 @@ public class RpfRulesJsonTests
     private static JsonObject Load(string file)
         => JsonNode.Parse(File.ReadAllText(Path.Combine(FilesDir(), file)))!.AsObject();
 
-    // RPF vive en su subcarpeta (regla "archivos por estrategia"); el core sigue en la raiz de Files/.
+    // RPF vive en su subcarpeta (regla "archivos por estrategia").
     private static JsonObject Rpf() => Load(Path.Combine("Rpf", "galecore_rules_rpf.json"));
-    private static JsonObject Core() => Load("galecore_rules_core.json");
 
     private static JsonObject StrikeEngine(JsonObject rules)
         => rules["position_builder"]!["layers"]!.AsArray()
@@ -83,27 +82,34 @@ public class RpfRulesJsonTests
         Assert.Equal(0d, (double)gt["SPY"]!);
     }
 
-    // ── Consistencia con el core (la alineacion doc<->JSON<->codigo de Fase 4) ──
+    // ── Valores calibrados por research (BT-3 run-2, congelados BT-9..17) ──
+    //
+    // Hasta 2026-08-06 este test comparaba contra galecore_rules_core.json, cuando el core era el
+    // JSON de la estrategia v1.4.0 y RPF espejaba sus numeros. Esa estrategia se elimino y el core
+    // paso a ser config de la app: RPF es ahora el dueño unico de estos valores, asi que se
+    // congelan literales. Fuente: docs/rpf/galecore-rpf-reconciliacion.md.
 
     [Fact]
-    public void Rpf_SignalGates_ValoresNumericosCoincidenConCore()
+    public void Rpf_SignalGates_ValoresCalibradosCongelados()
     {
         var rg = Rpf()["signal_gates"]!["gates"]!.AsObject();
-        var cg = Core()["signal_gates"]!["gates"]!.AsObject();
 
-        Assert.Equal((double)cg["volatility_risk_premium"]!["min"]!, (double)rg["volatility_risk_premium"]!["min"]!);
         Assert.Equal(1.2d, (double)rg["volatility_risk_premium"]!["min"]!);
 
-        foreach (var regime in new[] { "low_vol", "normal", "elevated", "caution" })
-            Assert.Equal((double)cg["edge"]!["bars_by_regime"]![regime]!, (double)rg["edge"]!["bars_by_regime"]![regime]!);
+        var barras = new (string regime, double bar)[] {
+            ("low_vol", 1.1), ("normal", 1.05), ("elevated", 1.1), ("caution", 1.2),
+        };
+        foreach (var (regime, bar) in barras)
+            Assert.Equal(bar, (double)rg["edge"]!["bars_by_regime"]![regime]!);
 
-        Assert.Equal((double)cg["credit_minimum"]!["min_usd"]!, (double)rg["credit_minimum"]!["min_usd"]!);
-        Assert.Equal((double)cg["credit_minimum"]!["min_ratio_of_width"]!, (double)rg["credit_minimum"]!["min_ratio_of_width"]!);
+        Assert.Equal(0.3d, (double)rg["credit_minimum"]!["min_usd"]!);
+        Assert.Equal(0.1d, (double)rg["credit_minimum"]!["min_ratio_of_width"]!);
 
-        foreach (var comp in new[] { "vvix", "skew25_roc5d" })
-            foreach (var lvl in new[] { "warn", "block" })
-                Assert.Equal((double)cg["tail_score"]!["components"]![comp]![lvl]!,
-                             (double)rg["tail_score"]!["components"]![comp]![lvl]!);
+        var tail = rg["tail_score"]!["components"]!;
+        Assert.Equal(110d, (double)tail["vvix"]!["warn"]!);
+        Assert.Equal(130d, (double)tail["vvix"]!["block"]!);
+        Assert.Equal(0.05d, (double)tail["skew25_roc5d"]!["warn"]!);
+        Assert.Equal(0.08d, (double)tail["skew25_roc5d"]!["block"]!);
     }
 
     // ── Reuse de codigo: el JSON de RPF lo leen los evaluadores existentes (Fork A) ──
@@ -143,7 +149,7 @@ public class RpfRulesJsonTests
     public void Rpf_RegimeClassification_LaMapeaElClasificadorExistente(double iv, string esperado)
     {
         var rc = Rpf()["definitions"]!["regime_classification"];
-        Assert.Equal(esperado, ValidationLayerHandler.ClassifyRegime(rc, iv));
+        Assert.Equal(esperado, CascadeUtils.ClassifyRegime(rc, iv));
     }
 
     [Fact]

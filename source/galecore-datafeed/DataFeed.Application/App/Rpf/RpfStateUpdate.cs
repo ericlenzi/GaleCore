@@ -1,4 +1,4 @@
-using DataFeed.Application.App.ValidationLayer;
+using DataFeed.Application.App.Shared.Dtos;
 
 namespace DataFeed.Application.App.Rpf
 {

@@ -7,8 +7,6 @@ using DataFeed.Application.App.GammaExposure;
 using DataFeed.Application.App.Gex;
 using DataFeed.Application.App.ImpliedVolatility;
 using DataFeed.Application.App.IVRank;
-using DataFeed.Application.App.ValidationLayer;
-using DataFeed.Application.App.PositionBuilder;
 using DataFeed.Application.App.PutSkew;
 
 namespace DataFeed.Controllers
@@ -59,38 +57,19 @@ namespace DataFeed.Controllers
 
         #region GaleCore
 
+        // Config de la APLICACION, no de una estrategia: universo de streaming, lista de estrategias
+        // implementadas y config de la pestaña Monitor. Cada estrategia sirve sus reglas por su
+        // propio prefijo (/App/Rpf/Rules, /App/Gex/Rules).
+
+        /// <summary>
+        /// Configuración de la aplicación (`Files/galecore_rules_core.json`, servido tal cual).
+        /// De acá salen el universo que el front streamea, las cards de estrategias de Main y los
+        /// umbrales de gestión de la pestaña Monitor.
+        /// </summary>
         [Tags("App.GaleCore")]
         [HttpGet("GaleCore/Rules/Core")]
         public async Task<IActionResult> RulesCoreAsync()
             => await ServeRulesFileAsync("galecore_rules_core.json");
-
-        [Tags("App.GaleCore")]
-        [HttpGet("GaleCore/Rules/Live")]
-        public async Task<IActionResult> RulesLiveAsync()
-            => await ServeRulesFileAsync("galecore_rules_live.json");
-
-        [Tags("App.GaleCore")]
-        [HttpGet("GaleCore/Rules/Paper")]
-        public async Task<IActionResult> RulesPaperAsync()
-            => await ServeRulesFileAsync("galecore_rules_paper.json");
-
-        [Tags("App.GaleCore")]
-        [HttpGet("GaleCore/ValidationLayer")]
-        public async Task<IActionResult> ValidationLayerAsync([FromQuery] ValidationLayerRequest request)
-        {
-            request.RulesJson = await LoadMergedRulesJsonAsync(request.Profile);
-            request.PopCalibrationJson = await LoadFileOrNullAsync("pop_calibration.json");
-            request.SkewHistoryJson = await LoadFileOrNullAsync("skew25_history.json");
-            return await Handle(request);
-        }
-
-        [Tags("App.GaleCore")]
-        [HttpGet("GaleCore/PositionBuilder")]
-        public async Task<IActionResult> PositionBuilderAsync([FromQuery] PositionBuilderRequest request)
-        {
-            request.RulesJson = await LoadMergedRulesJsonAsync(request.Profile);
-            return await Handle(request);
-        }
 
         #endregion
 
@@ -240,44 +219,6 @@ namespace DataFeed.Controllers
         {
             var path = Path.Combine(_env.ContentRootPath, "Files", fileName);
             return System.IO.File.Exists(path) ? await System.IO.File.ReadAllTextAsync(path) : null;
-        }
-
-        private async Task<string> LoadMergedRulesJsonAsync(string profile)
-        {
-            var basePath = Path.Combine(_env.ContentRootPath, "Files");
-            var coreJson = await System.IO.File.ReadAllTextAsync(Path.Combine(basePath, "galecore_rules_core.json"));
-
-            profile = profile?.ToLowerInvariant() ?? "core";
-            if (profile == "live" || profile == "paper")
-            {
-                var overlayPath = Path.Combine(basePath, $"galecore_rules_{profile}.json");
-                if (System.IO.File.Exists(overlayPath))
-                {
-                    var overlayJson = await System.IO.File.ReadAllTextAsync(overlayPath);
-                    var core = System.Text.Json.Nodes.JsonNode.Parse(coreJson)!.AsObject();
-                    var overlay = System.Text.Json.Nodes.JsonNode.Parse(overlayJson)!.AsObject();
-                    DeepMerge(core, overlay);
-                    return core.ToJsonString();
-                }
-            }
-
-            return coreJson;
-        }
-
-        private static void DeepMerge(System.Text.Json.Nodes.JsonObject target, System.Text.Json.Nodes.JsonObject source)
-        {
-            foreach (var prop in source)
-            {
-                if (prop.Value is System.Text.Json.Nodes.JsonObject sourceObj
-                    && target[prop.Key] is System.Text.Json.Nodes.JsonObject targetObj)
-                {
-                    DeepMerge(targetObj, sourceObj);
-                }
-                else
-                {
-                    target[prop.Key] = prop.Value?.DeepClone();
-                }
-            }
         }
 
         private async Task<IActionResult> ServeRulesFileAsync(string fileName)

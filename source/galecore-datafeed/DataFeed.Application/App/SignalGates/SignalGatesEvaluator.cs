@@ -47,7 +47,7 @@ namespace DataFeed.Application.App.SignalGates
     /// Embudo de signal_gates v1.4.0 (BT-9b..BT-17). Evalúa cada gate declarado en signal_gates.gates,
     /// en orden, con semántica all_must_pass cortocircuitante. Un gate deshabilitado ("enabled":false)
     /// o sin datos ("no_data") NO bloquea — solo un gate habilitado con status "fail" desarma la señal.
-    /// Estático y sin estado, compartido por ValidationLayerHandler y PositionBuilderHandler.
+    /// Estático y sin estado: cada estrategia le pasa el nodo `signal_gates` de su propio JSON.
     /// </summary>
     public static class SignalGatesEvaluator
     {

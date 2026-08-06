@@ -1,15 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { TickerCard } from './TickerCard';
 import { useMarketStore } from '../../store/useMarketStore';
-import { useRulesStore } from '../../store/useRulesStore';
 import { fetchMarketDataBatch } from '../../api/marketdata';
 
 interface Props {
   selectedSymbol: string | null;
   onSelect: (symbol: string | null) => void;
-  /** Universo a mostrar. Sin esto usa el de la estrategia base (useRulesStore).
-   *  La pestaña GEX pasa el suyo, que sale de su propio JSON de reglas. */
-  symbols?: string[];
+  /** Universo a mostrar. Lo pasa la estrategia dueña de la pantalla, desde su propio JSON de
+   *  reglas: la grilla no conoce ningún universo por defecto. */
+  symbols: string[];
   loading?: boolean;
   error?: string | null;
 }
@@ -23,14 +22,10 @@ function applyMarketData(d: { symbol: string; open: number; prevClose?: number; 
   store.updateQuote(d.symbol, { bidPrice: d.bid, askPrice: d.ask, timestamp: new Date().toISOString() });
 }
 
-export function TickerGrid({ selectedSymbol, onSelect, symbols: symbolsProp, loading, error }: Props) {
-  const rulesStore = useRulesStore();
-  const ownUniverse = symbolsProp !== undefined;
-  const symbols = symbolsProp ?? rulesStore.tickers ?? [];
-  // Con universo propio, el estado de carga es el de quien lo pasa: el store de la estrategia base
-  // puede estar cargando (o roto) y no tiene nada que ver con esta grilla.
-  const rulesLoading = loading ?? (ownUniverse ? false : rulesStore.loading);
-  const rulesError = error ?? (ownUniverse ? null : rulesStore.error);
+export function TickerGrid({ selectedSymbol, onSelect, symbols, loading, error }: Props) {
+  // El estado de carga es el de quien pasa el universo — la grilla no lo deriva de ningún store.
+  const rulesLoading = loading ?? false;
+  const rulesError = error ?? null;
   const marketStore = useMarketStore();
   const { tickers, initTicker, setLoading, setError } = marketStore;
   const loadedRef   = useRef(false);

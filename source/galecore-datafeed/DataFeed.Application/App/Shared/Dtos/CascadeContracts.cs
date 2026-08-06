@@ -1,26 +1,22 @@
-namespace DataFeed.Application.App.ValidationLayer
+namespace DataFeed.Application.App.Shared.Dtos
 {
     // ═══════════════════════════════════════════════════════════════════════
-    // Top-level Response
+    // Contratos de cascada compartidos entre estrategias.
+    //
+    // Son los DTOs que producen los primitivos de CascadeUtils y que consumen los motores de
+    // decisión (hoy RPF y GEX). Viven acá y no en el Dtos/ de la raíz porque esa carpeta es de la
+    // capa Data/ (BaseResponse, PriceQuoteDTO — los usan los handlers de Data/Tastytrade/*), y en
+    // App/ cada contrato vive con su dominio.
+    //
+    // Origen: hasta 2026-08-06 estaban en App/ValidationLayer/ValidationLayerResponse.cs y
+    // App/PositionBuilder/PositionBuilderResponse.cs, los response DTOs de la estrategia core.
+    // Al eliminarse esa estrategia se movieron acá los tipos que RPF y GEX sí usan; el resto
+    // (ValidationLayerResponse, PositionBuilderResponse/Result, StrikeEngineCandidate,
+    // SelectedStructureResult, ValidationGexData) se borró con ella.
     // ═══════════════════════════════════════════════════════════════════════
 
-    public class ValidationLayerResponse
-    {
-        public string Symbol { get; set; }
-        public string Profile { get; set; }
-        public DateTime Timestamp { get; set; }
-        public double SpotPrice { get; set; }
-        public string OverallSignal { get; set; }
-        public int? FailedAtLayer { get; set; }
-
-        public MacroRegimeResult? MacroRegime { get; set; }
-        public PositionBuilderResult? PositionBuilder { get; set; }
-
-        public ValidationGexData? GexData { get; set; }
-    }
-
     // ═══════════════════════════════════════════════════════════════════════
-    // Macro Regime (Layer 1)
+    // Macro Regime (Layer 1) — lo produce CascadeUtils.EvaluateLayer1
     // ═══════════════════════════════════════════════════════════════════════
 
     public class MacroRegimeResult
@@ -96,21 +92,8 @@ namespace DataFeed.Application.App.ValidationLayer
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Position Builder (Layers 2, 3, 4)
+    // Strike Engine (Layer 2)
     // ═══════════════════════════════════════════════════════════════════════
-
-    public class PositionBuilderResult
-    {
-        public string Signal { get; set; }
-        public StrikeEngineResult? StrikeEngine { get; set; }
-        public MicrostructureResult? Microstructure { get; set; }
-        public RiskAndSizingResult? RiskAndSizing { get; set; }
-
-        /// <summary>Embudo signal_gates v1.4.0 (VRP, tail_score, edge, credit_minimum, short≤put_wall). Fuente: signal_gates.</summary>
-        public SignalGates.SignalGatesResult? SignalGates { get; set; }
-    }
-
-    // --- Strike Engine (Layer 2) ---
 
     public class StrikeEngineResult
     {
@@ -142,18 +125,17 @@ namespace DataFeed.Application.App.ValidationLayer
         public double? Rv10d { get; set; }
         public double? Rv30d { get; set; }
 
-        // Portfolio Manager fields
         /// <summary>Proxy POP: (1 - |short_delta|) * 100. IC = min de ambos lados.</summary>
         public double? Pop { get; set; }
         /// <summary>
         /// Regla 1/3 Tastytrade: net_credit_snapshot / spread_width * 100.
         /// Target ≥ 33.3%. Indica la calidad del spread: cobrar al menos 1/3 del ancho implica riesgo 2:1 y strikes ~16-20 delta.
-        /// Fuente: definitions.credit_ratio.
+        /// Fuente: definitions.credit_ratio del JSON de la estrategia.
         /// </summary>
         public double? CreditRatio { get; set; }
         /// <summary>
         /// Score compuesto de prioridad: (pop/100)*0.6 + (credit/width)*0.4.
-        /// Fuente: position_builder.ranking. Mayor score = operar primero.
+        /// Fuente: position_builder.ranking del JSON de la estrategia. Mayor score = operar primero.
         /// </summary>
         public double? PriorityScore { get; set; }
         /// <summary>Símbolos DXLink streamer de cada leg — el frontend suscribe al socket para quotes live.</summary>
@@ -188,33 +170,9 @@ namespace DataFeed.Application.App.ValidationLayer
         public LegMeta? LongCall { get; set; }
     }
 
-    /// <summary>
-    /// Un candidato de strikes del strike engine. Rank 1 coincide con StrikeEngine (candidato óptimo).
-    /// Rank 2-3 son alternativas más OTM que pasan los mismos filtros de delta y walls.
-    /// CreditRatio y PriorityScore completos solo en rank-1 (requieren quote snapshot de Layer 3).
-    /// </summary>
-    public class StrikeEngineCandidate
-    {
-        public int Rank { get; set; }
-        public double? ShortPutStrike { get; set; }
-        public double? ShortCallStrike { get; set; }
-        public double? ShortPutDelta { get; set; }
-        public double? ShortCallDelta { get; set; }
-        public double? LongPutStrike { get; set; }
-        public double? LongCallStrike { get; set; }
-        public bool StrikesInsideWalls { get; set; }
-        /// <summary>Proxy POP: (1 - |short_delta|) * 100.</summary>
-        public double? Pop { get; set; }
-        /// <summary>Regla 1/3: credit/width×100. Null para rank 2-3 (se calcula en frontend con live quote).</summary>
-        public double? CreditRatio { get; set; }
-        /// <summary>Score compuesto. Rank 1: (pop/100)*0.6 + (credit/width)*0.4. Rank 2-3: solo componente pop.</summary>
-        public double? PriorityScore { get; set; }
-        public LegSymbols? LegSymbols { get; set; }
-        /// <summary>OI + cierre anterior por leg. Fuente: definitions.leg_open_interest / leg_prev_close.</summary>
-        public LegMetaSet? LegMeta { get; set; }
-    }
-
-    // --- Microstructure (Layer 3) ---
+    // ═══════════════════════════════════════════════════════════════════════
+    // Microstructure (Layer 3)
+    // ═══════════════════════════════════════════════════════════════════════
 
     public class MicrostructureResult
     {
@@ -264,7 +222,9 @@ namespace DataFeed.Application.App.ValidationLayer
         public double MinRequired { get; set; }
     }
 
-    // --- Risk & Sizing (Layer 4) ---
+    // ═══════════════════════════════════════════════════════════════════════
+    // Risk & Sizing (Layer 4)
+    // ═══════════════════════════════════════════════════════════════════════
 
     public class RiskAndSizingResult
     {
@@ -279,7 +239,6 @@ namespace DataFeed.Application.App.ValidationLayer
         public double MaxHeatPct { get; set; }
         public bool HeatOk { get; set; }
 
-        // Portfolio Manager fields (calculados con crédito snapshot — el frontend recalcula con live)
         public int Contracts { get; set; }
         public decimal MaxProfit { get; set; }
         public decimal MaxLoss { get; set; }
@@ -287,27 +246,48 @@ namespace DataFeed.Application.App.ValidationLayer
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // GEX Data (shared)
+    // Structure Inputs — factores multi-factor detallados (contexto de mercado).
+    // Macro-independientes: se computan aunque la cascada corte en macro.
     // ═══════════════════════════════════════════════════════════════════════
 
-    public class ValidationGexData
+    public class StructureInputs
     {
-        public double Spot { get; set; }
-        public int DTE { get; set; }
-        public string Expiration { get; set; }
-        public double? GammaZeroLevel { get; set; }
-        public List<ValidationGexStrike> Strikes { get; set; } = new();
+        public PriceZScoreInput PriceZScore { get; set; }
+        public GexSignInput GexSign { get; set; }
+        public TrendInput Trend { get; set; }
+        public RealizedVolInput RealizedVolRegime { get; set; }
     }
 
-    public class ValidationGexStrike
+    public class PriceZScoreInput
     {
-        public double Strike { get; set; }
-        public double CallGEX { get; set; }
-        public double PutGEX { get; set; }
-        public double NetGEX { get; set; }
-        public long CallOI { get; set; }
-        public long PutOI { get; set; }
-        public double CallDelta { get; set; }
-        public double PutDelta { get; set; }
+        public double Value { get; set; }
+        public string Formula { get; set; } = "ret_5d / (iv_atm / sqrt(252))";
+        public double Ret5d { get; set; }
+        public double IvAtm { get; set; }
+        public string Interpretation { get; set; }
+    }
+
+    public class GexSignInput
+    {
+        public string Value { get; set; }
+        /// <summary>Ratio callGEX / (callGEX + |putGEX|) en rango [0, 1]. Ver definitions.gex_skew.</summary>
+        public double SkewRatio { get; set; }
+        public string Interpretation { get; set; }
+    }
+
+    public class TrendInput
+    {
+        public double? Ema20 { get; set; }
+        public double? Ema50 { get; set; }
+        public string Signal { get; set; }
+        public string Interpretation { get; set; }
+    }
+
+    public class RealizedVolInput
+    {
+        public double? Rv10d { get; set; }
+        public double? Rv30d { get; set; }
+        public string Signal { get; set; }
+        public string Interpretation { get; set; }
     }
 }
