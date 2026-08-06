@@ -543,7 +543,6 @@ export interface StructureInputs {
   gexSign: GexSignInput;
   trend: TrendInput;
   realizedVolRegime: RealizedVolInput;
-  aggressiveFlow: AggressiveFlowInput | null;
 }
 
 export interface PriceZScoreInput {
@@ -573,17 +572,6 @@ export interface RealizedVolInput {
   rv30d: number | null;
   signal: string;
   interpretation: string;
-}
-
-export interface AggressiveFlowInput {
-  signal: string;
-  dataSource: string;
-  note: string | null;
-  bullishPremiumUsd: number | null;
-  bearishPremiumUsd: number | null;
-  netDeltaFlow: number | null;
-  dominantSide: string | null;
-  windowMinutes: number | null;
 }
 
 export interface SelectedStructureResult {

@@ -6,6 +6,11 @@ import { fmtGex } from '../../utils/formatters';
 interface Props {
   layers: LayerStatus;
   vlData: ValidationLayerApiResponse | null;
+  /** Título del panel. Default: el de Main, donde estos checks sí son la capa 1 de la cascada. */
+  title?: string;
+  /** Bajada del panel. Default: el texto de la cascada de Main. La pestaña GEX lo cambia porque
+   *  ahí los checks son lectura de contexto, no un gate que corte una operación. */
+  subtitle?: string;
 }
 
 function dotColor(ok: boolean | null) {
@@ -133,7 +138,12 @@ function MetricCell({ label, value, sub, ok, tooltip }: MetricCellProps) {
 }
 
 
-export function ValidationLayers({ layers, vlData }: Props) {
+export function ValidationLayers({
+  layers,
+  vlData,
+  title = 'Capa de Validaciones',
+  subtitle = 'Régimen macro de la cascada (capa 1) — si falla, no se evalúa nada más.',
+}: Props) {
   const checks = vlData?.macroRegime?.checks;
 
   return (
@@ -148,10 +158,10 @@ export function ValidationLayers({ layers, vlData }: Props) {
       {/* Title — mismo formato que Diagnóstico de mercado (título violeta + descripción) */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#a78bfa', fontFamily: 'Inter, sans-serif' }}>
-          Capa de Validaciones
+          {title}
         </span>
         <span style={{ fontSize: 8.5, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif', marginBottom: 4, lineHeight: 1.3 }}>
-          Régimen macro de la cascada (capa 1) — si falla, no se evalúa nada más.
+          {subtitle}
         </span>
       </div>
 

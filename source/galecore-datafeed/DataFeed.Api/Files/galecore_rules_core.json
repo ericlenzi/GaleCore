@@ -63,8 +63,7 @@
       "daily_candles_ohlcv",
       "ema_20_50_from_candles",
       "realized_vol_short_long_from_candles",
-      "realtime_trade_quote_greeks_bundled",
-      "aggressive_flow_ask_side_from_stream"
+      "realtime_trade_quote_greeks_bundled"
     ],
     "manual_check_required": [
       "fomc_cpi_calendar",
@@ -175,36 +174,6 @@
       "high_vol_regime": "rv_short > rv_long",
       "unit": "percent_annualized",
       "endpoint": "derived from /Data/Tastytrade/MarketData/Candle?Symbol={SYMBOL}&Interval=1d → close (últimas 35 sesiones)"
-    },
-    "aggressive_flow": {
-      "type": "realtime_stream",
-      "ask_side_aggression": "trade_price >= quote_ask",
-      "bid_side_aggression": "trade_price <= quote_bid",
-      "large_premium_formula": "trade_size * trade_price * 100",
-      "large_premium_threshold_usd": 25000,
-      "oi_opening_proxy": "day_volume / oi_prev_day",
-      "oi_opening_proxy_threshold": 0.5,
-      "bullish_flow": {
-        "conditions": [
-          "call_sweep",
-          "ask_side_aggression",
-          "large_premium >= threshold",
-          "oi_opening_proxy >= 0.5"
-        ],
-        "net_delta_flow": "net_call_delta_flow > 0"
-      },
-      "bearish_flow": {
-        "conditions": [
-          "put_sweep",
-          "ask_side_aggression",
-          "large_premium >= threshold",
-          "oi_opening_proxy >= 0.5"
-        ],
-        "net_delta_flow": "net_put_delta_flow < 0"
-      },
-      "flow_window_minutes": 60,
-      "endpoint": "/Data/Tastytrade/MarketData/TradeQuoteGreeks (streaming vía SignalR ReceiveTrade + ReceiveQuote bundled)",
-      "oi_prev_day_source": "/Data/Tastytrade/MarketData/Candle → openInterest del último cierre"
     },
     "leg_open_interest": {
       "type": "field",
@@ -607,9 +576,6 @@
               },
               "trend": {
                 "ref": "definitions.trend_ema"
-              },
-              "flow": {
-                "ref": "definitions.aggressive_flow"
               }
             },
             "evaluation_order": "sequential_first_match",

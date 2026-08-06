@@ -49,7 +49,6 @@ namespace DataFeed.Application.App.PositionBuilder
         public GexSignInput GexSign { get; set; }
         public TrendInput Trend { get; set; }
         public RealizedVolInput RealizedVolRegime { get; set; }
-        public AggressiveFlowInput? AggressiveFlow { get; set; }
     }
 
     public class PriceZScoreInput
@@ -83,20 +82,6 @@ namespace DataFeed.Application.App.PositionBuilder
         public double? Rv30d { get; set; }
         public string Signal { get; set; }
         public string Interpretation { get; set; }
-    }
-
-    public class AggressiveFlowInput
-    {
-        public string Signal { get; set; } = "unavailable";
-        public string DataSource { get; set; } = "not_implemented";
-        public string? Note { get; set; } = "Requiere SubscribeFlow activo via WebSocket";
-
-        // Campos reales — poblados cuando el flow tracking esta activo
-        public double? BullishPremiumUsd { get; set; }
-        public double? BearishPremiumUsd { get; set; }
-        public double? NetDeltaFlow { get; set; }
-        public string? DominantSide { get; set; }
-        public int? WindowMinutes { get; set; }
     }
 
     // ═══════════════════════════════════════════════════════════════════════

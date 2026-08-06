@@ -190,7 +190,10 @@ namespace DataFeed.Application.App.ValidationLayer
         // Lee de: rules["macro_regime"]["checks"] (JSON v1.1.0)
         // ═══════════════════════════════════════════════════════════════════════
 
-        private MacroRegimeResult EvaluateLayer1(
+        // internal static: la estrategia GEX (GexAnalysisHandler) evalúa la misma capa 1 con su
+        // propio JSON de reglas y su GEX global. No usa estado de instancia — mismo criterio que
+        // ComputePriceZScore / ComputeTrend / ResolveStructure, que ya se comparten así.
+        internal static MacroRegimeResult EvaluateLayer1(
             JsonObject rules, string symbol,
             GammaExposureResponse gex, IVRankResponse ivr, ImpliedVolatilityResponse iv)
         {
@@ -889,8 +892,9 @@ namespace DataFeed.Application.App.ValidationLayer
         /// Evalúa las reglas de selección de estructura en orden secuencial (first-match).
         /// Las reglas se definen en position_builder.layers[0].config.structure_selection.rules.
         ///
-        /// Nota: el input "flow" (aggressive_flow) no está disponible en modo REST.
-        /// Las condiciones de flow se tratan como satisfechas (pass-through) hasta Fase 5-6.
+        /// Nota: el factor de flow se retiró del Diagnóstico de mercado (2026-08-05), pero las
+        /// reglas del motor multi-factor todavía declaran condiciones "flow"; se tratan como
+        /// satisfechas (pass-through). El motor está apagado y forzado a PCS, así que no decide nada.
         /// </summary>
         internal static (string structure, int? ruleId, string? ruleName, string? ruleLabel) EvaluateStructureRules(
             JsonNode? structureConfig, double priceZScore, string gexSkew, string trendSignal,

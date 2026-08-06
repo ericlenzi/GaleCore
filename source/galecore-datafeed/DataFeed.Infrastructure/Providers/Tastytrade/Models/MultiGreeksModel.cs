@@ -14,5 +14,11 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade.Models
 
         /// <summary>Cierre del período anterior (close del candle diario) por símbolo streamer</summary>
         public Dictionary<string, double> PrevClose { get; set; } = new();
+
+        /// <summary>
+        /// Cuántos símbolos se pidieron. Contra <c>Greeks.Count</c> da la cobertura real del
+        /// snapshot: un símbolo sin Greeks no aporta al GEX, y sin este número la falta es invisible.
+        /// </summary>
+        public int SymbolsRequested { get; set; }
     }
 }

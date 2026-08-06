@@ -3,7 +3,7 @@ import { StructureInputs } from '../../types/api';
 
 /**
  * Diagnóstico de mercado: los factores del motor de selección de estructura multi-factor
- * (z-score direccional, skew de GEX, tendencia EMA, régimen de RV, flow agresivo).
+ * (z-score direccional, skew de GEX, tendencia EMA, régimen de RV).
  *
  * IMPORTANTE: el motor está `enabled:false` (forzado a PCS), así que estos factores NO dirigen
  * la estructura hoy — son contexto de mercado. Fuente: PositionBuilder.structureInputs
@@ -60,12 +60,6 @@ export function MarketDiagnostics({ inputs }: { inputs: StructureInputs | null }
               detail={inputs.realizedVolRegime?.rv10d != null && inputs.realizedVolRegime?.rv30d != null
                 ? `RV10 ${n(inputs.realizedVolRegime.rv10d, 1)} / RV30 ${n(inputs.realizedVolRegime.rv30d, 1)}`
                 : inputs.realizedVolRegime?.interpretation}
-            />
-            <Row
-              label="Flow agresivo"
-              value={inputs.aggressiveFlow?.signal ?? '—'}
-              detail={inputs.aggressiveFlow?.dataSource === 'not_implemented' ? 'no implementado' : (inputs.aggressiveFlow?.note ?? undefined)}
-              muted={inputs.aggressiveFlow?.signal === 'unavailable' || inputs.aggressiveFlow?.dataSource === 'not_implemented'}
             />
           </>}
     </div>

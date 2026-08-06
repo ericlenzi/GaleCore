@@ -66,15 +66,31 @@ export async function fetchDailyCandles(symbol: string, days = 5): Promise<Candl
     .sort((a, b) => a.time - b.time);
 }
 
-export async function fetchEquityCandles(symbol: string, interval = '5m'): Promise<CandleItem[]> {
-  const fromTime = todayMarketOpenISO();
+interface EquityCandleOptions {
+  /** Días calendario hacia atrás para el FromTime. Sin esto arranca en el open de hoy (intradía). */
+  fromDays?: number;
+  /** Se queda con las últimas N velas. Sin esto devuelve todas las que llegaron. */
+  limit?: number;
+}
+
+export async function fetchEquityCandles(
+  symbol: string,
+  interval = '5m',
+  opts: EquityCandleOptions = {},
+): Promise<CandleItem[]> {
+  let fromTime = todayMarketOpenISO();
+  if (opts.fromDays) {
+    const from = new Date();
+    from.setUTCDate(from.getUTCDate() - opts.fromDays);
+    fromTime = from.toISOString().replace('.000Z', 'Z');
+  }
   const { data } = await apiClient.get<{ data: any[] }>(
     '/Data/Tastytrade/MarketData/Candle',
     { params: { Symbol: symbol, Interval: interval, FromTime: fromTime }, timeout: 30_000 }
   );
   console.debug(`[Candle] ${symbol}:`, data);
   const raw: any[] = Array.isArray(data) ? data : (data?.data ?? []);
-  return raw
+  const candles = raw
     .map((c: any) => {
       // time can be unix ms or unix s
       const t = typeof c.time === 'number'
@@ -84,4 +100,6 @@ export async function fetchEquityCandles(symbol: string, interval = '5m'): Promi
     })
     .filter((c) => c.time > 0 && c.close > 0 && c.open > 0)
     .sort((a, b) => a.time - b.time);
+
+  return opts.limit ? candles.slice(-opts.limit) : candles;
 }

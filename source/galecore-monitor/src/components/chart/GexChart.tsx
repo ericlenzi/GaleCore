@@ -20,11 +20,23 @@ interface Props {
   openPrice?:   number;
   iv30?:        number;
   gexData:      GammaExposureResponse | null;
+  /** Temporalidad de las velas. Default '5m' (intradía de Main). La pestaña GEX pasa '1h'. */
+  candleInterval?: string;
+  /** Segundos por vela — define el bucket de la actualización live. Debe acompañar a candleInterval. */
+  candleBucketSeconds?: number;
+  /** Se queda con las últimas N velas. Sin esto muestra todo lo que devuelva la API. */
+  maxCandles?: number;
+  /** Días calendario hacia atrás a pedir. Sin esto arranca en el open de hoy (intradía). */
+  candleFromDays?: number;
+  /** Barras vacías a la derecha: corren las velas a la izquierda y dejan aire para el precio. */
+  rightPadBars?: number;
 }
 
-const BUCKET = 5 * 60;
+const DEFAULT_BUCKET = 5 * 60;
 
-function get5mBucket(s: number) { return Math.floor(s / BUCKET) * BUCKET; }
+function getBucket(s: number, bucketSeconds: number) {
+  return Math.floor(s / bucketSeconds) * bucketSeconds;
+}
 
 function marketOpenUnix(): number {
   const now   = new Date();
@@ -35,7 +47,14 @@ function marketOpenUnix(): number {
   )).getTime() / 1000);
 }
 
-export function GexChart({ symbol, currentPrice, openPrice, iv30, gexData }: Props) {
+export function GexChart({
+  symbol, currentPrice, openPrice, iv30, gexData,
+  candleInterval = '5m',
+  candleBucketSeconds = DEFAULT_BUCKET,
+  maxCandles,
+  candleFromDays,
+  rightPadBars = 0,
+}: Props) {
   const outerRef      = useRef<HTMLDivElement>(null);   // flex container
   const containerRef  = useRef<HTMLDivElement>(null);   // chart div
   const chartRef      = useRef<IChartApi | null>(null);
@@ -49,6 +68,20 @@ export function GexChart({ symbol, currentPrice, openPrice, iv30, gexData }: Pro
   const [chartH, setChartH] = useState(400);
 
   const bump = useCallback(() => setRenderTick(n => n + 1), []);
+
+  // Encuadre del eje temporal. Con rightPadBars > 0 el rango visible se extiende N barras más allá
+  // de la última vela: quedan esos slots vacíos a la derecha y las velas corridas a la izquierda.
+  // fitContent() no sirve para eso — ajusta el rango exacto a los datos e ignora el offset.
+  const fitView = useCallback(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const n = candlesRef.current.length;
+    if (rightPadBars > 0 && n > 0) {
+      chart.timeScale().setVisibleLogicalRange({ from: 0, to: n - 1 + rightPadBars });
+    } else {
+      chart.timeScale().fitContent();
+    }
+  }, [rightPadBars]);
 
   // ── Build chart ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -73,7 +106,12 @@ export function GexChart({ symbol, currentPrice, openPrice, iv30, gexData }: Pro
         horzLine: { color: '#2d4571', width: 1, style: LineStyle.Dashed, labelBackgroundColor: '#1a2844' },
       },
       rightPriceScale: { borderColor: '#1c2f4a', textColor: '#8da5cc', scaleMargins: { top: 0.08, bottom: 0.08 } },
-      timeScale: { borderColor: '#1c2f4a', timeVisible: true, secondsVisible: false, fixLeftEdge: true },
+      // rightOffset mantiene el aire a la derecha cuando el usuario scrollea; fitView lo aplica al
+      // encuadre inicial. Sin los dos, el padding se pierde en cuanto el chart se reajusta.
+      timeScale: {
+        borderColor: '#1c2f4a', timeVisible: true, secondsVisible: false, fixLeftEdge: true,
+        rightOffset: rightPadBars,
+      },
       width:  el.clientWidth,
       height: el.clientHeight || 400,
     });
@@ -109,7 +147,7 @@ export function GexChart({ symbol, currentPrice, openPrice, iv30, gexData }: Pro
   // ── Load intraday candles ─────────────────────────────────────────────────
   useEffect(() => {
     if (!chartRef.current) return;
-    fetchEquityCandles(symbol).then(candles => {
+    fetchEquityCandles(symbol, candleInterval, { fromDays: candleFromDays, limit: maxCandles }).then(candles => {
       if (!candles.length || !chartRef.current) return;
       const chart = chartRef.current;
       if (seriesRef.current && !useCandlesRef.current) {
@@ -124,7 +162,7 @@ export function GexChart({ symbol, currentPrice, openPrice, iv30, gexData }: Pro
         seriesRef.current    = cs;
         useCandlesRef.current = true;
         candlesRef.current   = candles;
-        chart.timeScale().fitContent();
+        fitView();
         bump();
       }
     }).catch(() => {});
@@ -134,7 +172,7 @@ export function GexChart({ symbol, currentPrice, openPrice, iv30, gexData }: Pro
   useEffect(() => {
     if (!seriesRef.current || currentPrice <= 0) return;
     const now    = Math.floor(Date.now() / 1000);
-    const bucket = get5mBucket(now);
+    const bucket = getBucket(now, candleBucketSeconds);
     if (useCandlesRef.current) {
       const candles = candlesRef.current;
       const last    = candles[candles.length - 1];
@@ -151,7 +189,7 @@ export function GexChart({ symbol, currentPrice, openPrice, iv30, gexData }: Pro
       try { seriesRef.current.update({ time: now as any, value: currentPrice }); }
       catch { seriesRef.current.setData([{ time: now as any, value: currentPrice }]); }
     }
-  }, [currentPrice]);
+  }, [currentPrice, candleBucketSeconds]);
 
   // ── GEX price lines + StdDev + autoscale ──────────────────────────────────
   useEffect(() => {
@@ -189,7 +227,7 @@ export function GexChart({ symbol, currentPrice, openPrice, iv30, gexData }: Pro
       });
     }
 
-    if (chartRef.current) chartRef.current.timeScale().fitContent();
+    fitView();
     bump();
   }, [gexData, iv30]); // eslint-disable-line react-hooks/exhaustive-deps
 

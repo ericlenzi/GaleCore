@@ -9,6 +9,7 @@ import { Monitor } from './pages/Monitor';
 import { Strategy } from './pages/Strategy';
 import { StrategyLive } from './pages/StrategyLive';
 import { Rpf } from './pages/Rpf';
+import { Gex } from './pages/Gex';
 import { useMarketSocket, ConnectionStatus } from './socket/useMarketSocket';
 import { useRulesStore } from './store/useRulesStore';
 import { useAccountStore } from './store/useAccountStore';
@@ -70,6 +71,9 @@ function Dashboard({ onLogout }: DashboardProps) {
             <Rpf acceptSuggestion={acceptSuggestion} dismissSuggestion={dismissSuggestion}
               subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} />
           </div>
+          {/* GEX se monta recién al entrar: el barrido de la cadena completa es caro y no tiene
+              sentido dispararlo si el operador nunca abre la pestaña. */}
+          {tab === 'gex' && <Gex />}
           {tab === 'estrategia' && <Strategy />}
         </main>
       </div>

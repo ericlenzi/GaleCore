@@ -21,12 +21,10 @@ namespace DataFeed.Application.App.PositionBuilder
     public class PositionBuilderHandler : IRequestHandler<PositionBuilderRequest, PositionBuilderResponse>
     {
         private readonly IMediator _mediator;
-        private readonly IFlowAggregatorService _flowAggregator;
 
-        public PositionBuilderHandler(IMediator mediator, IFlowAggregatorService flowAggregator)
+        public PositionBuilderHandler(IMediator mediator)
         {
             _mediator = mediator;
-            _flowAggregator = flowAggregator;
         }
 
         public async Task<PositionBuilderResponse> Handle(PositionBuilderRequest request, CancellationToken cancellationToken)
@@ -131,7 +129,6 @@ namespace DataFeed.Application.App.PositionBuilder
                         _ => "datos insuficientes"
                     }
                 },
-                AggressiveFlow = BuildAggressiveFlowInput(symbol)
             };
 
             var selectedStructureResult = new SelectedStructureResult
@@ -510,29 +507,6 @@ namespace DataFeed.Application.App.PositionBuilder
         // ═══════════════════════════════════════════════════════════════════════
         // Helpers (delegados a ValidationLayerHandler donde es static)
         // ═══════════════════════════════════════════════════════════════════════
-
-        private AggressiveFlowInput BuildAggressiveFlowInput(string symbol)
-        {
-            var snapshot = _flowAggregator.GetSnapshot(symbol);
-            if (snapshot == null)
-            {
-                return new AggressiveFlowInput(); // defaults: unavailable, not_implemented
-            }
-
-            return new AggressiveFlowInput
-            {
-                Signal = snapshot.Signal,
-                DataSource = "stream",
-                Note = null,
-                BullishPremiumUsd = snapshot.Bullish.PremiumUsd,
-                BearishPremiumUsd = snapshot.Bearish.PremiumUsd,
-                NetDeltaFlow = snapshot.NetDeltaFlow,
-                DominantSide = snapshot.NetDeltaFlow >= 0
-                    ? snapshot.Bullish.DominantType
-                    : snapshot.Bearish.DominantType,
-                WindowMinutes = snapshot.WindowMinutes
-            };
-        }
 
         private static string InterpretZScore(double z, double neutralZ, double extremeZ)
         {

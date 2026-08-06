@@ -100,8 +100,8 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
     `/App.Analytics/<X>` (con punto), no `/App/Analytics/<X>`.
   * `App.GaleCore` — endpoints de la aplicación en general: `Rules/{Core,Live,Paper}`,
     `ValidationLayer`, `PositionBuilder`.
-  * `App.<Prefijo>` — un prefijo por estrategia. Hoy: `App.Rpf` → `/App/Rpf/*`.
-    Ver "Convención de rutas HTTP por estrategia" más abajo.
+  * `App.<Prefijo>` — un prefijo por estrategia. Hoy: `App.Rpf` → `/App/Rpf/*` y
+    `App.Gex` → `/App/Gex/*`. Ver "Convención de rutas HTTP por estrategia" más abajo.
 
   `DataController` → `/Data`
   * `Data.Api` — datos REST de la cuenta: `Tastytrade/MarketData/ByType`, `Tastytrade/OptionChains`,
@@ -114,15 +114,58 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
 - Endpoints GaleCore
   * `GET /App/GaleCore/MacroRegime` — corre Layer 1 (macro_regime). Responde `macroRegime` con checks de VIX, IV Rank, GEX total, spot vs ZGL.
   * `GET /App/GaleCore/ValidationLayer` — corre las 4 capas en cascada con shortcircuit. Response: `macroRegime` + `positionBuilder`. Handler: `ValidationLayerHandler.cs`.
-  * `GET /App/GaleCore/PositionBuilder` — corre capas 2-4 solo (presupone que el caller ya validó macro). Expone `structureInputs` completos (priceZScore, gexSkew, trend, realizedVol, aggressiveFlow). Handler: `PositionBuilderHandler.cs`.
+  * `GET /App/GaleCore/PositionBuilder` — corre capas 2-4 solo (presupone que el caller ya validó macro). Expone `structureInputs` completos (priceZScore, gexSkew, trend, realizedVol). Handler: `PositionBuilderHandler.cs`.
   * WebSocket `/hubs/marketdata`:
     - `Subscribe(symbol, includeGreeks)` → `ReceiveTrade`, `ReceiveQuote` (precio); con `includeGreeks=true` también `ReceiveGreeks` (delta/gamma/theta/vega/IV por opción). Los legs del Monitor se suscriben con `includeGreeks=true`.
     - `SubscribeFlow(symbol)` → `ReceiveFlow` cada 30s (flow de opciones via `FlowBroadcastService`)
+
+- Estrategia GEX — informativa
+  Estrategia sin trades: su único producto es información de gamma exposure para decidir.
+  No propone estructura, no calcula strikes ni sizing, no emite señales.
+  * **El GEX de GEX es global.** `GET /App/Gex/Analysis` agrega TODOS los strikes de TODOS los
+    vencimientos de la cadena dentro de `gex.max_dte` (50), incluido 0DTE y las weeklies. El GEX de
+    `/App/GaleCore/*` sigue siendo de **un solo** vencimiento: son números distintos a propósito y
+    no se comparan. La respuesta trae `gex.global` (agregado), `gex.byExpiry[]` (desglose por
+    vencimiento con su propio ZGL, muros, IV ATM y expected move) y el contexto de mercado
+    (`macroRegime` + `structureInputs`).
+  * **Modo global de `GammaExposureHandler`** — opt-in vía `AllExpirations` / `IncludeByExpiry` /
+    `ExpirationTypes` / `IncludeZeroDte` / `GreeksBatchSize` en `GammaExposureRequest`. Con los
+    defaults el handler se comporta igual que siempre, así que `ValidationLayer`, `PositionBuilder`,
+    `PutSkew`, RPF y `SkewSnapshotService` no cambian. En el agregado, GEX y OI **se suman** por
+    strike; delta/gamma/IV se toman de la expiración más cercana (sumarlos no significaría nada).
+  * **Capa 1 compartida** — `ValidationLayerHandler.EvaluateLayer1` es `internal static` y la usa
+    también `GexAnalysisHandler` con el JSON de GEX: por eso el JSON espeja `macro_regime.checks`,
+    `definitions.gex_threshold_by_symbol` y `definitions.zgl_with_buffer`. Ahí los checks son
+    lectura (`on_fail: inform_only`), no gatean nada.
+  * **Latencia** — medido 2026-08-05 con la cadena completa de SPY a 50 DTE (17 vencimientos,
+    ~6200 símbolos): **121s SPY / 146s QQQ** con el cache diario de OI caliente, y **399s** el
+    primer barrido después de reiniciar la API, que paga el OI de toda la cadena. Ese caso en frío
+    supera `cache_seconds` (300) — pendiente decidir si se sube. Palancas, todas en el JSON (sin
+    recompilar): `gex.max_dte`, `gex.oi_delta_band`, `gex.greeks_batch_size`, `gex.greeks_retries`,
+    `gex.cache_seconds`. El OI reusa el cache diario por símbolo del handler, compartido con el GEX
+    de Main.
+  * **Los Greeks se reintentan** (`gex.greeks_retries`) — `RequestSnapshotAsync` devuelve lo que
+    juntó al vencer su timeout, así que un lote lento deja símbolos sin Greeks y esos strikes se
+    caen del GEX en silencio. Sin reintentos, dos corridas seguidas dieron 271B con 12 vencimientos
+    y 696B con 16 (faltaba el 0DTE). Cada vuelta pide sólo los que faltan.
+  * **Barridos serializados** — `GexAnalysisHandler` tiene un semáforo global: un barrido a la vez.
+    Todos comparten la conexión DXLink y dos concurrentes se pisan (medido: SPY y QQQ solapados
+    bajaron a 60.8% y 69.2% de cobertura, contra 100% de a uno). El segundo pedido espera; al entrar
+    re-chequea el cache por si el barrido anterior era de su mismo símbolo.
+  * **Un barrido incompleto no se cachea** (`gex.cache_min_coverage_pct`, y tampoco si el cliente
+    abortó). Guardarlo dejaría el tablero mostrando un GEX sin vencimientos enteros durante
+    `cache_seconds`, y un GEX más chico se lee como caída del gamma, no como dato faltante.
+    `cache_seconds` debe ser mayor que la duración de un barrido, y `refresh_seconds` del front
+    ≥ `cache_seconds` (hay un test que lo congela).
+  * **Sin workers** — todo es REST on-demand, no corre `BackgroundService` ni sockets propios, por
+    eso es la única estrategia que no expone el switch "Workers".
 
 - Convención de rutas HTTP por estrategia
   Cada estrategia expone sus endpoints bajo su propio prefijo de primer nivel: `/App/<Estrategia>/*`.
   * RPF → `/App/Rpf/*`. Hoy: `GET /App/Rpf/Rules` sirve `galecore_rules_rpf.json` tal cual
     (RPF no tiene overlays `live`/`paper`, así que no pasa por el DeepMerge de `LoadMergedRulesJsonAsync`).
+  * GEX → `/App/Gex/*`. `GET /App/Gex/Rules` (JSON tal cual, sin overlays) y
+    `GET /App/Gex/Analysis?Symbol=` (GEX global + desglose por vencimiento + contexto).
   Los endpoints existentes bajo `/App/GaleCore/*` quedan como están hasta que se revisen; toda estrategia
   nueva arranca con su prefijo propio. En `AppController.cs` cada estrategia tiene su `#region` y su tag
   de Swagger (`App.Rpf`), para que la separación se vea tanto en el código como en la UI de Swagger.
@@ -135,6 +178,7 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   subcarpeta `DataFeed.Api/Files/<Prefix>/`, con el **mismo `<Prefix>` que su ruta HTTP** (`/App/Rpf`
   → `Files/Rpf/`). Así se ve de un vistazo qué archivo pertenece a qué estrategia.
   * RPF → `Files/Rpf/galecore_rules_rpf.json`, `Files/Rpf/rpf_workers_state.json`.
+  * GEX → `Files/Gex/galecore_rules_gex.json`.
 
   **Los archivos compartidos entre estrategias quedan en la raíz de `Files/`.** Hoy son
   `pop_calibration.json` (tabla POP del gate `edge`) y `skew25_history.json` (serie para el RoC de
@@ -178,6 +222,10 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
     también se vea offline, no solo uno apagado a propósito; antes `loopOnline` era un latch que
     nunca volvía a false.
   El switch **no** toca DXLink, el hub, ni los otros workers.
+
+  **GEX no tiene switch porque no tiene workers** — es REST on-demand, sin `BackgroundService` ni
+  sockets propios. La regla aplica a estrategias que corren procesos solos, no a las que responden
+  cuando se les pide.
 
   **`FlowBroadcastService` y `SkewSnapshotService` no tienen switch todavía** — no son de una
   estrategia en particular, así que falta decidir dónde vive su estado y en qué pantalla se controlan.
@@ -320,11 +368,12 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   │   ├── useMarketStore.ts   # Estado en tiempo real (Zustand): precio/bid/ask + Greeks por símbolo (updateGreeks: delta/gamma/theta/vega/iv) + ivRank
   │   ├── useAccountStore.ts  # Balances y posiciones
   │   ├── useRulesStore.ts    # Rules/tickers cargados desde /App/GaleCore/Rules/Core
+  │   ├── useGexStore.ts      # Estrategia GEX: reglas propias (/App/Gex/Rules) + cache de /App/Gex/Analysis por símbolo + vencimiento seleccionado
   │   └── useFlowStore.ts     # Snapshots de flow de opciones (ReceiveFlow → FlowPayload)
   ├── components/
   │   ├── layout/
   │   │   ├── StatusBar.tsx       # Barra superior: estado sistema, estado mercado, hora
-  │   │   └── TabNav.tsx          # Tabs: Inicio / Portfolio / Estrategia
+  │   │   └── TabNav.tsx          # Tabs: Main / Monitor / Strategy v1.4 / RPF / GEX / References
   │   ├── ticker/
   │   │   ├── TickerCard.tsx      # Card por ticker: precio, variación, capas de validación
   │   │   ├── TickerGrid.tsx      # Grid de TickerCards
@@ -338,6 +387,9 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   │   │   ├── PositionRow.tsx     # Fila individual con P&L, Greeks, alertas
   │   │   ├── NewPositionForm.tsx # Formulario de ingreso de posición manual
   │   │   └── SuggestedCard.tsx   # Card de operación sugerida con badge de flow en tiempo real
+  │   ├── gex/                    # Tab GEX
+  │   │   ├── OptionsChainList.tsx # Lista de vencimientos (0DTE primero); elegir uno acota Expiry Engine + gráfico
+  │   │   └── ExpiryEngine.tsx     # Strike Engine sin las filas de estructura: ZGL, muros, EM, Net GEX del vencimiento
   │   ├── monitor/                # Tab Monitor (UI en inglés, bloomberg-style)
   │   │   ├── PortfolioRiskBar.tsx # Barra superior: Net Liq / Buying Power / Daily P&L / Portfolio Heat / Positions
   │   │   ├── PositionCard.tsx     # Card por spread: header (strikes/exp/DTE), StrikeLadder, métricas (Credit/P&L/Max), strip de stats (Net Delta/Theta/Vega/Gamma agregados de Greeks live + POP/Prob.+50%/IV Rank), management triggers c/ acción concreta ligada (el más imminente = "NEXT" con la ejecución: cerrar a costo X, rollear a strikes Y/Z por delta de la cadena GEX), legs con entry/valor/variación
@@ -347,6 +399,10 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
   │   └── strategy/
   │       └── StrategyReference.tsx # Tab Estrategia: reglas, umbrales, protocolo de ajuste
   ├── pages/
+  │   ├── Gex.tsx             # Tab GEX: espeja el layout de Main con el JSON propio (/App/Gex/*).
+  │   │                       #   Details = checks + diagnóstico (sin Microstructure) con GEX global;
+  │   │                       #   Graph = Options Chain + Expiry Engine + velas 1h×100 + barras del vencimiento.
+  │   │                       #   Sin setup candidato. Se monta recién al entrar a la pestaña.
   │   ├── Home.tsx            # Tab Inicio
   │   ├── PortfolioManager.tsx # Tab Portfolio: PositionBuilder API + flow en tiempo real
   │   ├── Positions.tsx       # Tab Posiciones abiertas

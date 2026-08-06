@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.IO;
 using System.Threading.Tasks;
 using DataFeed.Application.App.GammaExposure;
+using DataFeed.Application.App.Gex;
 using DataFeed.Application.App.ImpliedVolatility;
 using DataFeed.Application.App.IVRank;
 using DataFeed.Application.App.ValidationLayer;
@@ -148,6 +149,36 @@ namespace DataFeed.Controllers
             if (json == null) return false;
             var root = System.Text.Json.Nodes.JsonNode.Parse(json)?.AsObject();
             return (bool?)root?["state_machine"]?["enabled"] ?? false;
+        }
+
+        #endregion
+
+        #region Gex
+
+        // Estrategia GEX (informativa): gamma exposure global del símbolo, todos los vencimientos
+        // de la cadena incluido 0DTE. No propone operaciones. JSON propio en Files/Gex/, sin
+        // overlays live/paper → se sirve tal cual, sin DeepMerge.
+
+        [Tags("App.Gex")]
+        [HttpGet("Gex/Rules")]
+        public async Task<IActionResult> GexRulesAsync()
+            => await ServeRulesFileAsync("Gex/galecore_rules_gex.json");
+
+        /// <summary>
+        /// GEX global del símbolo (agregado de toda la cadena dentro de gex.max_dte, incluido 0DTE)
+        /// + desglose por vencimiento + contexto de mercado. Es la fuente única de la pestaña GEX.
+        /// La primera llamada del día barre la cadena entera y puede tardar; después responde del
+        /// cache del handler (gex.cache_seconds).
+        /// </summary>
+        [Tags("App.Gex")]
+        [HttpGet("Gex/Analysis")]
+        public async Task<IActionResult> GexAnalysisAsync([FromQuery] GexAnalysisRequest request)
+        {
+            request.RulesJson = await LoadFileOrNullAsync("Gex/galecore_rules_gex.json");
+            if (request.RulesJson == null)
+                return NotFound("Archivo no encontrado: Gex/galecore_rules_gex.json");
+
+            return await Handle(request);
         }
 
         #endregion
