@@ -19,17 +19,20 @@ namespace DataFeed.Controllers
     {
         private readonly IWebHostEnvironment _env;
         private readonly DataFeed.Api.Infrastructure.RpfWorkerSwitch _rpfWorkerSwitch;
+        private readonly DataFeed.Api.Infrastructure.GexWorkerSwitch _gexWorkerSwitch;
         private readonly DataFeed.Application.App.Rpf.RpfStateStore _rpfStore;
         private readonly DataFeed.Infrastructure.Providers.Tastytrade.IMarketDataBroadcaster _broadcaster;
 
         public AppController(IMediator mediator, IWebHostEnvironment env,
             DataFeed.Api.Infrastructure.RpfWorkerSwitch rpfWorkerSwitch,
+            DataFeed.Api.Infrastructure.GexWorkerSwitch gexWorkerSwitch,
             DataFeed.Application.App.Rpf.RpfStateStore rpfStore,
             DataFeed.Infrastructure.Providers.Tastytrade.IMarketDataBroadcaster broadcaster)
             : base(mediator)
         {
             _env = env;
             _rpfWorkerSwitch = rpfWorkerSwitch;
+            _gexWorkerSwitch = gexWorkerSwitch;
             _rpfStore = rpfStore;
             _broadcaster = broadcaster;
         }
@@ -178,7 +181,57 @@ namespace DataFeed.Controllers
             if (request.RulesJson == null)
                 return NotFound("Archivo no encontrado: Gex/galecore_rules_gex.json");
 
+            // Kill switch: en OFF el handler no barre la cadena ni toca DXLink, devuelve lo último
+            // cacheado marcado como congelado.
+            request.AllowScan = await GexWorkersEnabledAsync();
+
             return await Handle(request);
+        }
+
+        /// <summary>
+        /// Estado del switch de GEX. `source` dice quién manda: "override" si el operador ya usó el
+        /// switch, "rules" si todavía manda gex.enabled del JSON.
+        /// </summary>
+        [Tags("App.Gex")]
+        [HttpGet("Gex/Workers")]
+        public async Task<IActionResult> GexWorkersGetAsync()
+        {
+            var ovr = _gexWorkerSwitch.ReadOverride();
+            return Ok(new
+            {
+                enabled = ovr ?? await ReadGexRulesEnabledAsync(),
+                source = ovr.HasValue ? "override" : "rules",
+            });
+        }
+
+        /// <summary>
+        /// Prende o apaga el barrido de GEX. Escribe un archivo de estado aparte — no toca
+        /// galecore_rules_gex.json. En OFF la estrategia deja de competir por el feed DXLink.
+        /// </summary>
+        [Tags("App.Gex")]
+        [HttpPost("Gex/Workers")]
+        public IActionResult GexWorkersSet([FromBody] GexWorkersRequest body)
+        {
+            _gexWorkerSwitch.Set(body.Enabled);
+            return Ok(new { enabled = body.Enabled, source = "override" });
+        }
+
+        public class GexWorkersRequest
+        {
+            public bool Enabled { get; set; }
+        }
+
+        /// <summary>Estado efectivo: override del operador si existe, si no lo que declara el JSON.</summary>
+        private async Task<bool> GexWorkersEnabledAsync()
+            => _gexWorkerSwitch.ReadOverride() ?? await ReadGexRulesEnabledAsync();
+
+        private async Task<bool> ReadGexRulesEnabledAsync()
+        {
+            var json = await LoadFileOrNullAsync("Gex/galecore_rules_gex.json");
+            if (json == null) return false;
+            var root = System.Text.Json.Nodes.JsonNode.Parse(json)?.AsObject();
+            // Sin el nodo, la estrategia se considera prendida: es informativa y no ejecuta nada.
+            return (bool?)root?["gex"]?["enabled"] ?? true;
         }
 
         #endregion

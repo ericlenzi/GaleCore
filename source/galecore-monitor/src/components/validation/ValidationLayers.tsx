@@ -11,6 +11,9 @@ interface Props {
   /** Bajada del panel. Default: el texto de la cascada de Main. La pestaña GEX lo cambia porque
    *  ahí los checks son lectura de contexto, no un gate que corte una operación. */
   subtitle?: string;
+  /** Etiqueta de la celda de GEX. En Main el GEX es de un solo vencimiento; la pestaña GEX pasa
+   *  "GEX Global" porque ahí el número agrega toda la cadena. */
+  gexLabel?: string;
 }
 
 function dotColor(ok: boolean | null) {
@@ -143,8 +146,14 @@ export function ValidationLayers({
   vlData,
   title = 'Capa de Validaciones',
   subtitle = 'Régimen macro de la cascada (capa 1) — si falla, no se evalúa nada más.',
+  gexLabel = 'GEX',
 }: Props) {
   const checks = vlData?.macroRegime?.checks;
+
+  // El símbolo no tiene umbral propio en definitions.gex_threshold_by_symbol: el backend evaluó
+  // contra su default, así que acá no se valida nada y la celda va apagada.
+  const gexThresholdMissing = checks?.gexTotal?.thresholdDeclared === false;
+  const gexThreshold = checks?.gexTotal?.threshold ?? null;
 
   return (
     <div style={{
@@ -208,13 +217,20 @@ export function ValidationLayers({
           ] : undefined}
         />
         <MetricCell
-          label="GEX"
+          label={gexLabel}
           value={layers.gexValue != null ? fmtGex(layers.gexValue) : '—'}
-          sub={layers.gexOk === null ? '—' : layers.gexOk ? `≥threshold ✓` : `<threshold ✗`}
+          sub={
+            gexThresholdMissing ? 'sin umbral'
+              : layers.gexOk === null || gexThreshold == null ? '—'
+              : `(≥ ${fmtGex(gexThreshold)}) ${layers.gexOk ? '✓' : '✗'}`
+          }
           ok={layers.gexOk}
           tooltip={checks?.gexTotal ? [
             { label: 'Value', value: `${checks.gexTotal.value.toFixed(1)}B` },
-            { label: 'Min', value: `≥ ${checks.gexTotal.threshold}B` },
+            {
+              label: 'Min',
+              value: gexThreshold == null ? 'sin declarar' : `≥ ${fmtGex(gexThreshold)}`,
+            },
           ] : undefined}
         />
         <MetricCell

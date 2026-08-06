@@ -75,7 +75,16 @@ namespace DataFeed.Application.App.ValidationLayer
         public bool Passed { get; set; }
         public double Value { get; set; }
         public string Metric { get; set; }
-        public double Threshold { get; set; }
+
+        /// <summary>Umbral del símbolo. null = no está declarado en el JSON (no se evalúa).</summary>
+        public double? Threshold { get; set; }
+
+        /// <summary>
+        /// false = el símbolo no tiene umbral en definitions.gex_threshold_by_symbol, así que no se
+        /// evaluó nada. Sin esto, un símbolo sin configurar sería indistinguible de uno reprobado y
+        /// el tablero lo pintaría en rojo cuando en realidad nadie definió contra qué compararlo.
+        /// </summary>
+        public bool ThresholdDeclared { get; set; }
     }
 
     public class SpotVsZglCheck

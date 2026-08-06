@@ -33,7 +33,9 @@ export function mapValidationToLayers(v: ValidationLayerApiResponse): LayerStatu
     ivRankValue: checks?.ivRank?.value ?? null,
     ivMomentumOk: checks?.ivMomentum?.passed ?? null,
     ivMomentumValue: checks?.ivMomentum?.value ?? null,
-    gexOk: checks?.gexTotal?.passed ?? null,
+    // Sin umbral declarado para el símbolo no hay nada contra qué validar: el check queda en null
+    // (gris, apagado) en vez de rojo, que se leería como "el GEX no alcanza".
+    gexOk: checks?.gexTotal?.thresholdDeclared === false ? null : (checks?.gexTotal?.passed ?? null),
     gexValue: checks?.gexTotal?.value ?? null,
     spotAboveZgl: checks?.spotVsZgl?.passed ?? null,
     zglValue: checks?.spotVsZgl?.zgl ?? g?.gammaZeroLevel ?? null,

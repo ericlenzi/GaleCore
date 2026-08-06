@@ -6,6 +6,8 @@ import { MarketDiagnostics } from '../components/ticker/MarketDiagnostics';
 import { OptionsChainList } from '../components/gex/OptionsChainList';
 import { ExpiryEngine } from '../components/gex/ExpiryEngine';
 import { GexChart } from '../components/chart/GexChart';
+import { WorkersSwitch } from '../components/common/WorkersSwitch';
+import { fetchGexWorkers, setGexWorkers } from '../api/gex';
 import { useGexStore } from '../store/useGexStore';
 import { useMarketStore } from '../store/useMarketStore';
 import { GexAnalysisResponse, GexChartData, GexExpiryApi } from '../types/gex';
@@ -13,9 +15,9 @@ import { ValidationLayerApiResponse } from '../types/api';
 import { mapValidationToLayers, EMPTY_LAYERS } from '../utils/validationLayers';
 import { fmtGex, fmtPrice, fmtTime, isStale, tint } from '../utils/formatters';
 
-// Fallback si el JSON no declara refresh_seconds. Un barrido de la cadena completa tarda 100-250s,
-// así que refrescar más seguido sería pedir de nuevo sobre una llamada todavía en vuelo.
-const DEFAULT_REFRESH_SECONDS = 300;
+// Fallback si el JSON no declara refresh_seconds. Los barridos se serializan en el backend, así que
+// lo que manda es recorrer el universo entero (~383s medidos con 4 símbolos), no un barrido suelto.
+const DEFAULT_REFRESH_SECONDS = 600;
 const DETAIL_HEIGHT = 500;
 
 /**
@@ -71,6 +73,7 @@ export function Gex() {
   const {
     tickers, display, rulesLoading, rulesError, loadRules,
     cache, loading, error, selectedExpiry, fetchGex, selectExpiry,
+    workersEnabled, setWorkers,
   } = useGexStore();
 
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
@@ -82,14 +85,17 @@ export function Gex() {
   useEffect(() => { loadRules(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Carga inicial + auto-refresh del símbolo activo. El período sale del JSON (display_config).
+  // Con el switch en OFF no se programa nada: el backend igual rechazaría el barrido, pero pedirlo
+  // sería ruido. Se hace una sola lectura para traer el dato congelado a la pantalla.
   const refreshSeconds = display?.refresh_seconds ?? DEFAULT_REFRESH_SECONDS;
   useEffect(() => {
-    if (!active) return;
+    if (!active || workersEnabled == null) return;
     if (!cache[active]) fetchGex(active);
+    if (!workersEnabled) return;
 
     intervalRef.current = setInterval(() => fetchGex(active), refreshSeconds * 1000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [active, refreshSeconds]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, refreshSeconds, workersEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const entry = active ? cache[active] : undefined;
   const data = entry?.data ?? null;
@@ -114,6 +120,10 @@ export function Gex() {
   const partialScan = !!data
     && data.gex.global.expirationsRequested > data.gex.global.expirationsIncluded;
 
+  // Switch en OFF: lo que se ve es el último barrido y nadie lo va a actualizar. Se marca con la
+  // hora del dato para que no se lea como vigente.
+  const frozen = workersEnabled === false || !!data?.frozen;
+
   const updated = entry?.updatedAt ?? null;
   const stale = isStale(updated, refreshSeconds * 1000 * 1.5);
 
@@ -135,6 +145,15 @@ export function Gex() {
           fontFamily: 'JetBrains Mono, monospace',
         }}>
           Gamma Exposure
+        </span>
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+          <WorkersSwitch
+            enabled={workersEnabled}
+            fetchState={fetchGexWorkers}
+            setState={setGexWorkers}
+            onChange={setWorkers}
+            title="Prender / apagar el barrido de la cadena. En OFF no se toca DXLink."
+          />
         </span>
       </div>
 
@@ -174,6 +193,22 @@ export function Gex() {
                 </span>
                 {/* Barrido incompleto: sin este aviso, un GEX más chico por vencimientos faltantes
                     se lee como una caída real del gamma. */}
+                {/* Barrido detenido: el dato es de antes y no se está actualizando. */}
+                {frozen && (
+                  <span
+                    title={updated ? `Último barrido: ${fmtTime(updated)}` : 'Sin barrido en esta sesión'}
+                    style={{
+                      fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
+                      padding: '2px 6px', borderRadius: 20,
+                      color: 'var(--red-gc)',
+                      backgroundColor: tint('var(--red-gc)', 10),
+                      border: `1px solid ${tint('var(--red-gc)', 30)}`,
+                      fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap', cursor: 'help',
+                    }}
+                  >
+                    DETENIDO{data ? ' · DATO CONGELADO' : ''}
+                  </span>
+                )}
                 {partialScan && (
                   <span
                     title={`Faltaron ${(data!.gex.global.expirationsRequested - data!.gex.global.expirationsIncluded)} vencimientos · cobertura ${data!.gex.global.coveragePct}% de los símbolos`}
@@ -200,9 +235,10 @@ export function Gex() {
                 )}
                 <button
                   onClick={() => fetchGex(active, true)}
-                  disabled={isLoading}
+                  disabled={isLoading || frozen}
                   className="btn"
-                  title="Rebarrer la cadena"
+                  title={frozen ? 'Barrido detenido: prendé Workers para rebarrer' : 'Rebarrer la cadena'}
+                  style={frozen ? { opacity: 0.45, cursor: 'default' } : undefined}
                 >
                   <RefreshCw size={10} className={isLoading ? 'animate-spin' : ''} />
                   Reload
@@ -223,6 +259,7 @@ export function Gex() {
                     title={display?.details_panel?.title ?? 'Macro Régimen'}
                     subtitle={display?.details_panel?.subtitle
                       ?? 'Contexto de mercado — lectura informativa'}
+                    gexLabel={display?.details_panel?.gex_label ?? 'GEX Global'}
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>

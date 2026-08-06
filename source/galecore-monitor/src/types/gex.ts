@@ -69,6 +69,10 @@ export interface GexAnalysisResponse {
   timestamp: string;
   spotPrice: number;
   fromCache: boolean;
+  /** Switch de la estrategia. En false no se barrió nada: lo que llega es el último dato. */
+  workersEnabled: boolean;
+  /** El dato es de un barrido anterior y nadie lo va a actualizar mientras el switch esté en OFF. */
+  frozen: boolean;
   elapsedMs: number;
   macroRegime: MacroRegimeResult | null;
   structureInputs: StructureInputs | null;
@@ -97,7 +101,14 @@ export interface GexTabDisplayConfig {
   refresh_seconds?: number;
   default_expiry?: string;
   candles?: { interval?: string; count?: number; right_pad_bars?: number };
-  details_panel?: { title?: string; subtitle?: string; microstructure?: boolean; gex_scope?: string };
+  details_panel?: {
+    title?: string;
+    subtitle?: string;
+    /** Etiqueta de la celda de GEX: acá es "GEX Global" porque agrega toda la cadena. */
+    gex_label?: string;
+    microstructure?: boolean;
+    gex_scope?: string;
+  };
   expiry_engine?: { label?: string; rows?: { id: string; label: string }[] };
   options_chain?: { label?: string };
 }

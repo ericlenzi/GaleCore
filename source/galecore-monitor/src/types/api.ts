@@ -246,7 +246,9 @@ export interface MacroRegimeChecks {
   vixTermStructure: { passed: boolean; iv9d: number | null; iv30d: number | null };
   ivRank: { passed: boolean; value: number; min: number; max: number };
   ivMomentum: { passed: boolean; value: number | null; threshold: number };
-  gexTotal: { passed: boolean; value: number; metric: string; threshold: number };
+  /** `thresholdDeclared: false` = el símbolo no tiene umbral propio y se usó el default del
+   *  handler; el check se muestra apagado (sin validar) en vez de reprobado. */
+  gexTotal: { passed: boolean; value: number; metric: string; threshold: number | null; thresholdDeclared?: boolean };
   spotVsZgl: { passed: boolean; spot: number; zgl: number | null; bufferPct: number };
 }
 

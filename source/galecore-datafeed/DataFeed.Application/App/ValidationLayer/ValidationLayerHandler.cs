@@ -250,16 +250,22 @@ namespace DataFeed.Application.App.ValidationLayer
             };
 
             // --- GEX Total (threshold por símbolo desde definitions) ---
-            double gexThreshold = definitions?["gex_threshold_by_symbol"]?["values"]?[symbol]?.GetValue<double>() ?? 50;
+            // Sin umbral declarado no hay contra qué comparar: el check no pasa y se informa
+            // Threshold = null. No hay default — un default inventado hacía que un símbolo sin
+            // configurar diera un veredicto (verde o rojo) que nadie definió. El tablero muestra
+            // esa celda apagada; el JSON es el único que decide qué símbolos se evalúan.
+            var gexThresholdNode = definitions?["gex_threshold_by_symbol"]?["values"]?[symbol];
+            double? gexThreshold = gexThresholdNode?.GetValue<double>();
             double gexValue = gex.NetGEX;
-            bool gexPassed = gexValue >= gexThreshold;
+            bool gexPassed = gexThreshold.HasValue && gexValue >= gexThreshold.Value;
 
             var gexCheck = new GexTotalCheck
             {
                 Passed = gexPassed,
                 Value = gexValue,
                 Metric = "billions_usd",
-                Threshold = gexThreshold
+                Threshold = gexThreshold,
+                ThresholdDeclared = gexThreshold.HasValue
             };
 
             // --- Spot vs ZGL (buffer desde definitions) ---

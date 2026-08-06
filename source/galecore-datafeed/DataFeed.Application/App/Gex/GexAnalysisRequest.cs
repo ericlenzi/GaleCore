@@ -15,6 +15,14 @@ namespace DataFeed.Application.App.Gex
         public bool Refresh { get; set; } = false;
 
         /// <summary>
+        /// false = el switch de la estrategia está en OFF: no se barre la cadena ni se toca DXLink,
+        /// se devuelve lo último que quedó en cache marcado como congelado. Lo inyecta el controller
+        /// desde GexWorkerSwitch; no es un parámetro de la query.
+        /// </summary>
+        [JsonIgnore]
+        public bool AllowScan { get; set; } = true;
+
+        /// <summary>
         /// Contenido de Files/Gex/galecore_rules_gex.json. Lo inyecta el controller — el handler
         /// no lee del disco (misma convención que ValidationLayerRequest.RulesJson).
         /// </summary>

@@ -16,6 +16,18 @@ namespace DataFeed.Application.App.Gex
         /// <summary>true si la respuesta salió del cache del handler (ver gex.cache_seconds del JSON).</summary>
         public bool FromCache { get; set; }
 
+        /// <summary>
+        /// Estado del switch de la estrategia. En false no se barrió nada: lo que viaja es el último
+        /// dato que había en cache (congelado) o vacío si nunca se barrió en esta corrida.
+        /// </summary>
+        public bool WorkersEnabled { get; set; } = true;
+
+        /// <summary>
+        /// true = el dato es de un barrido anterior y nadie lo va a actualizar mientras el switch
+        /// esté en OFF. El tablero lo muestra con la hora del barrido para que no se lea como vigente.
+        /// </summary>
+        public bool Frozen { get; set; }
+
         /// <summary>Milisegundos que tardó el barrido de la cadena. 0 si vino del cache.</summary>
         public long ElapsedMs { get; set; }
 

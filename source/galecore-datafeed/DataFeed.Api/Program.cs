@@ -77,6 +77,10 @@ namespace DataFeed
             builder.Services.AddSingleton<RpfWorkerSwitch>();
             builder.Services.AddHostedService<RpfLoopService>();
 
+            // GEX no tiene BackgroundService: su switch corta el barrido de la cadena, que es lo
+            // único que esa estrategia corre por su cuenta (y lo que compite por el feed DXLink).
+            builder.Services.AddSingleton<GexWorkerSwitch>();
+
             // MCP Server
             builder.Services
                 .AddMcpServer()

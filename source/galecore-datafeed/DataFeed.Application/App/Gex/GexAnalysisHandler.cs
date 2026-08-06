@@ -27,7 +27,12 @@ namespace DataFeed.Application.App.Gex
         // Cache por símbolo: el barrido de la cadena completa es caro y el tablero refresca solo.
         // Estático porque el handler se instancia por request (mismo criterio que los caches de
         // cadena/OI de GammaExposureHandler).
-        private static readonly ConcurrentDictionary<string, (GexAnalysisResponse Response, DateTime At)> _cache = new();
+        //
+        // La entrada guarda el hash del JSON de reglas con el que se calculó. La respuesta incluye
+        // el macroRegime YA EVALUADO (umbrales aplicados), así que sin esto editar un umbral no
+        // cambiaba nada durante cache_seconds: el JSON se relee en cada request, pero el veredicto
+        // viejo seguía saliendo del cache. Pasó de verdad al cambiar el umbral de SPY (2026-08-06).
+        private static readonly ConcurrentDictionary<string, (GexAnalysisResponse Response, DateTime At, string RulesHash)> _cache = new();
 
         // Un barrido a la vez. Todos comparten la misma conexión DXLink, así que dos barridos
         // concurrentes se pisan y ninguno completa: medido 2026-08-05 con el mercado abierto, un
@@ -46,8 +51,16 @@ namespace DataFeed.Application.App.Gex
             var rules = JsonNode.Parse(request.RulesJson!)!.AsObject();
             var symbol = request.Symbol.ToUpperInvariant();
             var scan = ReadScanConfig(rules);
+            var rulesHash = HashRules(request.RulesJson);
 
-            if (!request.Refresh && TryGetFresh(symbol, scan.CacheSeconds, out var hit))
+            // Switch en OFF: kill switch del barrido. No se toca DXLink ni a pedido explícito; se
+            // devuelve el último resultado que haya quedado en cache, marcado como congelado, y se
+            // ignora el TTL a propósito (nadie lo va a refrescar, y tirarlo dejaría la pantalla
+            // vacía sin ganar nada).
+            if (!request.AllowScan)
+                return FrozenOrEmpty(symbol, scan);
+
+            if (!request.Refresh && TryGetFresh(symbol, scan.CacheSeconds, rulesHash, out var hit))
                 return hit!;
 
             await _scanGate.WaitAsync(cancellationToken);
@@ -55,10 +68,10 @@ namespace DataFeed.Application.App.Gex
             {
                 // Puede haber esperado minutos: si el barrido que estaba corriendo era de este mismo
                 // símbolo, ya hay resultado fresco y no tiene sentido volver a barrer la cadena.
-                if (!request.Refresh && TryGetFresh(symbol, scan.CacheSeconds, out hit))
+                if (!request.Refresh && TryGetFresh(symbol, scan.CacheSeconds, rulesHash, out hit))
                     return hit!;
 
-                return await ScanAsync(request, symbol, rules, scan, cancellationToken);
+                return await ScanAsync(request, symbol, rules, scan, rulesHash, cancellationToken);
             }
             finally
             {
@@ -66,11 +79,55 @@ namespace DataFeed.Application.App.Gex
             }
         }
 
-        private static bool TryGetFresh(string symbol, int cacheSeconds, out GexAnalysisResponse? hit)
+        /// <summary>
+        /// Respuesta con el switch en OFF: lo último que haya en cache, sin importar su antigüedad,
+        /// marcado como congelado. Si nunca se barrió, devuelve el envoltorio vacío para que el
+        /// tablero muestre "detenido" en vez de un error.
+        /// </summary>
+        private static GexAnalysisResponse FrozenOrEmpty(string symbol, ScanConfig scan)
+        {
+            if (_cache.TryGetValue(symbol, out var cached))
+            {
+                cached.Response.FromCache = true;
+                cached.Response.WorkersEnabled = false;
+                cached.Response.Frozen = true;
+                return cached.Response;
+            }
+
+            return new GexAnalysisResponse
+            {
+                Symbol = symbol,
+                Timestamp = DateTime.UtcNow,
+                WorkersEnabled = false,
+                Frozen = true,
+                Gex = new GexPayload { Config = scan.ToDto() },
+            };
+        }
+
+        /// <summary>
+        /// Huella del JSON de reglas. Se compara por contenido y no por fecha del archivo: guardarlo
+        /// sin cambios no tiene por qué tirar un barrido de varios minutos a la basura.
+        /// </summary>
+        private static string HashRules(string? rulesJson)
+        {
+            if (string.IsNullOrEmpty(rulesJson)) return string.Empty;
+            var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(rulesJson));
+            return Convert.ToHexString(bytes);
+        }
+
+        private static bool TryGetFresh(string symbol, int cacheSeconds, string rulesHash, out GexAnalysisResponse? hit)
         {
             hit = null;
             if (!_cache.TryGetValue(symbol, out var cached)) return false;
             if ((DateTime.UtcNow - cached.At).TotalSeconds >= cacheSeconds) return false;
+
+            // Cambió el JSON de reglas: el veredicto cacheado se calculó con otros umbrales.
+            if (!string.Equals(cached.RulesHash, rulesHash, StringComparison.Ordinal)) return false;
+
+            // La entrada del cache es un objeto compartido y se muta al servirlo: si estuvo en OFF
+            // quedó marcada como congelada, y al volver a ON hay que limpiar esos flags.
+            cached.Response.WorkersEnabled = true;
+            cached.Response.Frozen = false;
 
             cached.Response.FromCache = true;
             hit = cached.Response;
@@ -79,7 +136,7 @@ namespace DataFeed.Application.App.Gex
 
         private async Task<GexAnalysisResponse> ScanAsync(
             GexAnalysisRequest request, string symbol, JsonObject rules, ScanConfig scan,
-            CancellationToken cancellationToken)
+            string rulesHash, CancellationToken cancellationToken)
         {
             var sw = Stopwatch.StartNew();
 
@@ -177,7 +234,7 @@ namespace DataFeed.Application.App.Gex
                             && g.CoveragePct >= scan.CacheMinCoveragePct;
 
             if (complete && !cancellationToken.IsCancellationRequested)
-                _cache[symbol] = (response, DateTime.UtcNow);
+                _cache[symbol] = (response, DateTime.UtcNow, rulesHash);
 
             return response;
         }
@@ -315,7 +372,7 @@ namespace DataFeed.Application.App.Gex
                 ExpirationTypes: types is { Length: > 0 } ? types : new[] { "Regular", "Weekly" },
                 GreeksBatchSize: node?["greeks_batch_size"]?.GetValue<int>() ?? 1000,
                 GreeksRetries: node?["greeks_retries"]?.GetValue<int>() ?? 2,
-                CacheSeconds: node?["cache_seconds"]?.GetValue<int>() ?? 300,
+                CacheSeconds: node?["cache_seconds"]?.GetValue<int>() ?? 600,
                 CacheMinCoveragePct: node?["cache_min_coverage_pct"]?.GetValue<double>() ?? 99,
                 OiDeltaMin: band?.Count > 0 ? band[0]!.GetValue<double>() : 0.02,
                 OiDeltaMax: band?.Count > 1 ? band[1]!.GetValue<double>() : 0.98);

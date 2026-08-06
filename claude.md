@@ -139,8 +139,10 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
     lectura (`on_fail: inform_only`), no gatean nada.
   * **Latencia** — medido 2026-08-05 con la cadena completa de SPY a 50 DTE (17 vencimientos,
     ~6200 símbolos): **121s SPY / 146s QQQ** con el cache diario de OI caliente, y **399s** el
-    primer barrido después de reiniciar la API, que paga el OI de toda la cadena. Ese caso en frío
-    supera `cache_seconds` (300) — pendiente decidir si se sube. Palancas, todas en el JSON (sin
+    primer barrido después de reiniciar la API, que paga el OI de toda la cadena. Como los barridos
+    se serializan, lo que dimensiona el cache es recorrer el universo entero: medido 2026-08-06 con
+    mercado abierto, SPY 197s + QQQ 135s + AAPL 50s + SKM 1s ≈ **383s**. Por eso `cache_seconds` y
+    `refresh_seconds` quedaron en **600**. Palancas, todas en el JSON (sin
     recompilar): `gex.max_dte`, `gex.oi_delta_band`, `gex.greeks_batch_size`, `gex.greeks_retries`,
     `gex.cache_seconds`. El OI reusa el cache diario por símbolo del handler, compartido con el GEX
     de Main.
@@ -152,13 +154,31 @@ Tres productos fundamentales a desarrollar para implementar el proyecto:
     Todos comparten la conexión DXLink y dos concurrentes se pisan (medido: SPY y QQQ solapados
     bajaron a 60.8% y 69.2% de cobertura, contra 100% de a uno). El segundo pedido espera; al entrar
     re-chequea el cache por si el barrido anterior era de su mismo símbolo.
+  * **Editar el JSON invalida el cache.** La entrada guarda el hash del `galecore_rules_gex.json`
+    con el que se calculó, porque la respuesta lleva el `macroRegime` **ya evaluado**: sin eso,
+    cambiar un umbral no se veía hasta `cache_seconds` después, aunque el endpoint relea el archivo
+    en cada request. Se compara por contenido y no por fecha del archivo, así guardar sin cambios no
+    tira a la basura un barrido de varios minutos.
   * **Un barrido incompleto no se cachea** (`gex.cache_min_coverage_pct`, y tampoco si el cliente
     abortó). Guardarlo dejaría el tablero mostrando un GEX sin vencimientos enteros durante
     `cache_seconds`, y un GEX más chico se lee como caída del gamma, no como dato faltante.
     `cache_seconds` debe ser mayor que la duración de un barrido, y `refresh_seconds` del front
     ≥ `cache_seconds` (hay un test que lo congela).
-  * **Sin workers** — todo es REST on-demand, no corre `BackgroundService` ni sockets propios, por
-    eso es la única estrategia que no expone el switch "Workers".
+  * **El umbral de GEX decide qué símbolos se evalúan.** `definitions.gex_threshold_by_symbol.values`
+    declara un umbral por símbolo; el que no figura **no se valida**: `EvaluateLayer1` devuelve
+    `gexTotal.thresholdDeclared:false` y el tablero pinta esa celda en gris con "sin umbral", en vez
+    de rojo. Sumar un símbolo a `universe.tickers` no alcanza para que su check de GEX signifique
+    algo — hay que declararle el umbral. Aplica igual al JSON del core (por eso SKM, que está en el
+    universo del core sin umbral, se ve apagado también en Main).
+  * **Switch "Workers"** — GEX no corre `BackgroundService`, pero sí tiene algo que anda solo y
+    compite por el feed: el barrido de la cadena. El switch es un **kill switch** de eso.
+    - `GET /App/Gex/Workers` → `{ enabled, source }`; `POST /App/Gex/Workers` con `{ enabled }`.
+    - Estado en `Files/Gex/gex_workers_state.json` (override del operador, persiste a restart);
+      si no existe manda `gex.enabled` del JSON de reglas. Dueño: `GexWorkerSwitch` (singleton).
+    - **En OFF `/App/Gex/Analysis` no barre ni toca DXLink**: devuelve lo último cacheado con
+      `workersEnabled:false` y `frozen:true`, ignorando el TTL — nadie lo va a refrescar y tirarlo
+      dejaría la pantalla vacía sin ganar nada. El front corta el auto-refresh, deshabilita Reload
+      y marca **DETENIDO · DATO CONGELADO** con la hora del último barrido.
 
 - Convención de rutas HTTP por estrategia
   Cada estrategia expone sus endpoints bajo su propio prefijo de primer nivel: `/App/<Estrategia>/*`.

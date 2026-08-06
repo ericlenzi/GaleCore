@@ -45,12 +45,34 @@ public class GexRulesJsonTests
         Assert.Empty(Gex()["strategy_scope"]!["allowed_strategies"]!.AsArray());
     }
 
+    /// <summary>
+    /// El universo es una lista que el operador edita seguido (arranco SPY+QQQ y ya sumo AAPL y SKM),
+    /// asi que congelar los simbolos exactos solo genera un test rojo cada vez que cambia de idea.
+    /// Lo que si tiene que valer siempre: que sea usable por el pipeline.
+    /// </summary>
     [Fact]
-    public void Universo_EsSpyYQqq()
+    public void Universo_EsUnaWhitelistUsable()
     {
         var tickers = Gex()["universe"]!["tickers"]!.AsArray()
             .Select(t => (string?)t).ToArray();
-        Assert.Equal(new[] { "SPY", "QQQ" }, tickers);
+
+        Assert.NotEmpty(tickers);
+
+        // SPY es el simbolo de referencia de la estrategia: si desaparece, algo se rompio.
+        Assert.Contains("SPY", tickers);
+
+        foreach (var t in tickers)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(t), "Hay un ticker vacio en universe.tickers.");
+
+            // GexAnalysisHandler normaliza con ToUpperInvariant y cachea por esa clave; el front, en
+            // cambio, usa el string del JSON tal cual para las cards y el market store. Un ticker en
+            // minuscula desincroniza las dos puntas.
+            Assert.Equal(t!.ToUpperInvariant(), t);
+        }
+
+        // Un duplicado son dos cards iguales y dos barridos de la misma cadena, serializados.
+        Assert.Equal(tickers.Length, tickers.Distinct().Count());
     }
 
     /// <summary>
@@ -61,6 +83,10 @@ public class GexRulesJsonTests
     public void NodoGex_DeclaraElAlcanceDelBarrido()
     {
         var gex = Gex()["gex"]!.AsObject();
+
+        // Estado por defecto del switch de la estrategia (AppController lo lee para decidir si el
+        // barrido esta habilitado cuando el operador todavia no toco el switch).
+        Assert.True(gex.ContainsKey("enabled"), "Falta gex.enabled: el switch no tendria default.");
 
         Assert.True((int)gex["max_dte"]! > 0);
         Assert.True((bool)gex["include_zero_dte"]!, "La estrategia GEX debe incluir 0DTE.");
@@ -114,8 +140,25 @@ public class GexRulesJsonTests
         var defs = rules["definitions"]!.AsObject();
         var gexThresholds = defs["gex_threshold_by_symbol"]!["values"]!.AsObject();
         Assert.True(gexThresholds.ContainsKey("SPY"));
-        Assert.True(gexThresholds.ContainsKey("QQQ"));
         Assert.True((double)defs["zgl_with_buffer"]!["buffer_pct"]! > 0);
+    }
+
+    /// <summary>
+    /// El umbral por simbolo es lo que decide QUE simbolos se evaluan: el que no lo declara se
+    /// muestra apagado ("sin umbral") en vez de reprobado. Un umbral declarado para un simbolo que
+    /// no esta en el universo es letra muerta — nadie lo va a leer nunca — y suele ser el rastro de
+    /// un ticker que se saco del universo y quedo a medio limpiar.
+    /// </summary>
+    [Fact]
+    public void UmbralesDeGex_CorrespondenASimbolosDelUniverso()
+    {
+        var rules = Gex();
+        var universe = rules["universe"]!["tickers"]!.AsArray()
+            .Select(t => (string?)t).ToArray();
+        var thresholds = rules["definitions"]!["gex_threshold_by_symbol"]!["values"]!.AsObject();
+
+        foreach (var kv in thresholds)
+            Assert.Contains(kv.Key, universe);
     }
 
     /// <summary>

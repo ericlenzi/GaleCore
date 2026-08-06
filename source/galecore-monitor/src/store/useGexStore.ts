@@ -22,6 +22,10 @@ interface GexStore {
   /** Vencimiento elegido por símbolo. null = todavía no eligió → manda el más cercano (0DTE). */
   selectedExpiry: Record<string, string | null>;
 
+  /** Switch de la estrategia. null = todavía no se leyó del backend. */
+  workersEnabled: boolean | null;
+  setWorkers: (enabled: boolean) => void;
+
   loadRules: () => Promise<void>;
   fetchGex: (symbol: string, refresh?: boolean) => Promise<void>;
   selectExpiry: (symbol: string, expiration: string) => void;
@@ -38,6 +42,9 @@ export const useGexStore = create<GexStore>((set, get) => ({
   loading: {},
   error: {},
   selectedExpiry: {},
+  workersEnabled: null,
+
+  setWorkers: (enabled) => set({ workersEnabled: enabled }),
 
   loadRules: async () => {
     set({ rulesLoading: true, rulesError: null });
