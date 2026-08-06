@@ -13,10 +13,19 @@ export function useMarketSocket(tickers: string[] = []) {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const { updatePrice, updateQuote, updateGreeks, setStreaming } = useMarketStore();
 
+  const tickersKey = tickers.join(',');
+
+  // Universo vigente para los callbacks del hub. Se registran una sola vez, así que sin el ref
+  // capturarían el array del primer render — vacío, porque la config todavía no cargó.
+  const tickersRef = useRef<string[]>(tickers);
+  tickersRef.current = tickers;
+
+  // ── Ciclo de vida de la conexión ────────────────────────────────────────────
+  // Se abre UNA vez y vive lo que vive el tablero. Deliberadamente sin `tickers` en las deps:
+  // el hub transporta mucho más que precios de subyacentes (orquestación de RPF, quotes/Greeks
+  // de los legs del Monitor, flow), así que atarlo al universo lo reconstruía cada vez que la
+  // config cargaba y el `stop()` del cleanup pisaba un `start()` todavía en vuelo.
   useEffect(() => {
-    // La conexión NO depende de tener universo. El hub transporta mucho más que precios de
-    // subyacentes: la orquestación de RPF, los quotes/Greeks de los legs del Monitor y el flow.
-    // Con un `if (!tickers.length) return` acá, un config sin universo dejaba todo eso muerto.
     const hubUrl = process.env.REACT_APP_SIGNALR_HUB_URL;
     if (!hubUrl) {
       console.error('REACT_APP_SIGNALR_HUB_URL is not set');
@@ -70,13 +79,13 @@ export function useMarketSocket(tickers: string[] = []) {
     // ── Reconnect logic ───────────────────────────────────────────────────
     connection.onreconnecting(() => {
       setStatus('connecting');
-      tickers.forEach((s) => setStreaming(s, false));
+      tickersRef.current.forEach((s) => setStreaming(s, false));
     });
 
     connection.onreconnected(() => {
       setStatus('connected');
       // Re-subscribe price tickers
-      tickers.forEach((symbol) => {
+      tickersRef.current.forEach((symbol) => {
         connection.invoke('Subscribe', symbol, false).catch(console.error);
         setStreaming(symbol, true);
       });
@@ -91,41 +100,69 @@ export function useMarketSocket(tickers: string[] = []) {
 
     connection.onclose(() => {
       setStatus('disconnected');
-      tickers.forEach((s) => setStreaming(s, false));
+      tickersRef.current.forEach((s) => setStreaming(s, false));
     });
 
     // ── Start connection ──────────────────────────────────────────────────
+    // El universo NO se suscribe acá: de eso se encarga el efecto de abajo, que reacciona a
+    // `tickers`. Acá solo va lo que no depende del universo.
+    let disposed = false;
     setStatus('connecting');
-    connection
+    const started = connection
       .start()
       .then(() => {
+        if (disposed) return;
         setStatus('connected');
-        tickers.forEach((symbol) => {
-          connection.invoke('Subscribe', symbol, false).catch(console.error);
-        });
         // Join the RPF board group (loop puede estar inerte → no llega nada, es esperado)
         connection.invoke('SubscribeRpf').catch(console.error);
       })
       .catch((err) => {
+        if (disposed) return;
         console.error('SignalR connection error:', err);
         setStatus('error');
       });
 
     return () => {
+      disposed = true;
+      connectionRef.current = null;
+
+      // Unsubscribe flow symbols mientras la conexión todavía sirve
       if (connection.state === signalR.HubConnectionState.Connected) {
-        tickers.forEach((symbol) => {
-          connection.invoke('Unsubscribe', symbol, false).catch(() => {});
-        });
-        // Unsubscribe flow symbols
         const flowSymbols = useFlowStore.getState().subscribedSymbols;
         flowSymbols.forEach((symbol) => {
           connection.invoke('UnsubscribeFlow', symbol).catch(() => {});
         });
       }
-      connection.stop();
+
+      // Llamar stop() antes de que start() resuelva tira "Failed to start the HttpConnection
+      // before stop() was called". Hay que esperar a que el start termine, salga bien o mal —
+      // pasa siempre en el doble montaje de StrictMode en dev.
+      started.finally(() => { connection.stop().catch(() => {}); });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tickers.join(',')]);
+  }, []);
+
+  // ── Suscripción al universo ─────────────────────────────────────────────────
+  // Separado del ciclo de vida: cambiar de universo re-suscribe símbolos, no reconstruye el hub.
+  useEffect(() => {
+    const conn = connectionRef.current;
+    if (status !== 'connected' || !conn) return;
+
+    const symbols = tickersKey ? tickersKey.split(',') : [];
+    symbols.forEach((symbol) => {
+      conn.invoke('Subscribe', symbol, false).catch(console.error);
+      setStreaming(symbol, true);
+    });
+
+    return () => {
+      if (conn.state !== signalR.HubConnectionState.Connected) return;
+      symbols.forEach((symbol) => {
+        conn.invoke('Unsubscribe', symbol, false).catch(() => {});
+        setStreaming(symbol, false);
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickersKey, status]);
 
   // ── Option leg subscription (para quotes live en Portfolio Manager) ──
   const subscribeLeg = useCallback((occSymbol: string) => {
