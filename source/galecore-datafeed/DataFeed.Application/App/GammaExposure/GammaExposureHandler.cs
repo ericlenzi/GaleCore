@@ -137,7 +137,12 @@ namespace DataFeed.Application.App.GammaExposure
             }
 
             // ── Fase 2: Candle (OI) en lotes (DXLink limita las suscripciones Candle activas) ──
-            const int CANDLE_BATCH_SIZE = 80;
+            // DXLink rechaza con BAD_ACTION ("Candle subscription too big") si el lote pasa su
+            // cupo de suscripciones Candle activas, y como el canal 3 es compartido, ese rechazo
+            // degrada Trade/Quote/Greeks también. Con el GEX global (cadena entera) los lotes
+            // llegaban al tope de 80 y disparaban el error; se baja a 40 (el orden que ya andaba
+            // antes del barrido global).
+            const int CANDLE_BATCH_SIZE = 40;
             var fromTime = new DateTimeOffset(today.AddDays(-2), TimeSpan.Zero).ToUnixTimeMilliseconds();
 
             for (int i = 0; i < toFetch.Count; i += CANDLE_BATCH_SIZE)

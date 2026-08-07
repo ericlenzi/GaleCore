@@ -48,6 +48,20 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         private readonly Dictionary<string, (int Count, long FromTime)> _candleSubs = new();
         private readonly object _candleLock = new();
 
+        // ── Throttle de FEED_SUBSCRIPTION (add) ────────────────────────────────────────────────
+        // DXLink limita la CANTIDAD de items por suscripción y la VELOCIDAD a la que se mandan; al
+        // pasarse responde BAD_ACTION ("subscription size too big" / "subscription rate is too
+        // high") y, como el canal 3 es compartido por Trade/Quote/Greeks/Candle, ese rechazo degrada
+        // el feed entero: dejan de llegar trades y el barrido de la cadena vuelve vacío.
+        // Todos los `add` Y los `remove` pasan por SendSubscriptionChunkedAsync: se parten en chunks
+        // y se espacian, serializados por el semáforo para que dos llamadores concurrentes no sumen
+        // sus ráfagas. Los `remove` se throttlean también: el barrido de la cadena desuscribe tandas
+        // enteras al terminar cada lote, y esas ráfagas cuentan para el mismo cupo (con los `remove`
+        // sin throttle el BAD_ACTION seguía apareciendo justo después de cada desuscripción masiva).
+        private const int SUB_CHUNK_SIZE = 50;
+        private const int SUB_CHUNK_DELAY_MS = 500;
+        private readonly SemaphoreSlim _subSendLock = new(1, 1);
+
         public DxLinkStreamingService(
             ITastytradeOAuth auth,
             IMarketDataBroadcaster broadcaster,
@@ -132,7 +146,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                 await DoHandshakeAsync(token);
 
                 // Re-suscribir las suscripciones activas (tras cualquier reconexión).
-                ResubscribeActive();
+                await ResubscribeActiveAsync();
             }
             catch (Exception ex)
             {
@@ -169,7 +183,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         }
 
         /// <summary>Re-envía las suscripciones activas (reference count &gt; 0) tras una reconexión.</summary>
-        private void ResubscribeActive()
+        private async Task ResubscribeActiveAsync()
         {
             var activeSubs = _subscriptions
                 .Where(kv => kv.Value > 0)
@@ -178,7 +192,8 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
             if (activeSubs.Count > 0)
             {
-                Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = activeSubs });
+                // Throttleado: reenviar toda la cadena de golpe era la ráfaga más grande de todas.
+                await SendSubscriptionChunkedAsync(activeSubs);
                 _logger.LogInformation("Re-suscripción de {Count} feeds tras reconexión", activeSubs.Count);
             }
         }
@@ -221,7 +236,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             _logger.LogInformation("DxLink handshake completo — listo para suscripciones");
 
             // Flush any subscriptions queued during handshake
-            FlushPendingSubscriptions();
+            await FlushPendingSubscriptionsAsync();
         }
 
         private async Task ReconnectWithDelayAsync()
@@ -239,11 +254,11 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         }
 
 
-        private void FlushPendingSubscriptions()
+        private async Task FlushPendingSubscriptionsAsync()
         {
             while (_pendingSubscriptions.TryDequeue(out var toAdd))
             {
-                Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = toAdd });
+                await SendSubscriptionChunkedAsync(toAdd);
                 _logger.LogInformation("FEED_SUBSCRIPTION pendiente enviado ({Count} items)", toAdd.Count);
             }
         }
@@ -277,7 +292,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             {
                 if (_handshakeComplete)
                 {
-                    Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = toAdd });
+                    await SendSubscriptionChunkedAsync(toAdd);
                     _logger.LogInformation("FEED_SUBSCRIPTION enviado: {Symbol} -> [{EventTypes}]",
                         symbol, string.Join(", ", eventTypes));
                 }
@@ -289,7 +304,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             }
         }
 
-        public Task UnsubscribeAsync(string symbol, string[] eventTypes)
+        public async Task UnsubscribeAsync(string symbol, string[] eventTypes)
         {
             var toRemove = new List<object>();
 
@@ -314,18 +329,11 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
             if (toRemove.Count > 0 && _handshakeComplete)
             {
-                Send(new
-                {
-                    type = "FEED_SUBSCRIPTION",
-                    channel = 3,
-                    remove = toRemove
-                });
+                await SendSubscriptionChunkedAsync(toRemove, remove: true);
 
                 _logger.LogInformation("Desuscripción DxLink: {Symbol} -> [{EventTypes}]",
                     symbol, string.Join(", ", eventTypes));
             }
-
-            return Task.CompletedTask;
         }
 
         public async Task SubscribeBatchAsync(IEnumerable<string> symbols, string[] eventTypes)
@@ -356,7 +364,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             {
                 if (_handshakeComplete)
                 {
-                    Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = toAdd });
+                    await SendSubscriptionChunkedAsync(toAdd);
                     _logger.LogInformation("FEED_SUBSCRIPTION batch enviado: {Count} items", toAdd.Count);
                 }
                 else
@@ -367,7 +375,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             }
         }
 
-        public Task UnsubscribeBatchAsync(IEnumerable<string> symbols, string[] eventTypes)
+        public async Task UnsubscribeBatchAsync(IEnumerable<string> symbols, string[] eventTypes)
         {
             var toRemove = new List<object>();
 
@@ -395,11 +403,9 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
             if (toRemove.Count > 0 && _handshakeComplete)
             {
-                Send(new { type = "FEED_SUBSCRIPTION", channel = 3, remove = toRemove });
+                await SendSubscriptionChunkedAsync(toRemove, remove: true);
                 _logger.LogInformation("Desuscripción batch DxLink: {Count} items", toRemove.Count);
             }
-
-            return Task.CompletedTask;
         }
 
         private async Task EnsureConnectedAsync()
@@ -556,7 +562,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                     await SubscribeBatchAsync(grp.Select(s => s.Symbol), new[] { grp.Key });
 
                 foreach (var s in candleSubs)
-                    CandleSubscribe(s.Symbol, s.FromTime ?? 0);
+                    await CandleSubscribeAsync(s.Symbol, s.FromTime ?? 0);
 
                 await Task.WhenAny(collector.Done.Task, Task.Delay(timeout, cancellationToken));
                 return collector.Items;
@@ -567,7 +573,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                     await UnsubscribeBatchAsync(grp.Select(s => s.Symbol), new[] { grp.Key });
 
                 foreach (var s in candleSubs)
-                    CandleUnsubscribe(s.Symbol);
+                    await CandleUnsubscribeAsync(s.Symbol);
 
                 _collectors.TryRemove(id, out _);
             }
@@ -633,7 +639,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         /// Suscribe Candle con reference-count por símbolo. Solo envía add cuando es el primer
         /// suscriptor, o cuando un suscriptor nuevo necesita una fromTime más vieja (re-snapshot).
         /// </summary>
-        private void CandleSubscribe(string symbol, long fromTime)
+        private async Task CandleSubscribeAsync(string symbol, long fromTime)
         {
             bool sendAdd; long effectiveFrom;
             lock (_candleLock)
@@ -654,11 +660,12 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             }
 
             if (sendAdd)
-                Send(new { type = "FEED_SUBSCRIPTION", channel = 3, add = new[] { new { type = "Candle", symbol, fromTime = effectiveFrom } } });
+                await SendSubscriptionChunkedAsync(
+                    new List<object> { new { type = "Candle", symbol, fromTime = effectiveFrom } });
         }
 
         /// <summary>Desuscribe Candle; solo envía remove cuando el ref-count llega a 0.</summary>
-        private void CandleUnsubscribe(string symbol)
+        private async Task CandleUnsubscribeAsync(string symbol)
         {
             bool sendRemove = false;
             lock (_candleLock)
@@ -671,7 +678,8 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             }
 
             if (sendRemove)
-                Send(new { type = "FEED_SUBSCRIPTION", channel = 3, remove = new[] { new { type = "Candle", symbol } } });
+                await SendSubscriptionChunkedAsync(
+                    new List<object> { new { type = "Candle", symbol } }, remove: true);
         }
 
         #endregion
@@ -684,6 +692,41 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             {
                 var json = JsonConvert.SerializeObject(msg);
                 _socket.Send(json);
+            }
+        }
+
+        /// <summary>
+        /// Envía un FEED_SUBSCRIPTION respetando los límites de DXLink: parte la lista en chunks de
+        /// <see cref="SUB_CHUNK_SIZE"/> y espera <see cref="SUB_CHUNK_DELAY_MS"/> entre envíos. El
+        /// semáforo serializa a los llamadores concurrentes (barrido de la cadena, legs del Monitor,
+        /// replay de reconexión), que es lo que hacía picos de rate al sumarse.
+        /// </summary>
+        /// <param name="items">Símbolos a suscribir o desuscribir.</param>
+        /// <param name="remove">false → va como `add`; true → como `remove`.</param>
+        private async Task SendSubscriptionChunkedAsync(List<object> items, bool remove = false)
+        {
+            if (items == null || items.Count == 0) return;
+
+            await _subSendLock.WaitAsync();
+            try
+            {
+                for (int i = 0; i < items.Count; i += SUB_CHUNK_SIZE)
+                {
+                    if (_cts is { IsCancellationRequested: true }) return;
+
+                    var chunk = items.GetRange(i, Math.Min(SUB_CHUNK_SIZE, items.Count - i));
+                    Send(remove
+                        ? new { type = "FEED_SUBSCRIPTION", channel = 3, remove = chunk }
+                        : (object)new { type = "FEED_SUBSCRIPTION", channel = 3, add = chunk });
+
+                    // Espaciar solo ENTRE chunks: el último no necesita cola de espera.
+                    if (i + SUB_CHUNK_SIZE < items.Count)
+                        await Task.Delay(SUB_CHUNK_DELAY_MS);
+                }
+            }
+            finally
+            {
+                _subSendLock.Release();
             }
         }
 
