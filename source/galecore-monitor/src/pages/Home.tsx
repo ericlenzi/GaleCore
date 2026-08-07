@@ -22,13 +22,13 @@ export function Home({ onNavigate }: Props) {
     <div style={{ padding: '16px 18px 40px', fontFamily: 'Inter, sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 16 }}>
         <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
-          Estrategias implementadas
+          GaleCore Strategies
         </span>
         <span style={{
           fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase',
           color: 'var(--text-muted)',
         }}>
-          estado de sus workers
+          workers status
         </span>
       </div>
 

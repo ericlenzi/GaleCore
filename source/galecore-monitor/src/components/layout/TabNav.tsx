@@ -14,8 +14,8 @@ interface Props {
 const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
   { id: 'inicio',          label: 'Main',              Icon: LayoutDashboard },
   { id: 'monitor',         label: 'Monitor',           Icon: Activity        },
-  { id: 'rpf',             label: 'RPF',               Icon: Zap             },
   { id: 'gex',             label: 'GEX',               Icon: BarChart3       },
+  { id: 'rpf',             label: 'RPF',               Icon: Zap             },
   { id: 'estrategia',      label: 'References',        Icon: BookOpen        },
 ];
 

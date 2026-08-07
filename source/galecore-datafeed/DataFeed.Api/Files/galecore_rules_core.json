@@ -17,17 +17,6 @@
 
   "strategies": [
     {
-      "id": "rpf",
-      "prefix": "Rpf",
-      "tab": "rpf",
-      "label": "RPF",
-      "name": "Disparo por prima real",
-      "kind": "operativa",
-      "description": "Maquina de 7 estados sobre el loop backend. Sugiere operaciones por SignalR; nunca ejecuta.",
-      "rules_endpoint": "/App/Rpf/Rules",
-      "workers_endpoint": "/App/Rpf/Workers"
-    },
-    {
       "id": "gex",
       "prefix": "Gex",
       "tab": "gex",
@@ -37,6 +26,17 @@
       "description": "GEX global de toda la cadena dentro de max_dte, incluido 0DTE. No propone estructura ni emite señales: su unico producto es informacion.",
       "rules_endpoint": "/App/Gex/Rules",
       "workers_endpoint": "/App/Gex/Workers"
+    },
+    {
+      "id": "rpf",
+      "prefix": "Rpf",
+      "tab": "rpf",
+      "label": "RPF",
+      "name": "Disparo por prima real",
+      "kind": "operativa",
+      "description": "Maquina de 7 estados sobre el loop backend. Sugiere operaciones por SignalR; nunca ejecuta.",
+      "rules_endpoint": "/App/Rpf/Rules",
+      "workers_endpoint": "/App/Rpf/Workers"
     }
   ],
 
