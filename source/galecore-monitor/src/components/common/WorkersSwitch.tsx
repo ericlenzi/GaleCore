@@ -21,35 +21,48 @@ export function WorkersSwitch({ enabled, fetchState, setState, onChange, title }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
 
-  useEffect(() => {
+  const read = useCallback(() => {
+    setBusy(true);
     fetchState()
       .then((s) => { onChange(s.enabled); setError(false); })
-      .catch(() => setError(true));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      .catch(() => setError(true))
+      .finally(() => setBusy(false));
+  }, [fetchState, onChange]);
 
-  const toggle = useCallback(() => {
-    if (enabled == null || busy) return;
+  useEffect(() => { read(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Un fallo NO deja el switch muerto. Antes `error` era un latch: se pintaba deshabilitado y
+  // como estaba deshabilitado nunca se podia reintentar, asi que un POST que fallaba una vez
+  // (p. ej. el broadcast del backend colgado) mataba el kill switch hasta recargar la pagina.
+  // Ahora, con el estado desconocido el click reintenta leerlo; con estado conocido, togglea.
+  const click = useCallback(() => {
+    if (busy) return;
+    if (enabled == null) { read(); return; }
     const next = !enabled;
     setBusy(true);
     setState(next)
       .then((s) => { onChange(s.enabled); setError(false); })
       .catch(() => setError(true))
       .finally(() => setBusy(false));
-  }, [enabled, busy, setState, onChange]);
+  }, [enabled, busy, setState, onChange, read]);
 
-  const unknown = enabled == null || error;
-  const color = unknown ? 'var(--text-muted)' : enabled ? 'var(--green)' : 'var(--red-gc)';
+  const unknown = enabled == null;
+  const color = error ? 'var(--yellow-gc)'
+    : unknown ? 'var(--text-muted)'
+    : enabled ? 'var(--green)' : 'var(--red-gc)';
 
   return (
     <button
-      onClick={toggle}
-      disabled={unknown || busy}
-      title={error ? 'No se pudo leer el estado de los workers' : (title ?? 'Prender / apagar')}
+      onClick={click}
+      disabled={busy}
+      title={error
+        ? 'El backend no respondio. El estado que se muestra puede no ser el vigente — clickeá para reintentar.'
+        : (title ?? 'Prender / apagar')}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 7,
         padding: '3px 9px', borderRadius: 20,
         backgroundColor: tint(color, 10), border: `1px solid ${tint(color, 30)}`,
-        color, cursor: unknown || busy ? 'default' : 'pointer',
+        color, cursor: busy ? 'default' : 'pointer',
         fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
         fontFamily: 'JetBrains Mono, monospace', opacity: busy ? 0.6 : 1,
       }}
@@ -65,7 +78,7 @@ export function WorkersSwitch({ enabled, fetchState, setState, onChange, title }
           transition: 'left 150ms',
         }} />
       </span>
-      WORKERS {unknown ? '—' : enabled ? 'ON' : 'OFF'}
+      WORKERS {unknown ? '—' : enabled ? 'ON' : 'OFF'}{error ? ' ⚠' : ''}
     </button>
   );
 }

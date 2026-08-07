@@ -20,12 +20,14 @@ namespace DataFeed.Controllers
         private readonly DataFeed.Api.Infrastructure.GexWorkerSwitch _gexWorkerSwitch;
         private readonly DataFeed.Application.App.Rpf.RpfStateStore _rpfStore;
         private readonly DataFeed.Infrastructure.Providers.Tastytrade.IMarketDataBroadcaster _broadcaster;
+        private readonly ILogger<AppController> _logger;
 
         public AppController(IMediator mediator, IWebHostEnvironment env,
             DataFeed.Api.Infrastructure.RpfWorkerSwitch rpfWorkerSwitch,
             DataFeed.Api.Infrastructure.GexWorkerSwitch gexWorkerSwitch,
             DataFeed.Application.App.Rpf.RpfStateStore rpfStore,
-            DataFeed.Infrastructure.Providers.Tastytrade.IMarketDataBroadcaster broadcaster)
+            DataFeed.Infrastructure.Providers.Tastytrade.IMarketDataBroadcaster broadcaster,
+            ILogger<AppController> logger)
             : base(mediator)
         {
             _env = env;
@@ -33,6 +35,7 @@ namespace DataFeed.Controllers
             _gexWorkerSwitch = gexWorkerSwitch;
             _rpfStore = rpfStore;
             _broadcaster = broadcaster;
+            _logger = logger;
         }
 
         #region Analytics
@@ -115,7 +118,29 @@ namespace DataFeed.Controllers
             if (!body.Enabled) _rpfStore.Clear();
 
             // Aviso al grupo "rpf" para que los tableros abiertos reaccionen en el acto.
-            await _broadcaster.BroadcastRpfWorkersAsync(body.Enabled);
+            //
+            // Acotado en el tiempo A PROPOSITO. El front fuerza transporte LongPolling, y un cliente
+            // que desaparecio sin cerrar (pestaña vieja, browser dormido) sigue en el grupo hasta que
+            // expira: ahi el SendAsync bloquea y se llevaba puesto al POST entero, dejando el switch
+            // colgado. Un kill switch que se cuelga porque un tablero fantasma no lee es peor que
+            // inutil — el estado ya quedo escrito en disco y es lo unico que manda. Avisar es
+            // best-effort: el tablero que no se entere lo va a ver en su proximo GET.
+            try
+            {
+                await _broadcaster.BroadcastRpfWorkersAsync(body.Enabled)
+                    .WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning(
+                    "RPF Workers → {State}: el broadcast al grupo 'rpf' no completo en 2s (cliente colgado). " +
+                    "El switch igual quedo aplicado.", body.Enabled ? "ON" : "OFF");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "RPF Workers → {State}: fallo el broadcast al grupo 'rpf'. " +
+                    "El switch igual quedo aplicado.", body.Enabled ? "ON" : "OFF");
+            }
 
             return Ok(new { enabled = body.Enabled, source = "override" });
         }
