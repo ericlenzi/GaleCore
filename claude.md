@@ -11,7 +11,28 @@ La plataforma provee:
   * **Config de aplicación** — `galecore_rules_core.json`, que declara qué estrategias existen
 
 Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **RPF** (operativa) y
-**GEX** (informativa). Cómo se agrega una: ver "Estrategias — convención".
+**GEX** (informativa). Cuáles son: ver "Estrategias". Cómo se agrega una: ver "Estrategias — convención".
+
+## Estrategias
+
+  Registro de las estrategias implementadas en GaleCore. **Cada estrategia tiene su documentación
+  completa en `docs/<prefijo>/`**, y el archivo de definición que se linkea acá es su fuente de verdad
+  conceptual — este nodo es solo el índice.
+
+| Prefijo | Tipo | Nombre | Descripción | Definición |
+|---|---|---|---|---|
+| `Rpf` | Operativa | Disparo por prima real | Venta de prima con riesgo definido decidida por dos ejes ortogonales: la **seguridad arma** el entorno y la **prima dispara** la operación (VRP + edge, en AND no-compensable). Máquina de 7 estados por símbolo sobre un loop backend; sugiere por SignalR y **nunca ejecuta**. | [`docs/rpf/galecore-estrategia-rpf.md`](docs/rpf/galecore-estrategia-rpf.md) · [índice](docs/rpf/README.md) |
+| `Gex` | Informativa | Gamma Exposure | GEX global de toda la cadena dentro de `max_dte` (50), incluido 0DTE y weeklies. **Sin trades**: no propone estructura, no calcula strikes ni sizing, no emite señales — su único producto es información para decidir. | [`docs/gex/galecore-estrategia-gex.md`](docs/gex/galecore-estrategia-gex.md) · [índice](docs/gex/README.md) |
+
+  Los tres lugares donde vive una estrategia y que **tienen que coincidir**:
+  * **Este nodo** — el índice narrativo, con el link a su doc.
+  * **`strategies[]` de `galecore_rules_core.json`** — lo que Main renderiza (`prefix`, `kind`, `name`,
+    `description`, `rules_endpoint`, `workers_endpoint`). Es lo que lee la app; este nodo es lo que
+    leemos nosotros.
+  * **`docs/<prefijo>/`** — la carpeta con toda su documentación.
+
+  **Case del prefijo:** capitalizado en ruta HTTP (`/App/Rpf`), carpeta de archivos (`Files/Rpf/`) y tag
+  de Swagger (`App.Rpf`); **minúscula** en `docs/<prefijo>/`, en el `id` y en el `tab` del config.
 
 ## Stack
 
@@ -62,6 +83,10 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   6. Switch **Workers** si corre procesos o mantiene sockets propios (ver "switch Workers"), con su
      `<prefijo>_workers_state.json` en su carpeta — gitignoreado.
   7. Test que congele los invariantes de su JSON, al estilo `GexRulesJsonTests.cs`.
+  8. **Carpeta `docs/<prefijo>/`** (minúscula) con su definición canónica
+     `galecore-estrategia-<prefijo>.md` y un `README.md` que indexe la carpeta. Ahí va TODA su
+     documentación: definición, research, decisiones. **Fila nueva en el nodo "Estrategias"** de este
+     archivo, linkeando esa definición.
 
   **Lo que las estrategias comparten:** los primitivos de cálculo de `App/Shared/CascadeUtils.cs` y
   los contratos de `App/Shared/Dtos/CascadeContracts.cs`. Cada una le pasa SU propio JSON — los
@@ -146,65 +171,18 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     - `Subscribe(symbol, includeGreeks)` → `ReceiveTrade`, `ReceiveQuote` (precio); con `includeGreeks=true` también `ReceiveGreeks` (delta/gamma/theta/vega/IV por opción). Los legs del Monitor se suscriben con `includeGreeks=true`.
     - `SubscribeFlow(symbol)` → `ReceiveFlow` cada 30s (flow de opciones via `FlowBroadcastService`)
 
-- Estrategia GEX — informativa
-  Estrategia sin trades: su único producto es información de gamma exposure para decidir.
-  No propone estructura, no calcula strikes ni sizing, no emite señales.
-  * **El GEX de GEX es global.** `GET /App/Gex/Analysis` agrega TODOS los strikes de TODOS los
-    vencimientos de la cadena dentro de `gex.max_dte` (50), incluido 0DTE y las weeklies. El de
-    `/App.Analytics/GammaExposure` sigue siendo de **un solo** vencimiento: son números distintos a
-    propósito y no se comparan. La respuesta trae `gex.global` (agregado), `gex.byExpiry[]` (desglose por
-    vencimiento con su propio ZGL, muros, IV ATM y expected move) y el contexto de mercado
-    (`macroRegime` + `structureInputs`).
-  * **Modo global de `GammaExposureHandler`** — opt-in vía `AllExpirations` / `IncludeByExpiry` /
-    `ExpirationTypes` / `IncludeZeroDte` / `GreeksBatchSize` en `GammaExposureRequest`. Con los
-    defaults el handler se comporta igual que siempre, así que `PutSkew`, RPF, `SkewSnapshotService`
-    y el `/App.Analytics/GammaExposure` del Monitor no cambian. En el agregado, GEX y OI **se suman**
-    por strike; delta/gamma/IV se toman de la expiración más cercana (sumarlos no significaría nada).
-  * **Capa 1 compartida** — `CascadeUtils.EvaluateLayer1` (en `App/Shared/`) la usa `GexAnalysisHandler`
-    con el JSON de GEX: por eso ese JSON espeja `macro_regime.checks`,
-    `definitions.gex_threshold_by_symbol` y `definitions.zgl_with_buffer`. Ahí los checks son
-    lectura (`on_fail: inform_only`), no gatean nada.
-  * **Latencia** — medido 2026-08-05 con la cadena completa de SPY a 50 DTE (17 vencimientos,
-    ~6200 símbolos): **121s SPY / 146s QQQ** con el cache diario de OI caliente, y **399s** el
-    primer barrido después de reiniciar la API, que paga el OI de toda la cadena. Como los barridos
-    se serializan, lo que dimensiona el cache es recorrer el universo entero: medido 2026-08-06 con
-    mercado abierto, SPY 197s + QQQ 135s + AAPL 50s + SKM 1s ≈ **383s**. Por eso `cache_seconds` y
-    `refresh_seconds` quedaron en **600**. Palancas, todas en el JSON (sin
-    recompilar): `gex.max_dte`, `gex.oi_delta_band`, `gex.greeks_batch_size`, `gex.greeks_retries`,
-    `gex.cache_seconds`. El OI reusa el cache diario por símbolo del handler, compartido con el GEX
-    de vencimiento único que pide el Monitor.
-  * **Los Greeks se reintentan** (`gex.greeks_retries`) — `RequestSnapshotAsync` devuelve lo que
-    juntó al vencer su timeout, así que un lote lento deja símbolos sin Greeks y esos strikes se
-    caen del GEX en silencio. Sin reintentos, dos corridas seguidas dieron 271B con 12 vencimientos
-    y 696B con 16 (faltaba el 0DTE). Cada vuelta pide sólo los que faltan.
-  * **Barridos serializados** — `GexAnalysisHandler` tiene un semáforo global: un barrido a la vez.
-    Todos comparten la conexión DXLink y dos concurrentes se pisan (medido: SPY y QQQ solapados
-    bajaron a 60.8% y 69.2% de cobertura, contra 100% de a uno). El segundo pedido espera; al entrar
-    re-chequea el cache por si el barrido anterior era de su mismo símbolo.
-  * **Editar el JSON invalida el cache.** La entrada guarda el hash del `galecore_rules_gex.json`
-    con el que se calculó, porque la respuesta lleva el `macroRegime` **ya evaluado**: sin eso,
-    cambiar un umbral no se veía hasta `cache_seconds` después, aunque el endpoint relea el archivo
-    en cada request. Se compara por contenido y no por fecha del archivo, así guardar sin cambios no
-    tira a la basura un barrido de varios minutos.
-  * **Un barrido incompleto no se cachea** (`gex.cache_min_coverage_pct`, y tampoco si el cliente
-    abortó). Guardarlo dejaría el tablero mostrando un GEX sin vencimientos enteros durante
-    `cache_seconds`, y un GEX más chico se lee como caída del gamma, no como dato faltante.
-    `cache_seconds` debe ser mayor que la duración de un barrido, y `refresh_seconds` del front
-    ≥ `cache_seconds` (hay un test que lo congela).
-  * **El umbral de GEX decide qué símbolos se evalúan.** `definitions.gex_threshold_by_symbol.values`
-    declara un umbral por símbolo; el que no figura **no se valida**: `EvaluateLayer1` devuelve
-    `gexTotal.thresholdDeclared:false` y el tablero pinta esa celda en gris con "sin umbral", en vez
-    de rojo. Sumar un símbolo a `universe.tickers` no alcanza para que su check de GEX signifique
-    algo — hay que declararle el umbral.
-  * **Switch "Workers"** — GEX no corre `BackgroundService`, pero sí tiene algo que anda solo y
-    compite por el feed: el barrido de la cadena. El switch es un **kill switch** de eso.
-    - `GET /App/Gex/Workers` → `{ enabled, source }`; `POST /App/Gex/Workers` con `{ enabled }`.
-    - Estado en `Files/Gex/gex_workers_state.json` (override del operador, persiste a restart);
-      si no existe manda `gex.enabled` del JSON de reglas. Dueño: `GexWorkerSwitch` (singleton).
-    - **En OFF `/App/Gex/Analysis` no barre ni toca DXLink**: devuelve lo último cacheado con
-      `workersEnabled:false` y `frozen:true`, ignorando el TTL — nadie lo va a refrescar y tirarlo
-      dejaría la pantalla vacía sin ganar nada. El front corta el auto-refresh, deshabilita Reload
-      y marca **DETENIDO · DATO CONGELADO** con la hora del último barrido.
+- `GammaExposureHandler` — dos modos, y el global es opt-in
+  Handler **compartido**: lo consumen `PutSkew`, RPF, `SkewSnapshotService`, el
+  `/App.Analytics/GammaExposure` del Monitor y `GexAnalysisHandler`.
+  * **Por defecto calcula el GEX de UN vencimiento.** Con los defaults el handler se comporta igual que
+    siempre, así que tocar el modo global no cambia a ningún consumidor existente.
+  * **Modo global** — opt-in vía `AllExpirations` / `IncludeByExpiry` / `ExpirationTypes` /
+    `IncludeZeroDte` / `GreeksBatchSize` en `GammaExposureRequest`. Hoy lo usa solo la estrategia GEX.
+    En el agregado, GEX y OI **se suman** por strike; delta/gamma/IV se toman de la expiración más
+    cercana (sumarlos no significaría nada).
+  * **Los dos números no se comparan.** El GEX global es mayor en magnitud que el de un vencimiento, así
+    que los umbrales por símbolo de una estrategia no son trasladables a la otra
+    (ver [`docs/gex/galecore-estrategia-gex.md`](docs/gex/galecore-estrategia-gex.md)).
 
 - Convención de rutas HTTP por estrategia
   Cada estrategia expone sus endpoints bajo su propio prefijo de primer nivel: `/App/<Estrategia>/*`.
@@ -250,33 +228,24 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   `workers_endpoint` que la estrategia declara. Por eso el contrato tiene que ser uniforme:
   `GET <workers_endpoint>` → `{ enabled, source }` y `POST <workers_endpoint>` con `{ enabled }`.
 
-  **RPF — implementado.** Switch en la cabecera del tab RPF (`WorkersSwitch` en `pages/Rpf.tsx`).
-  * `GET /App/Rpf/Workers` → `{ enabled, source }`. `source` es `"override"` si el operador ya usó el
-    switch, `"rules"` si todavía manda `state_machine.enabled` del JSON.
-  * `POST /App/Rpf/Workers` con `{ enabled }` → prende/apaga.
-  El estado se guarda en `Files/Rpf/rpf_workers_state.json`, **no** dentro de `galecore_rules_rpf.json`:
-  el JSON de reglas es fuente de verdad y se edita deliberadamente, no en runtime. El archivo de
-  estado es un override; si no existe, manda lo que declara el JSON. Persiste a disco a propósito —
-  un kill switch que vuelve solo a ON después de un restart es un agujero de seguridad.
-  `RpfLoopService.LoadConfig()` lo relee en cada tick, así que apagar corta el loop dentro de un tick
-  sin reiniciar la API. Dueño del estado: `RpfWorkerSwitch` (singleton).
+  **Dónde vive el estado (regla, no detalle de una estrategia):** en
+  `Files/<Prefijo>/<prefijo>_workers_state.json`, **nunca** dentro del JSON de reglas. El JSON de reglas
+  es fuente de verdad y se edita deliberadamente, no en runtime; el archivo de estado es un **override**
+  y si no existe manda lo que declara el JSON (por eso `source` vale `"override"` o `"rules"`). Persiste
+  a disco a propósito — un kill switch que vuelve solo a ON después de un restart es un agujero de
+  seguridad. Está gitignoreado: un deploy pisaría el switch del operador.
 
-  **En OFF el sistema no hace nada y el tablero vuelve al estado inicial:**
-  * El loop no corre la cascada ni emite (rama inerte de `ExecuteAsync`).
-  * Se limpia `RpfStateStore` — desde el POST y también al entrar en inerte, así queda cubierto el
-    apagado por fuera del switch. Sin esto, un tablero que se conectara después recibiría por
-    `SubscribeRpf` un estado congelado como si fuera vigente.
-  * Se emite `ReceiveRpfWorkers(enabled)` al grupo `rpf`; el front hace `setWorkers(false)`, que
-    vacía `states` y `suggestions`.
-  * El semáforo `LOOP ONLINE` sale de dos fuentes: `workersEnabled !== false` **y** frescura del
-    último timestamp (`STALE_MS` = 75s ≈ 2 ticks + margen). La frescura hace que un loop crasheado
-    también se vea offline, no solo uno apagado a propósito; antes `loopOnline` era un latch que
-    nunca volvía a false.
-  El switch **no** toca DXLink, el hub, ni los otros workers.
+  **En OFF, la estrategia no hace nada Y su tablero vuelve al estado inicial.** No alcanza con frenar el
+  proceso: hay que limpiar el estado que quedó publicado, o un tablero que se conecte después recibe un
+  estado congelado como si fuera vigente. Y el semáforo de "online" del front tiene que salir del switch
+  **más** la frescura del último dato, para que un worker crasheado también se vea offline.
 
-  **GEX — implementado.** No corre `BackgroundService`, pero el barrido de la cadena anda solo (el
-  auto-refresh del front) y compite por la conexión DXLink, así que también tiene switch: es un kill
-  switch de ese barrido. Detalle en la sección "Estrategia GEX" más arriba.
+  Ambas estrategias lo tienen implementado; el cómo, en su doc:
+  * **RPF** — kill switch de `RpfLoopService`. Ver
+    [`docs/rpf/galecore-rpf-implementacion.md`](docs/rpf/galecore-rpf-implementacion.md).
+  * **GEX** — no corre `BackgroundService`, pero el barrido de la cadena anda solo y compite por DXLink;
+    el switch es un kill switch de ese barrido. Ver
+    [`docs/gex/galecore-estrategia-gex.md`](docs/gex/galecore-estrategia-gex.md).
 
   **`FlowBroadcastService` y `SkewSnapshotService` no tienen switch todavía** — no son de una
   estrategia en particular, así que falta decidir dónde vive su estado y en qué pantalla se controlan.
@@ -314,19 +283,13 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   El umbral de GEX lo declara cada estrategia en `definitions.gex_threshold_by_symbol.values`
   (RPF: 0 para SPY). No hay un umbral global de plataforma.
 
-- Ranking de oportunidades (`position_builder.ranking`)
-  Cuando hay múltiples tickers operables, el orden de prioridad viene del JSON → API → frontend.
-  Criterio: regla 1/3 Tastytrade como métrica de calidad del spread.
-  El nodo `position_builder.ranking` del JSON de la estrategia declara:
-  `priorityScore = (pop/100)*0.6 + (credit/width)*0.4`.
-  Hoy quien lo computa es `RpfTickHandler.cs`: llena `strikeEngine.creditRatio` (= credit/width×100,
-  target ≥ 33.3%) y `strikeEngine.priorityScore` después de tener el crédito snapshot de microstructure.
-  El frontend muestra `creditRatio` con semáforo: verde ≥ 33.3%, amarillo 25–33%, rojo < 25%.
-
-- legSymbols — formato DXLink streamer (no OCC)
-  `strikeEngine.legSymbols` contiene símbolos en formato DXLink (ej: `.SPY260717P695`), NO formato OCC.
-  DXLink no interpreta OCC. Los símbolos vienen de `GammaExposureStrike.CallStreamerSymbol / PutStreamerSymbol`
-  poblados en `GammaExposureHandler.cs` desde el `strikeMap` de la cadena de opciones de Tastytrade.
+- Símbolos de opción — DXLink streamer vs OCC
+  Los dos formatos conviven y **no son intercambiables**: el OCC (21 chars, ver abajo) es el de
+  Tastytrade REST, y **DXLink no lo interpreta**. Para suscribir un leg al feed hace falta el símbolo
+  *streamer* (ej: `.SPY260717P695`), que sale de
+  `GammaExposureStrike.CallStreamerSymbol / PutStreamerSymbol`, poblados en `GammaExposureHandler.cs`
+  desde el `strikeMap` de la cadena de opciones. Cualquier estrategia que arme legs para el feed pasa
+  por ahí (RPF los publica en `strikeEngine.legSymbols`).
 
 - Seguridad
   * API Key Middleware:

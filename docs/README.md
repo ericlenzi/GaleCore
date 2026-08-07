@@ -9,8 +9,12 @@ superado va a [`archive/`](archive/) con cabecera que lo marca.
 |---|---|
 | [`../CLAUDE.md`](../CLAUDE.md) | **Contrato de arquitectura** (plataforma, backend, front, endpoints, convención de estrategias). |
 | [`GaleCore-ways-of-working.md`](GaleCore-ways-of-working.md) | **Sistema de trabajo**: git, harness, agentes IA, cadencia. |
-| [`rpf/`](rpf/) | Estrategia **RPF** ("disparo por prima real"): definición, research, reconciliación. |
-| [`gex_endpoint.md`](gex_endpoint.md) | Referencia del endpoint de GEX. |
+| [`rpf/`](rpf/) | Estrategia **RPF** ("disparo por prima real", operativa): definición, research, reconciliación. |
+| [`gex/`](gex/) | Estrategia **GEX** (Gamma Exposure, informativa): definición + referencia del endpoint. |
+
+**Una carpeta por estrategia**, `docs/<prefijo>/` en minúscula, con su definición canónica
+`galecore-estrategia-<prefijo>.md`. El índice de qué estrategias existen está en el nodo "Estrategias"
+de [`../CLAUDE.md`](../CLAUDE.md).
 
 **Fuentes de verdad operativas** (no son docs), en `../source/galecore-datafeed/DataFeed.Api/Files/`:
 `galecore_rules_core.json` (config de la **aplicación**: universo, `strategies[]`, `monitor`) y un

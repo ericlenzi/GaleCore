@@ -24,7 +24,8 @@ Contexto completo de por qué esto es distinto de lo que corre hoy: ver la secci
 
 | Archivo | Rol |
 |---|---|
-| [`galecore-estrategia-rpf.md`](galecore-estrategia-rpf.md) | **Definición canónica v2** — alineada al research (2026-07-29). Reemplaza al diseño original. |
+| [`galecore-estrategia-rpf.md`](galecore-estrategia-rpf.md) | **Definición canónica v2** — alineada al research (2026-07-29). Reemplaza al diseño original. Es el *qué y por qué*. |
+| [`galecore-rpf-implementacion.md`](galecore-rpf-implementacion.md) | **Implementación (2026-08-07).** Cómo está en el código hoy: switch Workers, ranking de oportunidades, `legSymbols`, transporte SignalR, mapa de código. Es el *cómo*. |
 | [`galecore-rpf-fase5-orquestacion.md`](galecore-rpf-fase5-orquestacion.md) | **Diseño de orquestación (Fase 5).** Contrato `TradeSuggestion` + máquina de estados + loop backend + ack. Doc-only; implementación = Fase 6. |
 | [`galecore-rpf-reconciliacion.md`](galecore-rpf-reconciliacion.md) | **Libro mayor de reconciliación (Fase 0).** Valor final · BT · estado de cada parámetro. Contrato de la validación; ante duda de un número, manda este. |
 | [`galecore-research-backtesting-rpf.md`](galecore-research-backtesting-rpf.md) | **Backtesting ejecutado** (BT-0…BT-17). Evidencia empírica. Copia RPF del research compartido de `../`. |
@@ -32,16 +33,19 @@ Contexto completo de por qué esto es distinto de lo que corre hoy: ver la secci
 | [`archive/galecore-estrategia-rpf.diseno-2026-07-06.md`](archive/galecore-estrategia-rpf.diseno-2026-07-06.md) | **Diseño original pre-research** (verbatim). Reemplazado por la v2; se conserva por trazabilidad. |
 | `new-estrategy-one-pager.docx` | One-pager ejecutivo (lenguaje natural, los 7 estados en español). |
 | `GaleCore-Resumen-Config-Referencia.docx` | Resumen ejecutivo para el socio (10-jul) de la config validada H3/Config-C. |
-| [`galecore_rules_rpf.json`](../../source/galecore-datafeed/DataFeed.Api/Files/galecore_rules_rpf.json) | **JSON de reglas v0.1.0-draft (Fase 3).** Ubicado en `DataFeed.Api/Files/` (junto a core/live/paper), SIN endpoint todavía. Ejes A/B + `pop_calibration` + `state_machine` + `research_provenance`. `paper_only`. |
+| [`galecore_rules_rpf.json`](../../source/galecore-datafeed/DataFeed.Api/Files/Rpf/galecore_rules_rpf.json) | **JSON de reglas — fuente de verdad operativa.** En `DataFeed.Api/Files/Rpf/`, servido tal cual por `GET /App/Rpf/Rules`. Ejes A/B + `pop_calibration` + `state_machine` + `research_provenance`. `paper_only`. |
 
 ## JSON de reglas — nuevo e independiente
 
 El JSON de RPF es **completamente nuevo**, sin heredar el schema de `galecore_rules_core.json`.
-Ubicado en **`../../source/galecore-datafeed/DataFeed.Api/Files/galecore_rules_rpf.json`** (junto a
-core/live/paper), pero **sin endpoint**: `AppController` sirve solo core/live/paper por nombre fijo, así
-que el RPF está presente pero no se publica. Estructura: ejes A/B (arma/dispara) + `pop_calibration`
+Ubicado en **`../../source/galecore-datafeed/DataFeed.Api/Files/Rpf/galecore_rules_rpf.json`** y servido
+tal cual por `GET /App/Rpf/Rules`. Estructura: ejes A/B (arma/dispara) + `pop_calibration`
 first-class + `state_machine` + `research_provenance` (ata cada nodo a su BT). Los valores salen del
 libro mayor.
+
+> **Actualizado 2026-08-07.** Cuando se escribió este README el JSON vivía en la raíz de `Files/` junto a
+> `core/live/paper` y no tenía endpoint. Hoy tiene subcarpeta propia y endpoint; `live`/`paper` ya no
+> existen (se fueron con la estrategia v1.4.0 el 2026-08-06).
 
 **Nota — la capa de señal ya existe en código.** `DataFeed.Application/App/SignalGates/*`
 (`SignalGatesEvaluator`, `PopCalibrationTable`, `SkewHistory`) ya computa VRP, edge con POP empírica,
