@@ -12,6 +12,8 @@ import { getStrategyReference } from '../components/strategy/strategyReferences'
 import { fetchGexWorkers, setGexWorkers } from '../api/gex';
 import { useGexStore } from '../store/useGexStore';
 import { useMarketStore } from '../store/useMarketStore';
+import { useAppConfigStore } from '../store/useAppConfigStore';
+import { ConnectionStatus } from '../socket/useMarketSocket';
 import { GexAnalysisResponse, GexChartData, GexExpiryApi } from '../types/gex';
 import { ValidationLayerApiResponse } from '../types/api';
 import { mapValidationToLayers, EMPTY_LAYERS } from '../utils/validationLayers';
@@ -73,12 +75,20 @@ function toChartData(symbol: string, spot: number, expiry: GexExpiryApi | null):
  * cards del universo, cuadro Details (checks + diagnóstico, sin microestructura) con el GEX GLOBAL,
  * y el cuadro Graph con la cadena por vencimiento. No calcula ni muestra setup candidato.
  */
-export function Gex() {
+interface GexProps {
+  subscribeSymbol: (symbol: string) => void;
+  unsubscribeSymbol: (symbol: string) => void;
+  socketStatus: ConnectionStatus;
+}
+
+export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexProps) {
   const {
     tickers, display, rulesLoading, rulesError, loadRules,
     cache, loading, error, selectedExpiry, fetchGex, selectExpiry,
     workersEnabled, setWorkers,
   } = useGexStore();
+
+  const platformTickers = useAppConfigStore((s) => s.tickers);
 
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [refOpen, setRefOpen] = useState(false);
@@ -88,6 +98,19 @@ export function Gex() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => { loadRules(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Suscribir al hub el DELTA del universo de GEX: los símbolos de su JSON que la plataforma no
+  // streamea. App ya suscribe universe.tickers del config de app (SPY/QQQ); acá completamos el resto
+  // (AAPL, SKM…) para que sus cards tengan precio/quote/estado de mercado en vivo, no solo el REST
+  // inicial. Se excluye lo que ya suscribe la plataforma para no desuscribírselo al salir de la
+  // pestaña: la conexión del hub es única y compartida con Monitor/RPF/Home.
+  const extraTickersKey = tickers.filter((s) => !platformTickers.includes(s)).join(',');
+  useEffect(() => {
+    if (socketStatus !== 'connected') return;
+    const extras = extraTickersKey ? extraTickersKey.split(',') : [];
+    extras.forEach(subscribeSymbol);
+    return () => extras.forEach(unsubscribeSymbol);
+  }, [extraTickersKey, socketStatus, subscribeSymbol, unsubscribeSymbol]);
 
   // Carga inicial + auto-refresh del símbolo activo. El período sale del JSON (display_config).
   // Con el switch en OFF no se programa nada: el backend igual rechazaría el barrido, pero pedirlo

@@ -24,6 +24,19 @@ interface MarketStore {
 const defaultLoading = { price: false, ivRank: false, iv: false, gex: false };
 const defaultError   = {};
 
+// Base de un ticker todavía sin datos. Todos los reducers parten de acá cuando la clave no existe:
+// un update que llega ANTES de initTicker (p.ej. un ReceiveQuote de un símbolo que la plataforma
+// suscribe al arrancar, antes de que la grilla monte y llame initTicker) no debe crear un objeto
+// parcial sin `symbol` — si lo hace, la card queda sin nombre e initTicker ya no lo corrige.
+const emptyTicker = (symbol: string): TickerState => ({
+  symbol,
+  price: 0, open: 0, bid: 0, ask: 0,
+  lastUpdate: null,
+  isStreaming: false,
+  loading: { ...defaultLoading },
+  error:   { ...defaultError },
+});
+
 export const useMarketStore = create<MarketStore>((set) => ({
   tickers: {},
   vix9d: null,
@@ -32,19 +45,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
   initTicker: (symbol) =>
     set((s) => {
       if (s.tickers[symbol]) return s;
-      return {
-        tickers: {
-          ...s.tickers,
-          [symbol]: {
-            symbol,
-            price: 0, open: 0, bid: 0, ask: 0,
-            lastUpdate: null,
-            isStreaming: false,
-            loading: { ...defaultLoading },
-            error:   { ...defaultError },
-          },
-        },
-      };
+      return { tickers: { ...s.tickers, [symbol]: emptyTicker(symbol) } };
     }),
 
   updatePrice: (symbol, data) =>
@@ -52,7 +53,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
       tickers: {
         ...s.tickers,
         [symbol]: {
-          ...s.tickers[symbol],
+          ...(s.tickers[symbol] ?? emptyTicker(symbol)),
           price: data.price,
           lastUpdate: new Date(),
           isStreaming: true,
@@ -66,7 +67,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
       tickers: {
         ...s.tickers,
         [symbol]: {
-          ...s.tickers[symbol],
+          ...(s.tickers[symbol] ?? emptyTicker(symbol)),
           bid: data.bidPrice,
           ask: data.askPrice,
           ...(data.volume != null && { volume: data.volume }),
@@ -76,65 +77,64 @@ export const useMarketStore = create<MarketStore>((set) => ({
     })),
 
   updateGreeks: (symbol, data) =>
-    set((s) => {
-      const prev = s.tickers[symbol] ?? {
-        symbol, price: 0, open: 0, bid: 0, ask: 0,
-        lastUpdate: null, isStreaming: false,
-        loading: { ...defaultLoading }, error: { ...defaultError },
-      };
-      return {
-        tickers: {
-          ...s.tickers,
-          [symbol]: {
-            ...prev,
-            delta: data.delta,
-            gamma: data.gamma,
-            theta: data.theta,
-            vega:  data.vega,
-            ...(data.volatility != null && { iv: data.volatility }),
-          },
+    set((s) => ({
+      tickers: {
+        ...s.tickers,
+        [symbol]: {
+          ...(s.tickers[symbol] ?? emptyTicker(symbol)),
+          delta: data.delta,
+          gamma: data.gamma,
+          theta: data.theta,
+          vega:  data.vega,
+          ...(data.volatility != null && { iv: data.volatility }),
         },
-      };
-    }),
+      },
+    })),
 
   setOpen: (symbol, open, prevClose, volume) =>
     set((s) => ({
       tickers: {
         ...s.tickers,
-        [symbol]: { ...s.tickers[symbol], open, prevClose, volume },
+        [symbol]: { ...(s.tickers[symbol] ?? emptyTicker(symbol)), open, prevClose, volume },
       },
     })),
 
   setStreaming: (symbol, streaming) =>
     set((s) => ({
-      tickers: { ...s.tickers, [symbol]: { ...s.tickers[symbol], isStreaming: streaming } },
+      tickers: { ...s.tickers, [symbol]: { ...(s.tickers[symbol] ?? emptyTicker(symbol)), isStreaming: streaming } },
     })),
 
   setIVRank: (symbol, ivRank) =>
     set((s) => ({
-      tickers: { ...s.tickers, [symbol]: { ...s.tickers[symbol], ivRank } },
+      tickers: { ...s.tickers, [symbol]: { ...(s.tickers[symbol] ?? emptyTicker(symbol)), ivRank } },
     })),
 
   setIV: (symbol, iv30, iv9d, iv3m) =>
     set((s) => ({
-      tickers: { ...s.tickers, [symbol]: { ...s.tickers[symbol], iv30, iv9d, iv3m } },
+      tickers: { ...s.tickers, [symbol]: { ...(s.tickers[symbol] ?? emptyTicker(symbol)), iv30, iv9d, iv3m } },
     })),
 
   setLoading: (symbol, key, value) =>
-    set((s) => ({
-      tickers: {
-        ...s.tickers,
-        [symbol]: { ...s.tickers[symbol], loading: { ...s.tickers[symbol]?.loading, [key]: value } },
-      },
-    })),
+    set((s) => {
+      const prev = s.tickers[symbol] ?? emptyTicker(symbol);
+      return {
+        tickers: {
+          ...s.tickers,
+          [symbol]: { ...prev, loading: { ...prev.loading, [key]: value } },
+        },
+      };
+    }),
 
   setError: (symbol, key, msg) =>
-    set((s) => ({
-      tickers: {
-        ...s.tickers,
-        [symbol]: { ...s.tickers[symbol], error: { ...s.tickers[symbol]?.error, [key]: msg } },
-      },
-    })),
+    set((s) => {
+      const prev = s.tickers[symbol] ?? emptyTicker(symbol);
+      return {
+        tickers: {
+          ...s.tickers,
+          [symbol]: { ...prev, error: { ...prev.error, [key]: msg } },
+        },
+      };
+    }),
 
   setVix: (vix9d, vix3m) => set({ vix9d, vix3m }),
 }));

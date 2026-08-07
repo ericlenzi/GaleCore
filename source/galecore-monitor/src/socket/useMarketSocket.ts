@@ -34,6 +34,11 @@ export function useMarketSocket(tickers: string[] = []) {
     }
     const apiKey = sessionStorage.getItem('galecore:apiKey') ?? '';
 
+    // Marca esta conexión como descartada (cleanup del efecto). La leen los handlers de abajo para
+    // no tocar el estado compartido una vez que el efecto se desmontó — ver el comentario largo en
+    // "Reconnect logic".
+    let disposed = false;
+
     const connection = new signalR.HubConnectionBuilder()
       .withUrl(`${hubUrl}?apiKey=${encodeURIComponent(apiKey)}`, {
         headers: { 'X-API-KEY': apiKey },
@@ -77,12 +82,21 @@ export function useMarketSocket(tickers: string[] = []) {
     });
 
     // ── Reconnect logic ───────────────────────────────────────────────────
+    // Los tres handlers de ciclo de vida se guardan con `disposed`, igual que el then/catch del
+    // start. En StrictMode React monta el efecto dos veces: crea la conexión A, la descarta y crea
+    // la B. Sin el guard, el `onclose` de A —que dispara cuando termina su stop(), YA con B
+    // conectada y suscripta— pisaba el estado compartido con 'disconnected'; el efecto de
+    // suscripción veía el cambio de status, corría su cleanup y desuscribía el universo de la B
+    // (que sí estaba Connected, así que el guard del cleanup lo dejaba pasar). Resultado: hub
+    // conectado, cero suscripciones de market data y nada que las repusiera.
     connection.onreconnecting(() => {
+      if (disposed) return;
       setStatus('connecting');
       tickersRef.current.forEach((s) => setStreaming(s, false));
     });
 
     connection.onreconnected(() => {
+      if (disposed) return;
       setStatus('connected');
       // Re-subscribe price tickers
       tickersRef.current.forEach((symbol) => {
@@ -99,6 +113,7 @@ export function useMarketSocket(tickers: string[] = []) {
     });
 
     connection.onclose(() => {
+      if (disposed) return;
       setStatus('disconnected');
       tickersRef.current.forEach((s) => setStreaming(s, false));
     });
@@ -106,7 +121,6 @@ export function useMarketSocket(tickers: string[] = []) {
     // ── Start connection ──────────────────────────────────────────────────
     // El universo NO se suscribe acá: de eso se encarga el efecto de abajo, que reacciona a
     // `tickers`. Acá solo va lo que no depende del universo.
-    let disposed = false;
     setStatus('connecting');
     const started = connection
       .start()
@@ -164,6 +178,27 @@ export function useMarketSocket(tickers: string[] = []) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickersKey, status]);
 
+  // ── Underlying subscription (para universos de estrategia fuera del universo de plataforma) ──
+  // El universo de la plataforma lo suscribe el efecto de arriba (App pasa universe.tickers del
+  // config de app). Una estrategia con su propio universo — GEX declara el suyo en su JSON — usa
+  // esto para completar el delta: los símbolos que la plataforma no streamea. includeGreeks=false,
+  // igual que la suscripción de plataforma.
+  const subscribeSymbol = useCallback((symbol: string) => {
+    const conn = connectionRef.current;
+    if (conn?.state === signalR.HubConnectionState.Connected) {
+      conn.invoke('Subscribe', symbol, false).catch(console.error);
+      setStreaming(symbol, true);
+    }
+  }, [setStreaming]);
+
+  const unsubscribeSymbol = useCallback((symbol: string) => {
+    const conn = connectionRef.current;
+    if (conn?.state === signalR.HubConnectionState.Connected) {
+      conn.invoke('Unsubscribe', symbol, false).catch(() => {});
+      setStreaming(symbol, false);
+    }
+  }, [setStreaming]);
+
   // ── Option leg subscription (para quotes live en Portfolio Manager) ──
   const subscribeLeg = useCallback((occSymbol: string) => {
     const conn = connectionRef.current;
@@ -219,5 +254,5 @@ export function useMarketSocket(tickers: string[] = []) {
     }
   }, []);
 
-  return { status, subscribeFlow, unsubscribeFlow, subscribeLeg, unsubscribeLeg, acceptSuggestion, dismissSuggestion };
+  return { status, subscribeFlow, unsubscribeFlow, subscribeSymbol, unsubscribeSymbol, subscribeLeg, unsubscribeLeg, acceptSuggestion, dismissSuggestion };
 }

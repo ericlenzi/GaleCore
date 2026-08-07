@@ -48,7 +48,7 @@ function Dashboard({ onLogout }: DashboardProps) {
       .finally(() => setLoadingPositions(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { status, subscribeLeg, unsubscribeLeg, acceptSuggestion, dismissSuggestion } = useMarketSocket(tickers);
+  const { status, subscribeSymbol, unsubscribeSymbol, subscribeLeg, unsubscribeLeg, acceptSuggestion, dismissSuggestion } = useMarketSocket(tickers);
   useEffect(() => { setSocketStatus(status); }, [status]);
 
   return (
@@ -70,7 +70,7 @@ function Dashboard({ onLogout }: DashboardProps) {
           </div>
           {/* GEX se monta recién al entrar: el barrido de la cadena completa es caro y no tiene
               sentido dispararlo si el operador nunca abre la pestaña. */}
-          {tab === 'gex' && <Gex />}
+          {tab === 'gex' && <Gex subscribeSymbol={subscribeSymbol} unsubscribeSymbol={unsubscribeSymbol} socketStatus={socketStatus} />}
         </main>
       </div>
     </div>
