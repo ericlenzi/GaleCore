@@ -99,9 +99,19 @@ export function StrategyCard({ strategy, onOpen }: Props) {
         </div>
       )}
 
-      {/* Estado + References */}
+      {/* References (izquierda) + estado (derecha) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 'auto', paddingTop: 4 }}>
-        <span onClick={stop} style={{ display: 'inline-flex' }}>
+        {ref && (
+          <button
+            onClick={(e) => { stop(e); setRefOpen(true); }}
+            className="btn"
+            title={`Definiciones de ${strategy.label} + JSON de reglas`}
+          >
+            <BookOpen size={11} />
+            References
+          </button>
+        )}
+        <span onClick={stop} style={{ display: 'inline-flex', marginLeft: 'auto' }}>
           <WorkersSwitch
             enabled={enabled}
             fetchState={read}
@@ -110,17 +120,6 @@ export function StrategyCard({ strategy, onOpen }: Props) {
             title={`Prender / apagar los workers de ${strategy.label}`}
           />
         </span>
-        {ref && (
-          <button
-            onClick={(e) => { stop(e); setRefOpen(true); }}
-            className="btn"
-            style={{ marginLeft: 'auto' }}
-            title={`Definiciones de ${strategy.label} + JSON de reglas`}
-          >
-            <BookOpen size={11} />
-            References
-          </button>
-        )}
       </div>
 
       {ref && (

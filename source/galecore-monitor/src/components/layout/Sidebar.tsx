@@ -2,7 +2,12 @@ import React from 'react';
 import { AccountSummary } from '../account/AccountSummary';
 import { AccountPositionsList } from '../account/AccountPositionsList';
 
-export function Sidebar() {
+interface Props {
+  /** Click en el logo → vuelve a la pestaña Main. */
+  onLogoClick?: () => void;
+}
+
+export function Sidebar({ onLogoClick }: Props) {
   return (
     <aside style={{
       width: 220,
@@ -15,14 +20,20 @@ export function Sidebar() {
       overflow: 'hidden',
     }}>
       {/* Logo — height matches StatusBar + TabNav (36 + 36 = 72px) */}
-      <div style={{
-        height: 72,
-        padding: '0 10px',
-        borderBottom: '1px solid var(--border-dark)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}>
+      <div
+        onClick={onLogoClick}
+        title={onLogoClick ? 'Ir a Main' : undefined}
+        role={onLogoClick ? 'button' : undefined}
+        style={{
+          height: 72,
+          padding: '0 10px',
+          borderBottom: '1px solid var(--border-dark)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: onLogoClick ? 'pointer' : 'default',
+        }}
+      >
         <img
           src="/logo-galecore.png"
           alt="GaleCore"

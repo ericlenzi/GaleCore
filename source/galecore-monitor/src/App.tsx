@@ -53,7 +53,7 @@ function Dashboard({ onLogout }: DashboardProps) {
 
   return (
     <div className="flex" style={{ height: '100vh', backgroundColor: 'var(--bg-primary)' }}>
-      <Sidebar />
+      <Sidebar onLogoClick={() => setTab('inicio')} />
       <div className="flex flex-col flex-1 min-w-0">
         <StatusBar connectionStatus={socketStatus} lastUpdate={lastUpdate} />
         <TabNav active={tab} onChange={setTab} onLogout={onLogout} />
