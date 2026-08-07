@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, BookOpen } from 'lucide-react';
 import { TickerGrid } from '../components/ticker/TickerGrid';
 import { ValidationLayers } from '../components/validation/ValidationLayers';
 import { MarketDiagnostics } from '../components/ticker/MarketDiagnostics';
@@ -7,6 +7,8 @@ import { OptionsChainList } from '../components/gex/OptionsChainList';
 import { ExpiryEngine } from '../components/gex/ExpiryEngine';
 import { GexChart } from '../components/chart/GexChart';
 import { WorkersSwitch } from '../components/common/WorkersSwitch';
+import { ReferencesModal } from '../components/common/ReferencesModal';
+import { getStrategyReference } from '../components/strategy/strategyReferences';
 import { fetchGexWorkers, setGexWorkers } from '../api/gex';
 import { useGexStore } from '../store/useGexStore';
 import { useMarketStore } from '../store/useMarketStore';
@@ -19,6 +21,8 @@ import { fmtGex, fmtPrice, fmtTime, isStale, tint } from '../utils/formatters';
 // lo que manda es recorrer el universo entero (~383s medidos con 4 símbolos), no un barrido suelto.
 const DEFAULT_REFRESH_SECONDS = 600;
 const DETAIL_HEIGHT = 500;
+
+const GEX_REF = getStrategyReference('gex');
 
 /**
  * Adapta la respuesta de /App/Gex/Analysis al shape que consume mapValidationToLayers, para
@@ -77,6 +81,7 @@ export function Gex() {
   } = useGexStore();
 
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [refOpen, setRefOpen] = useState(false);
   const active = selectedSymbol ?? tickers[0] ?? null;
 
   const ticker = useMarketStore((s) => (active ? s.tickers[active] : undefined));
@@ -147,6 +152,18 @@ export function Gex() {
           Gamma Exposure
         </span>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+          <button
+            onClick={() => setRefOpen(true)}
+            title="Definiciones de la estrategia + JSON de reglas"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6,
+              background: 'none', border: '1px solid var(--border)', cursor: 'pointer',
+              fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+              color: 'var(--text-secondary)', fontFamily: 'Inter, sans-serif',
+            }}
+          >
+            <BookOpen size={12} /> References
+          </button>
           <WorkersSwitch
             enabled={workersEnabled}
             fetchState={fetchGexWorkers}
@@ -156,6 +173,17 @@ export function Gex() {
           />
         </span>
       </div>
+
+      {GEX_REF && (
+        <ReferencesModal
+          open={refOpen}
+          onClose={() => setRefOpen(false)}
+          title="GEX · Referencias"
+          accentColor={GEX_REF.accentColor}
+          definitions={GEX_REF.definitions}
+          fetchJson={GEX_REF.fetchJson}
+        />
+      )}
 
       <div className="p-3">
         <TickerGrid symbols={tickers} selectedSymbol={active} onSelect={setSelectedSymbol} />

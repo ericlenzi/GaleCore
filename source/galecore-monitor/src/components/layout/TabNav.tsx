@@ -1,9 +1,9 @@
 import React from 'react';
-import { LayoutDashboard, Activity, BookOpen, Zap, BarChart3, LogOut } from 'lucide-react';
+import { LayoutDashboard, Activity, Zap, BarChart3, LogOut } from 'lucide-react';
 
 // Los ids de las pestañas de estrategia ('rpf', 'gex') son los que declara `tab` en strategies[]
 // del config de la app: las cards de Main navegan por ese valor.
-export type Tab = 'inicio' | 'monitor' | 'estrategia' | 'rpf' | 'gex';
+export type Tab = 'inicio' | 'monitor' | 'rpf' | 'gex';
 
 interface Props {
   active: Tab;
@@ -11,12 +11,13 @@ interface Props {
   onLogout?: () => void;
 }
 
+// References dejó de ser pestaña: cada estrategia tiene su botón "References" en la cabecera de su
+// pantalla, que abre un modal con Definiciones + JSON de reglas.
 const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
   { id: 'inicio',          label: 'Main',              Icon: LayoutDashboard },
   { id: 'monitor',         label: 'Monitor',           Icon: Activity        },
   { id: 'gex',             label: 'GEX',               Icon: BarChart3       },
   { id: 'rpf',             label: 'RPF',               Icon: Zap             },
-  { id: 'estrategia',      label: 'References',        Icon: BookOpen        },
 ];
 
 export function TabNav({ active, onChange, onLogout }: Props) {

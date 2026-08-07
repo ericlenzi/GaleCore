@@ -6,7 +6,6 @@ import { Sidebar } from './components/layout/Sidebar';
 import { TabNav, Tab } from './components/layout/TabNav';
 import { Home } from './pages/Home';
 import { Monitor } from './pages/Monitor';
-import { Strategy } from './pages/Strategy';
 import { Rpf } from './pages/Rpf';
 import { Gex } from './pages/Gex';
 import { useMarketSocket, ConnectionStatus } from './socket/useMarketSocket';
@@ -72,7 +71,6 @@ function Dashboard({ onLogout }: DashboardProps) {
           {/* GEX se monta recién al entrar: el barrido de la cadena completa es caro y no tiene
               sentido dispararlo si el operador nunca abre la pestaña. */}
           {tab === 'gex' && <Gex />}
-          {tab === 'estrategia' && <Strategy />}
         </main>
       </div>
     </div>

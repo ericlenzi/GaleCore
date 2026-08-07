@@ -342,8 +342,9 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   * **Config de app** (`/App/GaleCore/Rules/Core` → `useAppConfigStore`) — arma las pantallas
     transversales: `strategies[]` son las cards de **Main**, `monitor` son los umbrales de **Monitor**,
     `universe.tickers` es lo que se suscribe al hub.
-  * **JSON de cada estrategia** (`/App/<Prefijo>/Rules`) — arma su pestaña. GEX lee su universo, sus
-    checks y su `display_config` de `/App/Gex/Rules`; References lee `/App/Rpf/Rules`.
+  * **JSON de cada estrategia** (`/App/<Prefijo>/Rules`) — arma su pestaña y su modal de References.
+    GEX lee su universo, sus checks y su `display_config` de `/App/Gex/Rules`; el panel de Definiciones
+    de RPF lee `/App/Rpf/Rules`.
 
   **Regla de trabajo:** ante cualquier cambio de lógica, labels o estructura de validación, primero se
   actualiza el JSON y luego se ajusta el frontend para reflejar ese cambio. El frontend debe renderizar
@@ -352,8 +353,11 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
 - Resumen del proyecto:
   Dashboard de trading en **React + TypeScript + Create React App** para la plataforma GaleCore.
   Pestañas: **Main** (índice de estrategias implementadas + estado de sus workers), **Monitor**
-  (posiciones abiertas de la cuenta, transversal a estrategias), una pestaña por estrategia
-  (**RPF**, **GEX**) y **References**.
+  (posiciones abiertas de la cuenta, transversal a estrategias) y una pestaña por estrategia
+  (**GEX**, **RPF**). References dejó de ser pestaña: cada estrategia tiene un botón **References** en
+  la cabecera de su pantalla, que abre un modal con dos solapas — **Definiciones** (el panel de la
+  estrategia) y **Json** (su `galecore_rules_<prefijo>.json` tal cual lo sirve la API). El componente
+  `ReferencesModal` es transversal; cada estrategia le pasa su panel y su `fetchJson`.
 
 - Tecnología:
   | Elemento          | Tecnología                                            |
@@ -411,9 +415,10 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   ├── layout/
   │   │   ├── Sidebar.tsx         # Barra lateral con AccountSummary
   │   │   ├── StatusBar.tsx       # Barra superior: estado sistema, estado mercado, hora
-  │   │   └── TabNav.tsx          # Tabs: Main / Monitor / RPF / GEX / References
+  │   │   └── TabNav.tsx          # Tabs: Main / Monitor / GEX / RPF
   │   ├── common/
-  │   │   └── WorkersSwitch.tsx   # Switch Workers reusable: recibe fetchState/setState, no conoce la estrategia
+  │   │   ├── WorkersSwitch.tsx   # Switch Workers reusable: recibe fetchState/setState, no conoce la estrategia
+  │   │   └── ReferencesModal.tsx # Modal de References por estrategia: solapas Definiciones + Json. Transversal: recibe el panel y fetchJson
   │   ├── strategies/             # Tab Main
   │   │   └── StrategyCard.tsx    # Card por estrategia: identidad + WorkersSwitch a su workers_endpoint + "Abrir"
   │   ├── ticker/
@@ -432,7 +437,8 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   │   └── RpfSuggestionCard.tsx # Sugerencia de trade con accept/dismiss
   │   ├── gex/                    # Tab GEX
   │   │   ├── OptionsChainList.tsx # Lista de vencimientos (0DTE primero); elegir uno acota Expiry Engine + gráfico
-  │   │   └── ExpiryEngine.tsx     # Strike Engine sin las filas de estructura: ZGL, muros, EM, Net GEX del vencimiento
+  │   │   ├── ExpiryEngine.tsx     # Strike Engine sin las filas de estructura: ZGL, muros, EM, Net GEX del vencimiento
+  │   │   └── GexReference.tsx     # Panel de Definiciones de GEX (solapa del modal References): universo, checks, config del barrido, umbral por símbolo
   │   ├── monitor/                # Tab Monitor (UI en inglés, bloomberg-style)
   │   │   ├── PortfolioRiskBar.tsx # Barra superior: Net Liq / Buying Power / Daily P&L / Portfolio Heat / Positions
   │   │   ├── PositionCard.tsx     # Card por spread: header (strikes/exp/DTE), StrikeLadder, métricas (Credit/P&L/Max), strip de stats (Net Delta/Theta/Vega/Gamma agregados de Greeks live + POP/Prob.+50%/IV Rank), management triggers c/ acción concreta ligada (el más imminente = "NEXT" con la ejecución: cerrar a costo X, rollear a strikes Y/Z por delta de la cadena GEX), legs con entry/valor/variación
@@ -440,15 +446,15 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   ├── validation/
   │   │   └── ValidationLayers.tsx # macroRegime (6 checks) con semáforo. Lo usa la pestaña GEX
   │   └── strategy/
-  │       └── StrategyReference.tsx # Tab References: reglas, umbrales, protocolo de ajuste (lee /App/Rpf/Rules)
+  │       ├── ReferencePrimitives.tsx # Primitivas visuales compartidas por los paneles de References (Card, CollapsibleCard, Stat, TH/TD)
+  │       └── StrategyReference.tsx # Panel de Definiciones de RPF (solapa del modal References): reglas, umbrales, protocolo (lee /App/Rpf/Rules). `embedded` le saca el chrome de página
   ├── pages/
   │   ├── Home.tsx            # Tab Main: índice de estrategias implementadas (cards desde strategies[]) + estado de workers
   │   ├── Monitor.tsx         # Tab Monitor: wrapper de PositionMonitor
   │   ├── Rpf.tsx             # Tab RPF: tablero de orquestación (motor→ejes→estados→candidato→sugerencia) por SignalR
-  │   ├── Gex.tsx             # Tab GEX: universo + Details (checks + diagnóstico, GEX global) +
-  │   │                       #   Graph (Options Chain + Expiry Engine + velas 1h×100 + barras del vencimiento).
-  │   │                       #   Se monta recién al entrar a la pestaña (el barrido es caro).
-  │   └── Strategy.tsx        # Tab References (ojo con el nombre del archivo)
+  │   └── Gex.tsx             # Tab GEX: universo + Details (checks + diagnóstico, GEX global) +
+  │                           #   Graph (Options Chain + Expiry Engine + velas 1h×100 + barras del vencimiento).
+  │                           #   Se monta recién al entrar a la pestaña (el barrido es caro).
   ├── types/
   │   ├── api.ts              # AppConfig/StrategyEntry, ValidationLayerApiResponse, StructureInputs, FlowPayload
   │   ├── market.ts           # Tipos de mercado (ticker state, capas, señal)

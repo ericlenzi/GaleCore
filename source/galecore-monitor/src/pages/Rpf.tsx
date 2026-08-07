@@ -1,17 +1,21 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   WifiOff, Check, X, Circle, AlertTriangle, Clock, ChevronDown, RefreshCw,
-  Moon, Target, Zap, Ban, Hourglass, Layers, Briefcase, LucideIcon,
+  Moon, Target, Zap, Ban, Hourglass, Layers, Briefcase, BookOpen, LucideIcon,
 } from 'lucide-react';
 import { useRpfStore } from '../store/useRpfStore';
 import { useMarketStore } from '../store/useMarketStore';
 import { RpfStateBadge } from '../components/rpf/RpfStateBadge';
 import { RpfSuggestionCard } from '../components/rpf/RpfSuggestionCard';
+import { ReferencesModal } from '../components/common/ReferencesModal';
+import { getStrategyReference } from '../components/strategy/strategyReferences';
 import { RpfStateUpdate, RpfCheck, RpfCandidate, RpfStateName } from '../types/rpf';
 import { ConnectionStatus } from '../socket/useMarketSocket';
 import { LegMeta } from '../types/api';
 import { fetchRpfWorkers, setRpfWorkers } from '../api/rpf';
 import { tint, fmtPrice, fmtOI, fmtExpiry } from '../utils/formatters';
+
+const RPF_REF = getStrategyReference('rpf');
 
 interface Props {
   acceptSuggestion: (id: string) => void;
@@ -567,6 +571,8 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
     return () => clearInterval(id);
   }, []);
 
+  const [refOpen, setRefOpen] = useState(false);
+
   // Solo los símbolos que el loop RPF emitió — NO el universo del core. RPF define su propio
   // universo (SPY-only) en galecore_rules_rpf.json; caer al ticker list del core mostraría QQQ como
   // si fuera parte de RPF, que es engañoso. Mientras el loop no emite, se muestra solo el banner.
@@ -590,6 +596,18 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
           Disparo por prima real · paper
         </span>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+          <button
+            onClick={() => setRefOpen(true)}
+            title="Definiciones de la estrategia + JSON de reglas"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6,
+              background: 'none', border: '1px solid var(--border)', cursor: 'pointer',
+              fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+              color: 'var(--text-secondary)', fontFamily: 'Inter, sans-serif',
+            }}
+          >
+            <BookOpen size={12} /> References
+          </button>
           <WorkersSwitch />
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace',
             color: loopOnline ? 'var(--green)' : 'var(--text-muted)' }}>
@@ -598,6 +616,17 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
           </span>
         </span>
       </div>
+
+      {RPF_REF && (
+        <ReferencesModal
+          open={refOpen}
+          onClose={() => setRefOpen(false)}
+          title="RPF · Referencias"
+          accentColor={RPF_REF.accentColor}
+          definitions={RPF_REF.definitions}
+          fetchJson={RPF_REF.fetchJson}
+        />
+      )}
 
       {/* Motor: nodo raíz del flujo de orquestación */}
       <MotorStrip online={loopOnline} lastTick={lastTick} />
