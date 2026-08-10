@@ -31,6 +31,20 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         private TaskCompletionSource<bool>? _authTcs;
         private TaskCompletionSource<bool>? _channelTcs;
 
+        // ── Keepalive periódico ────────────────────────────────────────────────────────────────
+        // El SETUP declara keepaliveTimeout=60: eso es una PROMESA de hablarle al servidor al menos
+        // cada 60s, no una preferencia. Hasta 2026-08-10 el único KEEPALIVE que se mandaba era
+        // REACTIVO (responder cuando el server preguntaba), así que en silencio el server cerraba la
+        // sesión y el socket entraba en ciclo: Lost → reconexión → handshake → Lost.
+        // El daño no era solo perder el feed: ConnectAsync retiene _connectionLock durante todo el
+        // teardown + OAuth + handshake, y quien esperara ese lock quedaba encolado detrás de
+        // reconexiones que no paraban. Como ese WaitAsync no toma token, era una espera INCANCELABLE
+        // — así se colgaba el tick de RpfLoopService, sin log y sin que ningún timeout lo rescatara.
+        // Se manda a la mitad del timeout declarado: margen para no depender de la precisión del
+        // timer ni de la latencia de red.
+        private const int KEEPALIVE_INTERVAL_SECONDS = 30;
+        private CancellationTokenSource? _keepaliveCts;
+
         // Reference counting: (symbol, eventType) -> cantidad de suscriptores
         private readonly ConcurrentDictionary<(string Symbol, string EventType), int> _subscriptions = new();
         private readonly object _subLock = new();
@@ -94,6 +108,7 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
         public void Dispose()
         {
+            StopKeepaliveLoop();
             _socket?.Dispose();
             _connectionLock.Dispose();
             _cts?.Dispose();
@@ -147,6 +162,9 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
                 // Re-suscribir las suscripciones activas (tras cualquier reconexión).
                 await ResubscribeActiveAsync();
+
+                // Recién con el canal abierto: antes del handshake el Send sería un no-op.
+                StartKeepaliveLoop();
             }
             catch (Exception ex)
             {
@@ -171,6 +189,10 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         /// </summary>
         private async Task TearDownSocketAsync()
         {
+            // Antes que nada: cortar el keepalive del socket que se va. Si no, cada reconexión
+            // dejaría un loop huérfano y se irían acumulando, latiendo todos sobre el socket nuevo.
+            StopKeepaliveLoop();
+
             _msgSub?.Dispose(); _msgSub = null;
             _disconnectSub?.Dispose(); _disconnectSub = null;
 
@@ -180,6 +202,47 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                 _socket.Dispose();
                 _socket = null;
             }
+        }
+
+        /// <summary>
+        /// Late periódico mientras el socket viva, para cumplir el keepaliveTimeout declarado en el
+        /// SETUP. Exactamente uno por socket: se arranca al completar el handshake y se corta en
+        /// TearDownSocketAsync.
+        /// </summary>
+        private void StartKeepaliveLoop()
+        {
+            StopKeepaliveLoop();
+
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts?.Token ?? CancellationToken.None);
+            _keepaliveCts = cts;
+
+            _ = Task.Run(async () =>
+            {
+                using var timer = new PeriodicTimer(TimeSpan.FromSeconds(KEEPALIVE_INTERVAL_SECONDS));
+                try
+                {
+                    while (await timer.WaitForNextTickAsync(cts.Token))
+                    {
+                        if (!_isConnected || !_handshakeComplete) continue;
+
+                        // El try va DENTRO del while: un fallo puntual de envío no puede dejar al
+                        // socket sin latido para siempre — eso reabriría el mismo agujero.
+                        try { Send(new { type = "KEEPALIVE", channel = 0 }); }
+                        catch (Exception ex) { _logger.LogWarning(ex, "DxLink: fallo enviando KEEPALIVE"); }
+                    }
+                }
+                catch (OperationCanceledException) { /* tear down normal */ }
+            }, cts.Token);
+        }
+
+        private void StopKeepaliveLoop()
+        {
+            var cts = _keepaliveCts;
+            _keepaliveCts = null;
+            if (cts == null) return;
+
+            try { cts.Cancel(); } catch { }
+            cts.Dispose();
         }
 
         /// <summary>Re-envía las suscripciones activas (reference count &gt; 0) tras una reconexión.</summary>
