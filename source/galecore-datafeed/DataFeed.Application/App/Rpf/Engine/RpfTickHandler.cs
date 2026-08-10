@@ -243,6 +243,14 @@ namespace DataFeed.Application.App.Rpf.Engine
 
             double spot = gex.Spot;
             double ivAtm = (iv.IV30_30d ?? 0) / 100.0;
+            // Copia de la fórmula de GammaExposureHandler, con el MISMO defecto latente: con DTE 0 el
+            // sqrt colapsa el producto y el expected move da 0. Acá NO se manifiesta porque RPF pide la
+            // cadena con IncludeZeroDte en false (el filtro exige DTE > 0), así que gex.DTE nunca es 0;
+            // y su DTE objetivo son ~39 días. Se deja el 0 en vez de null porque StrikeEngineResult.
+            // ExpectedMove no es nullable y volverlo nullable arrastra el contrato hasta el front por un
+            // caso que hoy no puede ocurrir.
+            // Si algún día RPF opera 0DTE, ESTO HAY QUE ARREGLARLO ANTES — ver el comentario largo en
+            // GammaExposureHandler, que explica por qué el problema no es la raíz sino el DTE entero.
             double expectedMove = ivAtm > 0 ? spot * ivAtm * Math.Sqrt(gex.DTE / 365.0) : 0;
 
             double neutralZ = structureConfig?["thresholds"]?["neutral_z"]?.GetValue<double>() ?? 1.0;
