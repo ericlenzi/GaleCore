@@ -75,10 +75,11 @@
       {
         "id": "vix_absolute",
         "label": "VIX < 30",
-        "metric": { "ref": "marketdata.$VIX.X.price" },
+        "metric": { "ref": "marketdata.VIX.price" },
         "operator": "lt",
         "threshold": { "value": 30 },
-        "source": "/App.Analytics/ImpliedVolatility -> IV30_30d (proxy)",
+        "source": "/Data/Tastytrade/MarketData/Trade -> Symbol=VIX (indice CBOE, mismo camino que VVIX)",
+        "_note": "Es el VIX real, NO la IV del simbolo. Hasta 2026-08-10 el codigo usaba IV30_30d como proxy: en SPY coincidia por casualidad (IV30 ~ VIX) pero con universo multi-simbolo cada simbolo reportaba 'su' VIX (SKM 77.2 marcaba panico siendo un ADR ilquido). Un indice unico no puede tener un valor por simbolo. El check es macro: da lo mismo para todos los simbolos.",
         "on_fail": "inform_only"
       },
       {

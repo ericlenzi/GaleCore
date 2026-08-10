@@ -48,13 +48,16 @@ namespace DataFeed.Application.App.Rpf.Engine
                 FromTime = DateTime.UtcNow.AddDays(-120)
             }, ct);
             var vvixTask = _mediator.Send(new MarketDataTradeRequest { Symbol = "VVIX" }, ct);
+            // VIX real para macro_regime.vix_absolute (antes: proxy IV30_30d del símbolo).
+            var vixTask = _mediator.Send(new MarketDataTradeRequest { Symbol = "VIX" }, ct);
 
-            await Task.WhenAll(gexTask, ivrTask, ivTask, candleTask, vvixTask);
+            await Task.WhenAll(gexTask, ivrTask, ivTask, candleTask, vvixTask, vixTask);
 
             var gex = gexTask.Result;
             var ivr = ivrTask.Result;
             var iv = ivTask.Result;
             double? vvix = vvixTask.Result?.Data?.FirstOrDefault()?.Price;
+            double? vix = vixTask.Result?.Data?.FirstOrDefault()?.Price;
             var candles = candleTask.Result?.data?
                 .Where(c => c.Close > 0)
                 .OrderBy(c => c.Time)
@@ -77,7 +80,7 @@ namespace DataFeed.Application.App.Rpf.Engine
             var riskAndSizing = await BuildSizing(rules, request.AccountNumber, spreadWidth, snapshotCredit, ct);
 
             // ── Macro (Layer 1) ──
-            var macro = BuildMacro(rules, symbol, gex, ivr, iv);
+            var macro = BuildMacro(rules, symbol, gex, ivr, iv, vix);
 
             // ── Cascada de estado (mismo cortocircuito que la cascada de Main) ──
             var result = new RpfTickResult
@@ -110,14 +113,19 @@ namespace DataFeed.Application.App.Rpf.Engine
         }
 
         // ── Layer 1: macro_regime (6 checks — misma lógica que la cascada para preservar el gate de estado) ──
+        // OJO: copia casi verbatim de CascadeUtils.EvaluateLayer1. Todo cambio de semántica va en LOS DOS
+        // lados o vuelven a divergir — que es exactamente cómo el proxy de VIX sobrevivió sin que se notara.
         private static MacroRegimeResult BuildMacro(
-            JsonObject rules, string symbol, GammaExposureResponse gex, IVRankResponse ivr, ImpliedVolatilityResponse iv)
+            JsonObject rules, string symbol, GammaExposureResponse gex, IVRankResponse ivr,
+            ImpliedVolatilityResponse iv, double? vix)
         {
             var macroChecks = rules["macro_regime"]?["checks"]?.AsArray();
             var definitions = rules["definitions"];
 
+            // VIX real (índice CBOE), no la IV del símbolo. Sin dato NO pasa: fail-closed, porque acá
+            // el on_fail declarado es no_trade — quedarse sin el índice tiene que bloquear, no habilitar.
             double maxVix = CascadeUtils.FindCheck(macroChecks, "vix_absolute")?["threshold"]?["value"]?.GetValue<double>() ?? 30.0;
-            bool vixAbsPassed = iv.IV30_30d.HasValue && iv.IV30_30d.Value < maxVix;
+            bool vixAbsPassed = vix.HasValue && vix.Value < maxVix;
 
             bool vixTSPassed = iv.IV30_9d.HasValue && iv.IV30_30d.HasValue && iv.IV30_9d.Value < iv.IV30_30d.Value;
 
@@ -148,7 +156,7 @@ namespace DataFeed.Application.App.Rpf.Engine
                 TotalChecks = total,
                 Checks = new MacroRegimeChecks
                 {
-                    VixAbsolute = new VixAbsoluteCheck { Passed = vixAbsPassed, Value = iv.IV30_30d, Threshold = maxVix },
+                    VixAbsolute = new VixAbsoluteCheck { Passed = vixAbsPassed, Value = vix, Threshold = maxVix },
                     VixTermStructure = new VixTermStructureCheck { Passed = vixTSPassed, Iv9d = iv.IV30_9d, Iv30d = iv.IV30_30d },
                     IVRank = new IVRankCheck { Passed = ivRankPassed, Value = ivr.IVRank, Min = ivMin, Max = ivMax },
                     IVMomentum = new IVMomentumCheck { Passed = ivMomentumPassed, Value = iv.IV30RocPct, Threshold = ivMomThreshold },

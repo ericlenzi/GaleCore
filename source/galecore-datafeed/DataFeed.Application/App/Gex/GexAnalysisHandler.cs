@@ -7,6 +7,7 @@ using DataFeed.Application.App.ImpliedVolatility;
 using DataFeed.Application.App.IVRank;
 using DataFeed.Application.App.Shared.Dtos;
 using DataFeed.Application.Data.Tastytrade.MarketDataCandle;
+using DataFeed.Application.Data.Tastytrade.MarketDataTrade;
 using VLH = DataFeed.Application.App.Shared.CascadeUtils;
 
 namespace DataFeed.Application.App.Gex
@@ -162,12 +163,15 @@ namespace DataFeed.Application.App.Gex
                 Interval = "1d",
                 FromTime = DateTime.UtcNow.AddDays(-120) // cubre EMA 50 + RV 30 + ret 5d
             }, cancellationToken);
+            // VIX real para macro_regime.vix_absolute. Es macro: no depende del símbolo barrido.
+            var vixTask = _mediator.Send(new MarketDataTradeRequest { Symbol = "VIX" }, cancellationToken);
 
-            await Task.WhenAll(gexTask, ivrTask, ivTask, candleTask);
+            await Task.WhenAll(gexTask, ivrTask, ivTask, candleTask, vixTask);
 
             var gex = gexTask.Result;
             var ivr = ivrTask.Result;
             var iv = ivTask.Result;
+            double? vix = vixTask.Result?.Data?.FirstOrDefault()?.Price;
             var candles = candleTask.Result?.data?
                 .Where(c => c.Close > 0)
                 .OrderBy(c => c.Time)
@@ -179,7 +183,7 @@ namespace DataFeed.Application.App.Gex
                 Timestamp = DateTime.UtcNow,
                 SpotPrice = gex.Spot,
                 // Capa 1 evaluada con el GEX GLOBAL: gexTotal y spotVsZgl miran toda la cadena.
-                MacroRegime = VLH.EvaluateLayer1(rules, symbol, gex, ivr, iv),
+                MacroRegime = VLH.EvaluateLayer1(rules, symbol, gex, ivr, iv, vix),
                 StructureInputs = BuildStructureInputs(rules, symbol, gex, iv, candles),
                 Gex = new GexPayload
                 {

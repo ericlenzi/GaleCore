@@ -144,9 +144,11 @@
       {
         "id": "vix_absolute",
         "label": "VIX < 30",
-        "metric": { "ref": "marketdata.$VIX.X.price" },
+        "metric": { "ref": "marketdata.VIX.price" },
         "operator": "lt",
         "threshold": { "value": 30 },
+        "source": "/Data/Tastytrade/MarketData/Trade -> Symbol=VIX (indice CBOE, mismo camino que VVIX)",
+        "_note": "VIX real, NO la IV del simbolo. Hasta 2026-08-10 usaba IV30_30d como proxy; en SPY coincidia por casualidad. Sin dato de VIX el check NO pasa (fail-closed): con on_fail no_trade, quedarse sin el indice bloquea, no habilita.",
         "on_fail": "no_trade"
       },
       {

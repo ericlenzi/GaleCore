@@ -49,22 +49,34 @@ namespace DataFeed.Application.App.Shared
         /// Es el mismo cálculo para todas: lo que cambia son los umbrales del JSON. RPF lo usa como
         /// gate de estado; GEX lo usa como lectura (sus checks declaran on_fail: inform_only).
         /// </summary>
+        /// <param name="vix">
+        /// VIX real (índice CBOE), no la IV del símbolo. Lo trae el llamador con
+        /// MarketDataTradeRequest{Symbol="VIX"}. Es macro: el mismo valor para todos los símbolos.
+        /// Sin parámetro por defecto a propósito — que un call site nuevo no compile es preferible
+        /// a que caiga en silencio al proxy viejo.
+        /// </param>
         public static MacroRegimeResult EvaluateLayer1(
             JsonObject rules, string symbol,
-            GammaExposureResponse gex, IVRankResponse ivr, ImpliedVolatilityResponse iv)
+            GammaExposureResponse gex, IVRankResponse ivr, ImpliedVolatilityResponse iv,
+            double? vix)
         {
             var macroChecks = rules["macro_regime"]?["checks"]?.AsArray();
             var definitions = rules["definitions"];
 
-            // --- VIX Absolute (proxy: IV30_30d) ---
+            // --- VIX Absolute — VIX real, NO la IV del símbolo ---
+            // Hasta 2026-08-10 esto usaba iv.IV30_30d como proxy. En SPY coincidía por casualidad
+            // (IV30 ≈ VIX) y por eso nunca se notó; con el universo multi-símbolo de GEX cada símbolo
+            // reportaba "su" VIX (SKM 77.2 → check en rojo declarando pánico donde solo había un ADR
+            // ilíquido con IV alta). Un índice único no puede tener un valor por símbolo.
+            // Sin dato de VIX el check NO pasa: fail-closed, porque en RPF su on_fail es no_trade.
             var vixAbsDef = FindCheck(macroChecks, "vix_absolute");
             double maxVix = vixAbsDef?["threshold"]?["value"]?.GetValue<double>() ?? 30.0;
-            bool vixAbsPassed = iv.IV30_30d.HasValue && iv.IV30_30d.Value < maxVix;
+            bool vixAbsPassed = vix.HasValue && vix.Value < maxVix;
 
             var vixAbsoluteCheck = new VixAbsoluteCheck
             {
                 Passed = vixAbsPassed,
-                Value = iv.IV30_30d,
+                Value = vix,
                 Threshold = maxVix
             };
 
