@@ -13,7 +13,7 @@ import { RpfStateUpdate, RpfCheck, RpfCandidate, RpfStateName } from '../types/r
 import { ConnectionStatus } from '../socket/useMarketSocket';
 import { LegMeta } from '../types/api';
 import { fetchRpfWorkers, setRpfWorkers } from '../api/rpf';
-import { tint, fmtPrice, fmtOI, fmtExpiry } from '../utils/formatters';
+import { tint, fmtPrice, fmtOI, fmtExpiry, fmtTime } from '../utils/formatters';
 
 const RPF_REF = getStrategyReference('rpf');
 
@@ -113,10 +113,14 @@ function StrikeMeta({ meta }: { meta: LegMeta | null | undefined }) {
   );
 }
 
+// Delega en fmtTime para que el tick del loop se lea en la MISMA zona que el reloj del encabezado.
+// Antes formateaba con toLocaleTimeString('es-AR'), o sea hora local con locale hardcodeado: el
+// tablero decía "tick vivo · 13:33" mientras la StatusBar marcaba otra hora, y comparar frescura
+// entre los dos daba una hora de diferencia fantasma.
 const tickTime = (iso?: string) => {
   if (!iso) return null;
   const d = new Date(iso);
-  return isNaN(d.getTime()) ? null : d.toLocaleTimeString('es-AR', { hour12: false });
+  return isNaN(d.getTime()) ? null : fmtTime(d);
 };
 
 // Nota contextual del candidato según en qué punto de la orquestación estamos.

@@ -45,13 +45,55 @@ export function fmtGex(billions: number): string {
   return `$${billions.toFixed(0)}B`;
 }
 
+/**
+ * Zona del mercado. TODO lo que el tablero muestra como hora va en ET.
+ *
+ * Hasta 2026-08-10 `fmtTime` no pasaba `timeZone`, así que renderizaba en el huso del navegador
+ * mientras la StatusBar le pegaba la etiqueta "ET" encima: desde Buenos Aires mostraba 10:45 y
+ * decía ET cuando en ET eran las 09:45. Y como los timestamps de las cards salen del mismo helper,
+ * quedaban coherentes entre sí pero desfasados una hora respecto de lo que el encabezado declaraba.
+ */
+export const MARKET_TZ = 'America/New_York';
+
 export function fmtTime(date: Date): string {
   return date.toLocaleTimeString('en-US', {
+    timeZone: MARKET_TZ,
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
     hour12: false,
   });
+}
+
+/** Fecha de hoy EN ET como [año, mes 1-12, día]. Usar el día local o el UTC da el día equivocado
+ *  cerca de la medianoche: desde Buenos Aires (UTC-3), a las 22:00 el día UTC ya avanzó pero en ET
+ *  todavía es el día anterior. */
+export function etDateParts(at: Date = new Date()): [number, number, number] {
+  const p: Record<string, string> = {};
+  for (const x of new Intl.DateTimeFormat('en-US', {
+    timeZone: MARKET_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(at)) p[x.type] = x.value;
+  return [+p.year, +p.month, +p.day];
+}
+
+/**
+ * Minutos que la hora de pared de ET adelanta sobre UTC en ese instante: -240 en EDT, -300 en EST.
+ *
+ * Sale de Intl a propósito, que aplica las reglas reales de DST (2º domingo de marzo, 1er domingo
+ * de noviembre). La regla por mes que había antes — "marzo a noviembre = -4" — se equivoca la
+ * primera semana de marzo y casi todo noviembre: ~5 semanas al año con una hora de error.
+ */
+export function etOffsetMinutes(at: Date): number {
+  const p: Record<string, string> = {};
+  for (const x of new Intl.DateTimeFormat('en-US', {
+    timeZone: MARKET_TZ, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(at)) p[x.type] = x.value;
+
+  const wallAsUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  // Se truncan los ms del instante: wallAsUtc no los tiene y sin truncar el cociente no da entero.
+  return (wallAsUtc - Math.floor(at.getTime() / 1000) * 1000) / 60_000;
 }
 
 export function isStale(date: Date | null, thresholdMs = 60000): boolean {

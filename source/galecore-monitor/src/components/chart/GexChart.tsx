@@ -11,7 +11,7 @@ import {
 } from 'lightweight-charts';
 import { GammaExposureResponse } from '../../types/api';
 import { fetchEquityCandles } from '../../api/marketdata';
-import { fmtPrice } from '../../utils/formatters';
+import { fmtPrice, etDateParts, etOffsetMinutes } from '../../utils/formatters';
 import { GexBarsPanel } from './GexBarsPanel';
 
 interface Props {
@@ -38,13 +38,20 @@ function getBucket(s: number, bucketSeconds: number) {
   return Math.floor(s / bucketSeconds) * bucketSeconds;
 }
 
+/**
+ * Instante Unix del open (09:30 ET) de hoy.
+ *
+ * Antes calculaba el offset con una regla por mes ("marzo a noviembre = -4") y tomaba el día con
+ * getUTCDate(). Las dos cosas estaban mal: la regla se equivoca la primera semana de marzo y casi
+ * todo noviembre (el DST arranca el 2º domingo de marzo y termina el 1er domingo de noviembre), y
+ * el día UTC no es el día ET de noche en Buenos Aires — a las 22:00 marcaba el open de mañana.
+ * Ahora los dos salen de los helpers de formatters, que usan Intl.
+ */
 function marketOpenUnix(): number {
-  const now   = new Date();
-  const month = now.getUTCMonth() + 1;
-  const etOff = month >= 3 && month <= 11 ? 4 : 5;
-  return Math.floor(new Date(Date.UTC(
-    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 9 + etOff, 30
-  )).getTime() / 1000);
+  const [y, m, d] = etDateParts();
+  // Instante "09:30 como si ET fuera UTC"; restarle el offset lo lleva al UTC real del open.
+  const asIfUtc = Date.UTC(y, m - 1, d, 9, 30);
+  return Math.floor((asIfUtc - etOffsetMinutes(new Date(asIfUtc)) * 60_000) / 1000);
 }
 
 export function GexChart({
