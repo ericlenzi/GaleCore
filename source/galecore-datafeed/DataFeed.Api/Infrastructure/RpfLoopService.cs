@@ -177,9 +177,12 @@ namespace DataFeed.Api.Infrastructure
                     var inputs = BuildInputs(tick, inCooldown);
                     var state = RpfStateMachine.Evaluate(inputs);
 
-                    _logger.LogInformation("RpfLoop: tick {Symbol} cascada OK en {Ms}ms → {State} (macro {Passed}/{Total})",
+                    _logger.LogInformation("RpfLoop: tick {Symbol} cascada OK en {Ms}ms → {State} (macro {Passed}/{Total}, tierA {TierA})",
                         symbol, cascadeMs, state.ToWire(),
-                        tick.MacroRegime?.PassedCount ?? 0, tick.MacroRegime?.TotalChecks ?? 0);
+                        tick.MacroRegime?.PassedCount ?? 0, tick.MacroRegime?.TotalChecks ?? 0,
+                        // Un tick de Tier B se reconoce por el "cache Ns"; uno que barrió la cadena dice
+                        // "fresco". Si dejan de aparecer los "fresco", el macro se congeló en silencio.
+                        tick.TierAFromCache ? $"cache {tick.TierAAgeSec}s" : "fresco");
 
                     HandleSuggestion(symbol, state, tick, cfg, now);
                     _store.SetState(symbol, state);

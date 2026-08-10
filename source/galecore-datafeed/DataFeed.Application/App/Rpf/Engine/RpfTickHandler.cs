@@ -32,12 +32,55 @@ namespace DataFeed.Application.App.Rpf.Engine
 
         public RpfTickHandler(IMediator mediator) => _mediator = mediator;
 
-        public async Task<RpfTickResult> Handle(RpfTickRequest request, CancellationToken ct)
-        {
-            var rules = JsonNode.Parse(request.RulesJson!)!.AsObject();
-            var symbol = request.Symbol.ToUpperInvariant();
+        // ═══════════════════════════════════════════════════════════════════════════════════════
+        // Tier A / Tier B — la cadencia de dos niveles que el JSON declara desde siempre
+        // ═══════════════════════════════════════════════════════════════════════════════════════
+        //
+        // orchestration declara tier_a_refresh_seconds (300) y tier_b_tick_seconds (30), con
+        // physical_timer: "un solo timer a la cadencia rapida; Tier A se recomputa cada N ticks".
+        // Hasta 2026-08-10 NADIE leía tier_a_refresh_seconds — sólo un test — y cada tick corría la
+        // cascada COMPLETA. Medido con mercado abierto: 17-32s por tick, dominado por el snapshot de
+        // Greeks de ~640 símbolos de la cadena, cada 30s. Es decir: el loop corría casi sin pausa y
+        // suscribía/desuscribía 640 símbolos por minuto contra el canal DXLink compartido.
+        //
+        // El corte sigue la semántica de la estrategia, no sólo el costo: el eje ARMA (macro, GEX,
+        // muros, IV) es de escala horaria y va en Tier A; el eje DISPARA (crédito de las patas, edge,
+        // cupo) necesita frescura y sigue corriendo cada tick. Subir tier_b_tick_seconds habría hecho
+        // más lento justamente el eje que tiene que ser rápido.
+        //
+        // CONSECUENCIA DE TRADING, aceptada explícitamente por el operador el 2026-08-10: la
+        // selección de strikes y el gate macro quedan hasta tier_a_refresh_seconds (5 min)
+        // desactualizados. El crédito y el edge NO: se recalculan cada tick sobre quotes vivos de las
+        // patas. El riesgo residual es que el short put se aleje del delta objetivo si el spot se
+        // mueve fuerte dentro de la ventana; con 39 DTE y strikes de $1 es chico, pero es real.
+        private sealed record TierASnapshot(
+            GammaExposureResponse Gex,
+            IVRankResponse Ivr,
+            ImpliedVolatilityResponse Iv,
+            List<CandleData> Candles,
+            double? Vvix,
+            double? Vix,
+            DateTime FetchedAt);
 
-            // ── Data (mismos providers que la cascada) ──
+        // Estático porque el handler se instancia por request (mismo criterio que los caches de
+        // cadena/OI de GammaExposureHandler).
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, TierASnapshot> _tierACache = new();
+
+        /// <summary>
+        /// Devuelve Tier A del cache si sigue fresco, o lo trae de los proveedores. Un doble fetch
+        /// por carrera es inocuo (mismo dato, se pisa), así que no se serializa con lock: el costo de
+        /// bloquear supera al de una request repetida que en la práctica no ocurre — el loop es
+        /// secuencial por símbolo.
+        /// </summary>
+        private async Task<(TierASnapshot Snapshot, bool FromCache, int AgeSec)> GetTierAAsync(
+            string symbol, int refreshSeconds, CancellationToken ct)
+        {
+            if (_tierACache.TryGetValue(symbol, out var cached))
+            {
+                int age = (int)(DateTime.UtcNow - cached.FetchedAt).TotalSeconds;
+                if (age < refreshSeconds) return (cached, true, age);
+            }
+
             var gexTask = _mediator.Send(new GammaExposureRequest { Symbol = symbol, MaxDTE = 60 }, ct);
             var ivrTask = _mediator.Send(new IVRankRequest { Symbol = symbol }, ct);
             var ivTask = _mediator.Send(new ImpliedVolatilityRequest { Symbol = symbol }, ct);
@@ -45,7 +88,7 @@ namespace DataFeed.Application.App.Rpf.Engine
             {
                 Symbol = symbol,
                 Interval = "1d",
-                FromTime = DateTime.UtcNow.AddDays(-120)
+                FromTime = DateTime.UtcNow.AddDays(-120) // cubre EMA 50 + RV 30 + ret 5d
             }, ct);
             var vvixTask = _mediator.Send(new MarketDataTradeRequest { Symbol = "VVIX" }, ct);
             // VIX real para macro_regime.vix_absolute (antes: proxy IV30_30d del símbolo).
@@ -53,15 +96,35 @@ namespace DataFeed.Application.App.Rpf.Engine
 
             await Task.WhenAll(gexTask, ivrTask, ivTask, candleTask, vvixTask, vixTask);
 
-            var gex = gexTask.Result;
-            var ivr = ivrTask.Result;
-            var iv = ivTask.Result;
-            double? vvix = vvixTask.Result?.Data?.FirstOrDefault()?.Price;
-            double? vix = vixTask.Result?.Data?.FirstOrDefault()?.Price;
-            var candles = candleTask.Result?.data?
-                .Where(c => c.Close > 0)
-                .OrderBy(c => c.Time)
-                .ToList() ?? new List<CandleData>();
+            var snapshot = new TierASnapshot(
+                gexTask.Result,
+                ivrTask.Result,
+                ivTask.Result,
+                candleTask.Result?.data?.Where(c => c.Close > 0).OrderBy(c => c.Time).ToList() ?? new List<CandleData>(),
+                vvixTask.Result?.Data?.FirstOrDefault()?.Price,
+                vixTask.Result?.Data?.FirstOrDefault()?.Price,
+                DateTime.UtcNow);
+
+            _tierACache[symbol] = snapshot;
+            return (snapshot, false, 0);
+        }
+
+        public async Task<RpfTickResult> Handle(RpfTickRequest request, CancellationToken ct)
+        {
+            var rules = JsonNode.Parse(request.RulesJson!)!.AsObject();
+            var symbol = request.Symbol.ToUpperInvariant();
+
+            // ── Tier A: insumos caros (cadena de ~640 símbolos + IV/IVR/candles/VIX/VVIX) ──
+            // Se reusan del cache mientras no venza tier_a_refresh_seconds. Ver el bloque de arriba.
+            int tierARefreshSec = (int?)rules["orchestration"]?["tier_a_refresh_seconds"] ?? 300;
+            var (tierA, tierAFromCache, tierAAgeSec) = await GetTierAAsync(symbol, tierARefreshSec, ct);
+
+            var gex = tierA.Gex;
+            var ivr = tierA.Ivr;
+            var iv = tierA.Iv;
+            var candles = tierA.Candles;
+            double? vvix = tierA.Vvix;
+            double? vix = tierA.Vix;
 
             // ── Pipeline del candidato (SIEMPRE, aun si macro falla) ──
             var strikeEngine = BuildStrikeEngine(rules, symbol, gex, iv, candles, out int spreadWidth);
@@ -90,6 +153,8 @@ namespace DataFeed.Application.App.Rpf.Engine
                 StrikeEngine = strikeEngine,
                 Microstructure = microstructure,
                 RiskAndSizing = riskAndSizing,
+                TierAFromCache = tierAFromCache,
+                TierAAgeSec = tierAAgeSec,
             };
 
             // ── Signal gates: se evalúan SIEMPRE, independientes del cupo. VRP+tail siempre tienen data

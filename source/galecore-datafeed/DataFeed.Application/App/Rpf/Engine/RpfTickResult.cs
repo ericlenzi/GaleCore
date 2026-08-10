@@ -36,5 +36,16 @@ namespace DataFeed.Application.App.Rpf.Engine
 
         /// <summary>Capa donde cortó (1=macro, 2=strike/gates, 3=micro, 4=sizing), o null si llegó al final.</summary>
         public int? FailedAtLayer { get; set; }
+
+        /// <summary>
+        /// true = este tick reusó los insumos de Tier A del cache (no barrió la cadena).
+        /// Va al log del loop: sin esto, un cache que deja de refrescarse es invisible — se vería
+        /// como ticks rápidos y sanos mientras el macro se congela. Mismo criterio que la traza de
+        /// tres puntos: lo que no se puede observar, no se puede diagnosticar.
+        /// </summary>
+        public bool TierAFromCache { get; set; }
+
+        /// <summary>Antigüedad de los insumos de Tier A al momento del tick, en segundos.</summary>
+        public int TierAAgeSec { get; set; }
     }
 }
