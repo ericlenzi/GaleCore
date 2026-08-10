@@ -421,15 +421,20 @@ namespace DataFeed.Api.Infrastructure
             var list = new List<RpfCheck>();
             if (macro?.Checks is not { } c) return list;
 
-            void Add(string id, string label, bool? passed, double? value, double? threshold, string? detail = null)
+            // noData tiene precedencia sobre passed: el check no bloquea (viene passed=true) pero el
+            // tablero lo pinta amarillo en vez de verde. Un ✓ por falta de datos escondería que la
+            // guarda dejó de estar — el mismo tipo de mentira que el "±0.0" del expected move.
+            void Add(string id, string label, bool? passed, double? value, double? threshold, string? detail = null, bool noData = false)
             {
                 if (passed == null) return; // check no presente en el JSON de RPF
-                list.Add(new RpfCheck { Id = id, Label = label, Status = passed.Value ? "pass" : "fail", Value = value, Threshold = threshold, Detail = detail });
+                string status = noData ? "no_data" : passed.Value ? "pass" : "fail";
+                list.Add(new RpfCheck { Id = id, Label = label, Status = status, Value = value, Threshold = threshold, Detail = detail });
             }
 
             Add("vix_absolute", "VIX bajo control", c.VixAbsolute?.Passed, c.VixAbsolute?.Value, c.VixAbsolute?.Threshold);
-            Add("vix_term_structure", "Estructura VIX en calma", c.VixTermStructure?.Passed, c.VixTermStructure?.Iv9d, c.VixTermStructure?.Iv30d,
-                c.VixTermStructure != null ? $"9d {c.VixTermStructure.Iv9d:0.0} vs 30d {c.VixTermStructure.Iv30d:0.0}" : null);
+            Add("vix_term_structure", "Estructura VIX en calma", c.VixTermStructure?.Passed, c.VixTermStructure?.Vix9d, c.VixTermStructure?.Vix30d,
+                c.VixTermStructure is { NoData: false } ts ? $"VIX9D {ts.Vix9d:0.00} vs VIX {ts.Vix30d:0.00}" : "sin dato de VIX9D/VIX — el check no bloquea",
+                c.VixTermStructure?.NoData ?? false);
             Add("iv_momentum", "Momentum de vol frenado", c.IVMomentum?.Passed, c.IVMomentum?.Value, c.IVMomentum?.Threshold);
             Add("gex_total", "Dealers amortiguan (GEX≥0)", c.GexTotal?.Passed, c.GexTotal?.Value, c.GexTotal?.Threshold);
             return list;

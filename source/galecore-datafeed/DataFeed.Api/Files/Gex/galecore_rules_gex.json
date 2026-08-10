@@ -84,12 +84,14 @@
       },
       {
         "id": "vix_term_structure",
-        "label": "VIX TS normal (9d < 30d)",
-        "metric": { "ref": "marketdata.iv30_9d" },
+        "label": "VIX TS normal (VIX9D < VIX)",
+        "metric": { "ref": "marketdata.VIX9D.price" },
         "operator": "lt",
-        "threshold": { "ref": "marketdata.iv30_30d" },
-        "source": "/App.Analytics/ImpliedVolatility -> IV30_9d vs IV30_30d",
-        "on_fail": "inform_only"
+        "threshold": { "ref": "marketdata.VIX.price" },
+        "source": "/Data/Tastytrade/MarketData/Trade -> Symbol=VIX9D y Symbol=VIX (indices CBOE, mismo camino que VVIX)",
+        "on_fail": "inform_only",
+        "on_no_data": "pass",
+        "_note": "Contango del VIX, NO la IV del simbolo. Hasta 2026-08-10 declaraba iv30_9d vs iv30_30d: eso SI es una curva, pero del simbolo barrido, no del mercado — el mismo error de categoria que tenia vix_absolute (ver b22c8c9). Un check de macro_regime tiene que dar lo mismo para todos los simbolos. El JSON de RPF declaraba una TERCERA cosa distinta; los dos quedaron unificados aca."
       },
       {
         "id": "iv_rank",

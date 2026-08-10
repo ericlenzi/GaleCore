@@ -163,15 +163,18 @@ namespace DataFeed.Application.App.Gex
                 Interval = "1d",
                 FromTime = DateTime.UtcNow.AddDays(-120) // cubre EMA 50 + RV 30 + ret 5d
             }, cancellationToken);
-            // VIX real para macro_regime.vix_absolute. Es macro: no depende del símbolo barrido.
+            // VIX y VIX9D reales para macro_regime (vix_absolute y vix_term_structure). Son macro: no
+            // dependen del símbolo barrido, dan lo mismo para los cuatro del universo.
             var vixTask = _mediator.Send(new MarketDataTradeRequest { Symbol = "VIX" }, cancellationToken);
+            var vix9dTask = _mediator.Send(new MarketDataTradeRequest { Symbol = "VIX9D" }, cancellationToken);
 
-            await Task.WhenAll(gexTask, ivrTask, ivTask, candleTask, vixTask);
+            await Task.WhenAll(gexTask, ivrTask, ivTask, candleTask, vixTask, vix9dTask);
 
             var gex = gexTask.Result;
             var ivr = ivrTask.Result;
             var iv = ivTask.Result;
             double? vix = vixTask.Result?.Data?.FirstOrDefault()?.Price;
+            double? vix9d = vix9dTask.Result?.Data?.FirstOrDefault()?.Price;
             var candles = candleTask.Result?.data?
                 .Where(c => c.Close > 0)
                 .OrderBy(c => c.Time)
@@ -183,7 +186,7 @@ namespace DataFeed.Application.App.Gex
                 Timestamp = DateTime.UtcNow,
                 SpotPrice = gex.Spot,
                 // Capa 1 evaluada con el GEX GLOBAL: gexTotal y spotVsZgl miran toda la cadena.
-                MacroRegime = VLH.EvaluateLayer1(rules, symbol, gex, ivr, iv, vix),
+                MacroRegime = VLH.EvaluateLayer1(rules, symbol, gex, ivr, iv, vix, vix9d),
                 StructureInputs = BuildStructureInputs(rules, symbol, gex, iv, candles),
                 Gex = new GexPayload
                 {

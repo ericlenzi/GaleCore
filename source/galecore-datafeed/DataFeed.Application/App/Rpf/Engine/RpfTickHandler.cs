@@ -60,6 +60,7 @@ namespace DataFeed.Application.App.Rpf.Engine
             List<CandleData> Candles,
             double? Vvix,
             double? Vix,
+            double? Vix9d,
             DateTime FetchedAt);
 
         // Estático porque el handler se instancia por request (mismo criterio que los caches de
@@ -91,10 +92,12 @@ namespace DataFeed.Application.App.Rpf.Engine
                 FromTime = DateTime.UtcNow.AddDays(-120) // cubre EMA 50 + RV 30 + ret 5d
             }, ct);
             var vvixTask = _mediator.Send(new MarketDataTradeRequest { Symbol = "VVIX" }, ct);
-            // VIX real para macro_regime.vix_absolute (antes: proxy IV30_30d del símbolo).
+            // VIX y VIX9D reales para macro_regime (vix_absolute y vix_term_structure). Los dos son
+            // macro y de escala horaria, así que viven en Tier A junto al resto del eje ARMA.
             var vixTask = _mediator.Send(new MarketDataTradeRequest { Symbol = "VIX" }, ct);
+            var vix9dTask = _mediator.Send(new MarketDataTradeRequest { Symbol = "VIX9D" }, ct);
 
-            await Task.WhenAll(gexTask, ivrTask, ivTask, candleTask, vvixTask, vixTask);
+            await Task.WhenAll(gexTask, ivrTask, ivTask, candleTask, vvixTask, vixTask, vix9dTask);
 
             var snapshot = new TierASnapshot(
                 gexTask.Result,
@@ -103,6 +106,7 @@ namespace DataFeed.Application.App.Rpf.Engine
                 candleTask.Result?.data?.Where(c => c.Close > 0).OrderBy(c => c.Time).ToList() ?? new List<CandleData>(),
                 vvixTask.Result?.Data?.FirstOrDefault()?.Price,
                 vixTask.Result?.Data?.FirstOrDefault()?.Price,
+                vix9dTask.Result?.Data?.FirstOrDefault()?.Price,
                 DateTime.UtcNow);
 
             _tierACache[symbol] = snapshot;
@@ -125,6 +129,7 @@ namespace DataFeed.Application.App.Rpf.Engine
             var candles = tierA.Candles;
             double? vvix = tierA.Vvix;
             double? vix = tierA.Vix;
+            double? vix9d = tierA.Vix9d;
 
             // ── Pipeline del candidato (SIEMPRE, aun si macro falla) ──
             var strikeEngine = BuildStrikeEngine(rules, symbol, gex, iv, candles, out int spreadWidth);
@@ -143,7 +148,7 @@ namespace DataFeed.Application.App.Rpf.Engine
             var riskAndSizing = await BuildSizing(rules, request.AccountNumber, spreadWidth, snapshotCredit, ct);
 
             // ── Macro (Layer 1) ──
-            var macro = BuildMacro(rules, symbol, gex, ivr, iv, vix);
+            var macro = BuildMacro(rules, symbol, gex, ivr, iv, vix, vix9d);
 
             // ── Cascada de estado (mismo cortocircuito que la cascada de Main) ──
             var result = new RpfTickResult
@@ -182,7 +187,7 @@ namespace DataFeed.Application.App.Rpf.Engine
         // lados o vuelven a divergir — que es exactamente cómo el proxy de VIX sobrevivió sin que se notara.
         private static MacroRegimeResult BuildMacro(
             JsonObject rules, string symbol, GammaExposureResponse gex, IVRankResponse ivr,
-            ImpliedVolatilityResponse iv, double? vix)
+            ImpliedVolatilityResponse iv, double? vix, double? vix9d)
         {
             var macroChecks = rules["macro_regime"]?["checks"]?.AsArray();
             var definitions = rules["definitions"];
@@ -192,7 +197,10 @@ namespace DataFeed.Application.App.Rpf.Engine
             double maxVix = CascadeUtils.FindCheck(macroChecks, "vix_absolute")?["threshold"]?["value"]?.GetValue<double>() ?? 30.0;
             bool vixAbsPassed = vix.HasValue && vix.Value < maxVix;
 
-            bool vixTSPassed = iv.IV30_9d.HasValue && iv.IV30_30d.HasValue && iv.IV30_9d.Value < iv.IV30_30d.Value;
+            // Compartido con CascadeUtils.EvaluateLayer1 en vez de reimplementado: esta misma lógica
+            // duplicada es como el proxy de VIX sobrevivió años sin que se notara.
+            var vixTSCheck = CascadeUtils.EvaluateVixTermStructure(vix9d, vix);
+            bool vixTSPassed = vixTSCheck.Passed;
 
             var ivRankDef = CascadeUtils.FindCheck(macroChecks, "iv_rank");
             double ivMin = ivRankDef?["threshold"]?["min"]?.GetValue<double>() ?? 25;
@@ -222,7 +230,7 @@ namespace DataFeed.Application.App.Rpf.Engine
                 Checks = new MacroRegimeChecks
                 {
                     VixAbsolute = new VixAbsoluteCheck { Passed = vixAbsPassed, Value = vix, Threshold = maxVix },
-                    VixTermStructure = new VixTermStructureCheck { Passed = vixTSPassed, Iv9d = iv.IV30_9d, Iv30d = iv.IV30_30d },
+                    VixTermStructure = vixTSCheck,
                     IVRank = new IVRankCheck { Passed = ivRankPassed, Value = ivr.IVRank, Min = ivMin, Max = ivMax },
                     IVMomentum = new IVMomentumCheck { Passed = ivMomentumPassed, Value = iv.IV30RocPct, Threshold = ivMomThreshold },
                     GexTotal = new GexTotalCheck { Passed = gexPassed, Value = gexValue, Metric = "billions_usd", Threshold = gexThreshold },

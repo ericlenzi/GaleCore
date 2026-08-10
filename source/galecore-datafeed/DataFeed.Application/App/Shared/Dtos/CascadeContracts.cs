@@ -46,9 +46,17 @@ namespace DataFeed.Application.App.Shared.Dtos
 
     public class VixTermStructureCheck
     {
+        /// <summary>Con NoData true viene en true: sin dato el check no bloquea (on_no_data: pass).</summary>
         public bool Passed { get; set; }
-        public double? Iv9d { get; set; }
-        public double? Iv30d { get; set; }
+
+        /// <summary>Faltó VIX9D o VIX. El tablero lo pinta distinto de un pass real — un ✓ verde por
+        /// falta de datos escondería que la guarda dejó de estar.</summary>
+        public bool NoData { get; set; }
+
+        /// <summary>VIX9D (índice CBOE de 9 días), NO la IV del símbolo. Se llamaban Iv9d/Iv30d hasta
+        /// 2026-08-10, y ese nombre es parte de por qué la confusión sobrevivió tanto.</summary>
+        public double? Vix9d { get; set; }
+        public double? Vix30d { get; set; }
     }
 
     public class IVRankCheck

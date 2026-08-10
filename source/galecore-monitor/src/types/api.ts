@@ -183,7 +183,9 @@ export interface MacroRegimeResult {
 
 export interface MacroRegimeChecks {
   vixAbsolute: { passed: boolean; value: number | null; threshold: number };
-  vixTermStructure: { passed: boolean; iv9d: number | null; iv30d: number | null };
+  // VIX9D vs VIX reales (índices CBOE), no la IV del símbolo. noData: faltó alguno de los dos; el
+  // check viene passed=true porque no bloquea, pero no hay que pintarlo como un pass legítimo.
+  vixTermStructure: { passed: boolean; noData: boolean; vix9d: number | null; vix30d: number | null };
   ivRank: { passed: boolean; value: number; min: number; max: number };
   ivMomentum: { passed: boolean; value: number | null; threshold: number };
   /** `thresholdDeclared: false` = el símbolo no tiene umbral propio y se usó el default del

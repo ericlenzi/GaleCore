@@ -189,11 +189,11 @@ export function ValidationLayers({
         <MetricCell
           label="VIX TS"
           value={layers.vixTermStructureOk === null ? '—' : layers.vixTermStructureOk ? 'OK' : 'INV'}
-          sub={layers.vixTermStructureOk === null ? '—' : layers.vixTermStructureOk ? '9D < 30D ✓' : '9D > 30D ✗'}
+          sub={layers.vixTermStructureOk === null ? 'sin dato' : layers.vixTermStructureOk ? 'VIX9D < VIX ✓' : 'VIX9D > VIX ✗'}
           ok={layers.vixTermStructureOk}
           tooltip={checks?.vixTermStructure ? [
-            { label: 'IV 9D', value: checks.vixTermStructure.iv9d?.toFixed(2) ?? '—' },
-            { label: 'IV 30D', value: checks.vixTermStructure.iv30d?.toFixed(2) ?? '—' },
+            { label: 'VIX9D', value: checks.vixTermStructure.vix9d?.toFixed(2) ?? '—' },
+            { label: 'VIX', value: checks.vixTermStructure.vix30d?.toFixed(2) ?? '—' },
           ] : undefined}
         />
         <MetricCell

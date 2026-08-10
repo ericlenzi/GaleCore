@@ -153,11 +153,15 @@
       },
       {
         "id": "vix_term_structure",
-        "label": "VIX TS normal (VIX-9d < VIX-30d)",
-        "metric": { "ref": "marketdata.$VIX.X.candle.close_9d_ago" },
+        "label": "VIX TS normal (VIX9D < VIX)",
+        "metric": { "ref": "marketdata.VIX9D.price" },
         "operator": "lt",
-        "threshold": { "ref": "marketdata.$VIX.X.candle.close_30d_ago" },
-        "on_fail": "no_trade"
+        "threshold": { "ref": "marketdata.VIX.price" },
+        "source": "/Data/Tastytrade/MarketData/Trade -> Symbol=VIX9D y Symbol=VIX (indices CBOE, mismo camino que VVIX)",
+        "on_fail": "no_trade",
+        "on_no_data": "pass",
+        "_note": "Contango del VIX: VIX9D por debajo del VIX de 30d es lo normal; invertido (backwardation) senala estres de corto plazo y es cuando este gate tiene que frenar. Hasta 2026-08-10 el ref decia close_9d_ago vs close_30d_ago, o sea el cierre del VIX HACE 9 dias contra el de HACE 30: eso son dos puntos de la misma serie en el pasado, una tendencia, no una curva. Una estructura temporal compara TENORES distintos en el MISMO instante. El ref contradecia a su propia label, que ya decia 'VIX-9d < VIX-30d'. El codigo, mientras tanto, no implementaba ninguno de los dos: usaba la IV del propio simbolo a 9d y 30d.",
+        "_no_data_note": "on_no_data pass: sin dato el check NO bloquea, a diferencia de vix_absolute que es fail-closed. Motivo: el feed DXLink tiene desconexiones intermitentes sin causa identificada (ver commit 1663a84), y fail-closed aca seria un freno silencioso de TODA la operatoria de RPF ante una caida de datos. Mismo criterio que el gate tail_score. Queda registrado en el log del loop para que la perdida de la guarda no sea invisible."
       },
       {
         "id": "iv_momentum",

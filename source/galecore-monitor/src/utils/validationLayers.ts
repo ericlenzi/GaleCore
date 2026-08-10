@@ -28,7 +28,9 @@ export function mapValidationToLayers(v: ValidationLayerApiResponse): LayerStatu
   return {
     vixAbsoluteOk: checks?.vixAbsolute?.passed ?? null,
     vixAbsoluteValue: checks?.vixAbsolute?.value ?? null,
-    vixTermStructureOk: checks?.vixTermStructure?.passed ?? null,
+    // Sin dato → null, que el panel renderiza como "—". El backend lo manda passed=true (no bloquea),
+    // pero mostrarlo en verde escondería que la guarda no está corriendo.
+    vixTermStructureOk: checks?.vixTermStructure?.noData ? null : (checks?.vixTermStructure?.passed ?? null),
     ivRankOk: checks?.ivRank?.passed ?? null,
     ivRankValue: checks?.ivRank?.value ?? null,
     ivMomentumOk: checks?.ivMomentum?.passed ?? null,

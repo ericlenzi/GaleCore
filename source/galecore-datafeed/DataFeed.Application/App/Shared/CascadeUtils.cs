@@ -55,10 +55,15 @@ namespace DataFeed.Application.App.Shared
         /// Sin parámetro por defecto a propósito — que un call site nuevo no compile es preferible
         /// a que caiga en silencio al proxy viejo.
         /// </param>
+        /// <param name="vix9d">
+        /// VIX9D (índice CBOE de 9 días). Igual que <paramref name="vix"/>: macro, mismo valor para
+        /// todos los símbolos, y sin default para que un call site nuevo no compile en vez de
+        /// degradar en silencio.
+        /// </param>
         public static MacroRegimeResult EvaluateLayer1(
             JsonObject rules, string symbol,
             GammaExposureResponse gex, IVRankResponse ivr, ImpliedVolatilityResponse iv,
-            double? vix)
+            double? vix, double? vix9d)
         {
             var macroChecks = rules["macro_regime"]?["checks"]?.AsArray();
             var definitions = rules["definitions"];
@@ -80,16 +85,8 @@ namespace DataFeed.Application.App.Shared
                 Threshold = maxVix
             };
 
-            // --- VIX Term Structure (proxy: IV30_9d < IV30_30d = contango normal) ---
-            bool vixTSPassed = iv.IV30_9d.HasValue && iv.IV30_30d.HasValue
-                && iv.IV30_9d.Value < iv.IV30_30d.Value;
-
-            var vixTSCheck = new VixTermStructureCheck
-            {
-                Passed = vixTSPassed,
-                Iv9d = iv.IV30_9d,
-                Iv30d = iv.IV30_30d
-            };
+            var vixTSCheck = EvaluateVixTermStructure(vix9d, vix);
+            bool vixTSPassed = vixTSCheck.Passed;
 
             // --- IV Rank ---
             var ivRankDef = FindCheck(macroChecks, "iv_rank");
@@ -451,6 +448,40 @@ namespace DataFeed.Application.App.Shared
                 Passed = hasValidQuotes && totalCredit >= minRequired,
                 MidCredit = Math.Round(totalCredit, 2),
                 MinRequired = minRequired
+            };
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // VIX term structure
+        // ═══════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Contango del VIX: VIX9D por debajo del VIX de 30 días es lo normal; invertido
+        /// (backwardation) señala estrés de corto plazo, que es cuando el check tiene que frenar.
+        ///
+        /// Hasta 2026-08-10 esto comparaba la IV del propio símbolo a 9d y 30d. Eso SÍ es una curva,
+        /// pero del símbolo barrido y no del mercado — el mismo error de categoría que tenía
+        /// vix_absolute. Y el JSON de RPF declaraba una TERCERA cosa: el cierre del VIX de hace 9 días
+        /// contra el de hace 30, que son dos puntos de la misma serie en el pasado, o sea una
+        /// tendencia y no una estructura temporal. Los dos JSON quedaron unificados en VIX9D vs VIX.
+        ///
+        /// A DIFERENCIA de vix_absolute, sin dato NO bloquea (on_no_data: pass en el JSON): el feed
+        /// DXLink tiene caídas intermitentes sin causa identificada y fail-closed acá frenaría toda la
+        /// operatoria de RPF en silencio. Se marca NoData para que el tablero lo distinga de un pass
+        /// legítimo — un ✓ verde por falta de datos escondería que la guarda dejó de correr.
+        ///
+        /// Vive acá y no inline en los dos motores a propósito: es la cuarta vez en el día que una
+        /// lógica duplicada entre CascadeUtils y RpfTickHandler diverge o casi.
+        /// </summary>
+        public static VixTermStructureCheck EvaluateVixTermStructure(double? vix9d, double? vix)
+        {
+            bool hasData = vix9d.HasValue && vix.HasValue;
+            return new VixTermStructureCheck
+            {
+                Passed = !hasData || vix9d!.Value < vix!.Value,
+                NoData = !hasData,
+                Vix9d = vix9d,
+                Vix30d = vix,
             };
         }
 
