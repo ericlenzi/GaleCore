@@ -455,6 +455,52 @@ namespace DataFeed.Application.App.Shared
         }
 
         // ═══════════════════════════════════════════════════════════════════════
+        // Tiempo a vencimiento (expected move)
+        // ═══════════════════════════════════════════════════════════════════════
+
+        /// <summary>Zona del mercado. .NET 6+ resuelve IDs IANA también en Windows; el fallback cubre
+        /// el modo de globalización invariante, donde solo existen los IDs de Windows.</summary>
+        private static readonly TimeZoneInfo EtZone = ResolveEtZone();
+
+        private static TimeZoneInfo ResolveEtZone()
+        {
+            try { return TimeZoneInfo.FindSystemTimeZoneById("America/New_York"); }
+            catch (TimeZoneNotFoundException) { return TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time"); }
+        }
+
+        /// <summary>
+        /// Años hasta el vencimiento, para el expected move (spot · IV · √T).
+        ///
+        /// DTE &gt; 0: se mantiene la convención de días calendario (dte/365), que es la que produjo
+        /// todos los números que el operador viene mirando. Cambiarla movería TODOS los expected move
+        /// del tablero, no solo el del 0DTE.
+        ///
+        /// DTE = 0: acá el entero de días miente. A media rueda quedan horas de sesión y contarlas
+        /// como cero colapsaba el producto entero — el panel mostraba "±0.0 pts" justo en el
+        /// vencimiento donde más movimiento se espera. Se usa el resto real de la rueda hasta el
+        /// cierre (16:00 ET; SPY y los ETFs son PM-settled). Queda continuo con el tramo anterior:
+        /// a las 15:59 del día previo el DTE es 1 y faltan ~24h, que es exactamente 1/365.
+        ///
+        /// Devuelve null si ya venció (pasó el cierre, o DTE negativo): sin tiempo no hay movimiento
+        /// esperado que reportar, y null hace que el tablero muestre "—" en vez de un cero que se
+        /// leería como "no se espera que se mueva".
+        /// </summary>
+        /// <param name="nowUtc">Inyectable para test; por defecto, ahora.</param>
+        public static double? YearsToExpiry(int dte, DateTimeOffset? nowUtc = null)
+        {
+            if (dte > 0) return dte / 365.0;
+            if (dte < 0) return null;
+
+            var etNow = TimeZoneInfo.ConvertTime(nowUtc ?? DateTimeOffset.UtcNow, EtZone);
+            // El cierre es el mismo día y el offset no cambia entre las 00:00 y las 16:00 (los saltos
+            // de DST son a las 02:00, y ese día el mercado no abre a horario distinto).
+            var close = new DateTimeOffset(etNow.Year, etNow.Month, etNow.Day, 16, 0, 0, etNow.Offset);
+
+            double hoursLeft = (close - etNow).TotalHours;
+            return hoursLeft <= 0 ? null : hoursLeft / (24.0 * 365.0);
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
         // Regime classification
         // ═══════════════════════════════════════════════════════════════════════
 

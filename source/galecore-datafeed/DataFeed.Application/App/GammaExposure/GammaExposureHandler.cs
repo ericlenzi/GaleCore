@@ -1,3 +1,4 @@
+using DataFeed.Application.App.Shared;
 using DataFeed.Application.Functions;
 using DataFeed.Application.Shared;
 using DataFeed.Infrastructure.Providers.Tastytrade;
@@ -418,25 +419,15 @@ namespace DataFeed.Application.App.GammaExposure
                             : (atm.CallIV > 0 && atm.PutIV > 0) ? (atm.CallIV + atm.PutIV) / 2
                             : (atm.CallIV > 0 ? atm.CallIV : atm.PutIV);
 
-                        // DTE 0 → null, no 0. Con sqrt(0) el producto entero colapsa y el panel muestra
-                        // "±0.0 pts", que afirma que no se espera movimiento justo en el vencimiento
-                        // donde más se espera — y es el que la estrategia GEX pone primero, así que se
-                        // veía todos los días.
-                        //
-                        // La causa NO es la raíz cuadrada: DaysToExpiration es un entero de días, una
-                        // representación con pérdida. A media rueda de un 0DTE quedan horas de sesión y
-                        // el modelo las cuenta como cero. El arreglo de fondo es calcular el tiempo
-                        // intradía real (horas hasta el cierre), pero eso necesita el instante de
-                        // expiración y manejo de huso — y el reloj de la app tiene un bug de zona
-                        // horaria abierto, así que cablearlo ahí daría un número plausible pero mal,
-                        // que es peor que no dar ninguno.
-                        //
-                        // Mientras tanto: null. El front ya renderiza "—" para null (ExpiryEngine.tsx),
-                        // y un guión honesto es mejor que un número falso.
+                        // El tiempo a vencimiento sale de CascadeUtils.YearsToExpiry, que para 0DTE usa
+                        // el resto real de la rueda hasta el cierre ET en vez del entero de días — con
+                        // el entero, sqrt(0) colapsaba el producto y el panel mostraba "±0.0 pts" justo
+                        // en el vencimiento que la estrategia pone primero. Devuelve null si ya venció.
                         // MISMA FÓRMULA DUPLICADA en RpfTickHandler.BuildStrikeEngine — si esto cambia,
                         // cambia allá.
-                        double? expectedMove = atmIv.HasValue && atmIv.Value > 0 && exp.DaysToExpiration > 0
-                            ? Math.Round(spot * atmIv.Value * Math.Sqrt(exp.DaysToExpiration / 365.0), 2)
+                        double? tYears = CascadeUtils.YearsToExpiry(exp.DaysToExpiration);
+                        double? expectedMove = atmIv.HasValue && atmIv.Value > 0 && tYears.HasValue
+                            ? Math.Round(spot * atmIv.Value * Math.Sqrt(tYears.Value), 2)
                             : null;
 
                         response.ByExpiry.Add(new GammaExposureExpiry
