@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json.Nodes;
 using DataFeed.Application.App.Rpf;
 using DataFeed.Application.App.Rpf.Engine;
@@ -93,7 +94,7 @@ namespace DataFeed.Api.Infrastructure
 
         // ── Config ──
 
-        private record LoopConfig(bool Enabled, int TickBSeconds, int CooldownSeconds, List<string> Tickers, string RulesJson, string? PopJson, string? SkewJson);
+        private record LoopConfig(bool Enabled, int TickBSeconds, int CooldownSeconds, int TickTimeoutSeconds, int EmitTimeoutSeconds, List<string> Tickers, string RulesJson, string? PopJson, string? SkewJson);
 
         private LoopConfig LoadConfig()
         {
@@ -108,6 +109,8 @@ namespace DataFeed.Api.Infrastructure
             var orch = root["orchestration"]?.AsObject();
             int tickB = (int?)orch?["tier_b_tick_seconds"] ?? 30;
             int cooldown = (int?)orch?["cooldown_seconds"] ?? 120;
+            int tickTimeout = (int?)orch?["tick_timeout_seconds"] ?? 90;
+            int emitTimeout = (int?)orch?["emit_timeout_seconds"] ?? 10;
 
             var tickers = root["universe"]?["tickers"]?.AsArray()
                 .Select(x => (string?)x).Where(s => !string.IsNullOrEmpty(s)).Select(s => s!).ToList()
@@ -118,7 +121,7 @@ namespace DataFeed.Api.Infrastructure
             string? pop = ReadOrNull(Path.Combine(filesDir, "pop_calibration.json"));
             string? skew = ReadOrNull(Path.Combine(filesDir, "skew25_history.json"));
 
-            return new LoopConfig(enabled, tickB, cooldown, tickers, rulesJson, pop, skew);
+            return new LoopConfig(enabled, tickB, cooldown, tickTimeout, emitTimeout, tickers, rulesJson, pop, skew);
         }
 
         private static string? ReadOrNull(string path) => File.Exists(path) ? File.ReadAllText(path) : null;
@@ -133,6 +136,29 @@ namespace DataFeed.Api.Infrastructure
             foreach (var symbol in cfg.Tickers)
             {
                 var now = DateTime.UtcNow;
+
+                // Corte duro por tick. Sin esto, un mediator.Send que se cuelga (canal DXLink saturado,
+                // snapshot que nunca completa) wedgea el loop PARA SIEMPRE: no se llega nunca al Delay
+                // del final, no hay log y no hay heartbeat, así que el tablero se queda mostrando datos
+                // viejos que parecen vigentes. Con el corte el tick muere, cae en el catch de abajo y
+                // emite estado de error — el cuelgue silencioso pasa a ser un fallo visible y recuperable.
+                // NO arregla la causa raíz; evita que se coma el loop.
+                using var tickCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                tickCts.CancelAfter(TimeSpan.FromSeconds(cfg.TickTimeoutSeconds));
+
+                // Corte propio del BROADCAST, separado del tick. Se crea acá (no dentro del try) para
+                // que el filtro del catch lo pueda consultar, pero el reloj recién arranca justo antes
+                // de emitir: con CancelAfter acá vencería durante la cascada, que tarda ~30s.
+                using var emitCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+                // Traza de diagnóstico en TRES puntos: inicio, cascada resuelta y estado emitido.
+                // Hasta 2026-08-10 un tick exitoso no logueaba NADA, así que el silencio del log era
+                // ambiguo — no se podía distinguir "el loop no corre" de "corre pero el mensaje no
+                // llega". Los tres puntos separan justamente eso: si aparece "inicio" y no "cascada",
+                // se colgó el motor; si aparece "cascada" y no "emitido", se colgó el broadcast.
+                var sw = Stopwatch.StartNew();
+                _logger.LogInformation("RpfLoop: tick {Symbol} inicio", symbol);
+
                 try
                 {
                     // Motor de decisión PROPIO de RPF (corte total): un solo tick corre macro + candidato
@@ -143,11 +169,17 @@ namespace DataFeed.Api.Infrastructure
                         RulesJson = cfg.RulesJson,
                         PopCalibrationJson = cfg.PopJson,
                         SkewHistoryJson = cfg.SkewJson,
-                    }, ct);
+                    }, tickCts.Token);
+
+                    long cascadeMs = sw.ElapsedMilliseconds;
 
                     bool inCooldown = _store.InCooldown(symbol, now);
                     var inputs = BuildInputs(tick, inCooldown);
                     var state = RpfStateMachine.Evaluate(inputs);
+
+                    _logger.LogInformation("RpfLoop: tick {Symbol} cascada OK en {Ms}ms → {State} (macro {Passed}/{Total})",
+                        symbol, cascadeMs, state.ToWire(),
+                        tick.MacroRegime?.PassedCount ?? 0, tick.MacroRegime?.TotalChecks ?? 0);
 
                     HandleSuggestion(symbol, state, tick, cfg, now);
                     _store.SetState(symbol, state);
@@ -155,26 +187,81 @@ namespace DataFeed.Api.Infrastructure
                     // Heartbeat: se emite cada tick (no solo en cambio) para que el tablero sepa que
                     // el loop vive. Sin esto, un estado DORMANT que coincide con el default del store
                     // nunca se emitiría y el front quedaría en "loop offline" con el loop corriendo.
-                    await _broadcaster.BroadcastRpfStateAsync(symbol, BuildStateUpdate(symbol, state, tick, inputs, now));
+                    var update = BuildStateUpdate(symbol, state, tick, inputs, now);
+
+                    // El timestamp que viaja al tablero es el del EMIT, no el del inicio del tick.
+                    // Medido el 2026-08-10: el tick tarda 17-30s, así que con el timestamp de inicio
+                    // el mensaje llegaba al front ya envejecido por esa cantidad, y el cálculo de
+                    // frescura declaraba el loop caído estando perfectamente sano.
+                    // `now` se mantiene para cooldown y sugerencias: esas SÍ se razonan desde el
+                    // arranque del tick (es el instante en que se leyó el mercado).
+                    update.Timestamp = DateTime.UtcNow;
+
+                    emitCts.CancelAfter(TimeSpan.FromSeconds(cfg.EmitTimeoutSeconds));
+                    await _broadcaster.BroadcastRpfStateAsync(symbol, update, emitCts.Token);
+
+                    _logger.LogInformation("RpfLoop: tick {Symbol} emitido (total {Ms}ms)", symbol, sw.ElapsedMilliseconds);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                catch (OperationCanceledException) when (emitCts.IsCancellationRequested)
+                {
+                    // El broadcast se colgó: hay un cliente tapado en el grupo rpf. NO se intenta emitir
+                    // estado de error — iría al MISMO grupo y volvería a colgarse, que es precisamente
+                    // cómo un cliente zombi se comía el loop. Se descarta esta emisión y se sigue: el
+                    // próximo tick manda el estado completo igual, así que no se pierde información.
+                    _logger.LogWarning("RpfLoop: el broadcast de {Symbol} superó {Timeout}s (cliente tapado en el grupo rpf); se descarta esta emisión y el loop sigue",
+                        symbol, cfg.EmitTimeoutSeconds);
+                }
+                catch (OperationCanceledException) when (tickCts.IsCancellationRequested)
+                {
+                    // Se agotó el timeout del tick, no un fallo de datos. Se distingue en el log porque
+                    // el síntoma es opuesto: acá NO hubo excepción del proveedor, hubo silencio.
+                    _logger.LogError("RpfLoop: el tick de {Symbol} superó {Timeout}s y se cortó; emito estado de error", symbol, cfg.TickTimeoutSeconds);
+                    await EmitErrorStateAsync(symbol, now, cfg.EmitTimeoutSeconds, ct);
+                }
                 catch (Exception ex)
                 {
                     // La cascada falló (ej. sin datos de mercado, o la integración cascada-sobre-RPF-JSON).
                     // Se emite igual un estado para que el tablero muestre LOOP ONLINE y el símbolo en
                     // DORMANT con nota de error, en vez de un silencio indistinguible de "loop apagado".
                     _logger.LogError(ex, "RpfLoop: fallo evaluando {Symbol}; emito estado de error", symbol);
-                    _store.SetState(symbol, RpfState.Dormant);
-                    await _broadcaster.BroadcastRpfStateAsync(symbol, new RpfStateUpdate
-                    {
-                        Symbol = symbol,
-                        State = RpfState.Dormant.ToWire(),
-                        CascadeOk = false,
-                        CapacityAvailable = false,
-                        CooldownRemainingSec = _store.CooldownRemainingSec(symbol, now),
-                        Timestamp = now,
-                    });
+                    await EmitErrorStateAsync(symbol, now, cfg.EmitTimeoutSeconds, ct);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Estado de error para el tablero: DORMANT con CascadeOk=false. Lo comparten el corte por
+        /// timeout y el fallo de la cascada — en los dos casos lo que importa es que el front vea
+        /// LOOP ONLINE con nota de error, y no un silencio indistinguible de "loop apagado".
+        /// Se emite con el token del loop, nunca con el del tick: el del tick ya está cancelado.
+        /// </summary>
+        private async Task EmitErrorStateAsync(string symbol, DateTime now, int emitTimeoutSeconds, CancellationToken ct)
+        {
+            _store.SetState(symbol, RpfState.Dormant);
+
+            // El aviso de fallo también va con corte: si el grupo está tapado, este emit se colgaría
+            // igual que el normal y el loop moriría justo en el camino que existe para no morir.
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(emitTimeoutSeconds));
+
+            try
+            {
+                await _broadcaster.BroadcastRpfStateAsync(symbol, new RpfStateUpdate
+                {
+                    Symbol = symbol,
+                    State = RpfState.Dormant.ToWire(),
+                    CascadeOk = false,
+                    CapacityAvailable = false,
+                    CooldownRemainingSec = _store.CooldownRemainingSec(symbol, now),
+                    // Igual que en el camino OK: el timestamp es el del emit. Acá importa todavía más,
+                    // porque un tick que murió por timeout arrastraría 90s de desfasaje.
+                    Timestamp = DateTime.UtcNow,
+                }, cts.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogWarning("RpfLoop: tampoco se pudo emitir el estado de error de {Symbol} (grupo rpf tapado)", symbol);
             }
         }
 

@@ -408,6 +408,10 @@
     "tier_b_note": "dispara: strike engine PCS + edge + cupo + cooldown. Necesita quotes frescos; corre solo si Tier A dejo ARMED.",
     "cooldown_seconds": 120,
     "cooldown_note": "anti-doble-emision tras ack/TTL. La histeresis de edge (delta) queda null (definicion seccion 6). La freshness dura la gatea data_quality.max_quote_age_seconds (15s).",
+    "emit_timeout_seconds": 10,
+    "emit_timeout_note": "Corte del BROADCAST al grupo rpf, separado del tick. SignalR escribe en el canal de salida de CADA conexion del grupo; un cliente tapado (long-polling que dejo de pollear sin cerrar limpio) llena el buffer y el SendAsync espera para siempre. Un solo zombi wedgeaba el loop entero. Diagnosticado el 2026-08-10 con la traza de 3 puntos: el tick moria entre 'cascada OK' y 'emitido'. Es corto a proposito (10s): emitir a clientes sanos es instantaneo, asi que cualquier demora real ya es un cliente colgado y la emision no vale la pena. Perder una emision no cuesta nada — el proximo tick manda el estado completo de nuevo.",
+    "tick_timeout_seconds": 90,
+    "tick_timeout_note": "Corte duro por tick. Un mediator.Send colgado (canal DXLink saturado, snapshot que nunca completa) wedgeaba el loop PARA SIEMPRE: sin log, sin heartbeat, y el tablero mostrando datos viejos que parecen vigentes. Observado el 2026-08-10: un solo tick y 12+ minutos de silencio. Con el corte el tick muere, cae en el catch que ya existe y emite estado de error -> el cuelgue silencioso pasa a ser un fallo visible y recuperable. NO arregla la causa raiz, solo evita que se coma el loop. 90s es holgado a proposito: los timeouts internos de DXLink son 10s (trade/quote/greeks), 15s (multi-candle) y 30s (candle historico), y corren concurrentes, asi que un tick sano nunca deberia acercarse. Si se baja de ~60s se corre el riesgo de matar ticks legitimamente lentos.",
     "physical_timer": "un solo timer a la cadencia rapida (tier_b_tick_seconds); Tier A se recomputa cada N ticks (N = tier_a_refresh_seconds / tier_b_tick_seconds)"
   },
 

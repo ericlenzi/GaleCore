@@ -556,9 +556,18 @@ function WorkersSwitch() {
   );
 }
 
-// Sin estado nuevo por más de este tiempo, el loop se considera caído. tier_b_tick_seconds es 30s;
-// dos ticks más un margen evita que un tick lento lo marque offline de más.
-const STALE_MS = 75_000;
+// Sin estado nuevo por más de este tiempo, el loop se considera caído.
+//
+// OJO con el cálculo: la cadencia de emisión NO es tier_b_tick_seconds. Ese valor es la espera
+// ENTRE ticks, y hay que sumarle lo que tarda el tick en correr. Medido el 2026-08-10 con mercado
+// abierto: el tick tarda 17-30s (lo domina el barrido de ~640 símbolos de la cadena) y después
+// espera los 30s → las emisiones llegan cada ~47-60s, no cada 30s.
+//
+// El valor anterior (75s) se calibró como "dos ticks más margen" asumiendo cadencia de 30s. Contra
+// la cadencia real dejaba ~15s de margen, así que cualquier tick largo marcaba el loop como caído
+// estando sano — que fue exactamente el falso LOOP OFFLINE que perseguimos media tarde.
+// 150s = dos cadencias reales + margen.
+const STALE_MS = 150_000;
 
 export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubscribeLeg, socketStatus }: Props) {
   const { states, suggestions, workersEnabled } = useRpfStore();

@@ -17,7 +17,12 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         /// Emite ReceiveRpfState al grupo "rpf" con el snapshot de estado del loop RPF (Fase 6a).
         /// El frontend es tablero: consume este evento en vez de correr la cascada.
         /// </summary>
-        Task BroadcastRpfStateAsync(string symbol, object stateUpdate);
+        /// <param name="ct">
+        /// Corte del envío. NO es opcional a propósito: SignalR escribe en el canal de salida de cada
+        /// conexión del grupo, y un cliente tapado deja el SendAsync esperando para siempre. Sin token,
+        /// un solo cliente zombi cuelga al llamador — que es como el loop de RPF se quedaba mudo.
+        /// </param>
+        Task BroadcastRpfStateAsync(string symbol, object stateUpdate, CancellationToken ct);
 
         /// <summary>
         /// Emite ReceiveTradeSuggestion al grupo "rpf" cuando la máquina entra en TRIGGERED.
