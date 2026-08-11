@@ -6,6 +6,8 @@ using DataFeed.Infrastructure;
 using DataFeed.Infrastructure.Providers.Tastytrade;
 using DataFeed.Api.Hubs;
 using DataFeed.Api.Infrastructure;
+using DataFeed.Repositories;
+using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol.AspNetCore;
 
 namespace DataFeed
@@ -53,6 +55,26 @@ namespace DataFeed
             builder.Services.AddHttpClient();
             builder.Services.AddSingleton<ITastytradeOAuth, TastytradeOAuth>();
 
+            // Base de datos de dominio: usuarios, cuentas de bróker, catálogo de estrategias.
+            // (PostgreSQL en Supabase. Ver docs/GaleCore-arquitectura-datos.md §5.)
+            //
+            // OPCIONAL A PROPÓSITO: si no hay cadena configurada, la API arranca igual y sin base.
+            // Registrarla siempre haría que un entorno sin el secreto configurado no levante — y
+            // TODO lo que la API hace hoy (mercado, GEX, RPF, el hub) es independiente de la base.
+            // Que la falta de un secreto tire abajo el feed sería un acoplamiento inventado.
+            //
+            // La cadena NUNCA va en appsettings: user-secrets en local, variable de entorno en Azure.
+            // Y va contra el pooler (puerto 6543), no contra el puerto directo: App Service abre y
+            // cierra conexiones, y por el 5432 se agota el límite del proyecto.
+            var galeCoreDb = builder.Configuration.GetConnectionString("GaleCore");
+            var dbConfigured = !string.IsNullOrWhiteSpace(galeCoreDb);
+            if (dbConfigured)
+            {
+                builder.Services.AddDbContext<GaleCoreDbContext>(o => o
+                    .UseNpgsql(galeCoreDb)
+                    .UseSnakeCaseNamingConvention());
+            }
+
             // SignalR
             builder.Services.AddSignalR()
                 .AddNewtonsoftJsonProtocol(options =>
@@ -91,6 +113,14 @@ namespace DataFeed
                 options.ValidateScopes = false);
 
             var app = builder.Build();
+
+            // Se loguea el estado de la base al arrancar: sin esto, "la base no está configurada"
+            // y "la base está configurada pero no responde" se ven igual desde afuera.
+            app.Services.GetRequiredService<ILogger<Program>>().LogInformation(
+                dbConfigured
+                    ? "GaleCore DB: configurada (ConnectionStrings:GaleCore)."
+                    : "GaleCore DB: NO configurada — la API corre sin base. Configurar " +
+                      "ConnectionStrings:GaleCore en user-secrets (local) o variable de entorno (Azure).");
 
             // Pipeline (orden corregido)
             app.UseMiddleware<ExceptionHandlerMiddleware>();
