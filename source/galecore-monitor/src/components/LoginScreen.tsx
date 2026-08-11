@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import apiClient from '../api/client';
+import { AUTH_UNVERIFIED } from '../utils/authState';
 
 interface Props {
   onAuthenticated: () => void;
@@ -21,13 +22,25 @@ export function LoginScreen({ onAuthenticated }: Props) {
     sessionStorage.setItem('galecore:apiKey', apiKey.trim());
 
     try {
-      await apiClient.get('/Data/Account/Balances');
+      // La ruta correcta lleva el segmento del proveedor. Hasta 2026-08-10 esto pegaba a
+      // '/Data/Account/Balances', que NO EXISTE: devolvía 404 siempre, el 404 caía al else de abajo
+      // y el else llamaba a onAuthenticated(). Resultado: la Access Key nunca se validaba y cualquier
+      // clave dejaba entrar. La rama de "Invalid access key" era código muerto que nunca corrió.
+      await apiClient.get('/Data/Tastytrade/Account/Balances');
+      sessionStorage.removeItem(AUTH_UNVERIFIED);
       onAuthenticated();
     } catch (err: any) {
       if (err?.response?.status === 401) {
+        // La API respondió y rechazó la clave. Es un no.
         sessionStorage.removeItem('galecore:apiKey');
+        sessionStorage.removeItem(AUTH_UNVERIFIED);
         setError('Invalid access key');
       } else {
+        // La API NO respondió (caída, timeout, CORS). Distinto de "la clave está mal": dejar al
+        // operador afuera cuando el backend no contesta le impide incluso abrir el tablero para ver
+        // que el backend no contesta. Se entra, pero marcado — la StatusBar muestra SIN VALIDAR,
+        // porque entrar sin verificación no puede verse igual que entrar verificado.
+        sessionStorage.setItem(AUTH_UNVERIFIED, '1');
         onAuthenticated();
       }
     } finally {

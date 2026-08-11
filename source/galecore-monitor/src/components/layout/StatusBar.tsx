@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fmtTime } from '../../utils/formatters';
+import { isAuthUnverified } from '../../utils/authState';
 import { ConnectionStatus } from '../../socket/useMarketSocket';
 
 interface Props {
@@ -23,6 +24,11 @@ export function StatusBar({ connectionStatus, lastUpdate }: Props) {
 
   const lastUpdateStr = lastUpdate ? fmtTime(lastUpdate) : null;
 
+  // Se entró sin poder validar la clave (la API no respondió al login). No es lo mismo que entrar
+  // verificado y el tablero no puede mostrarlo igual: si la clave estuviera mal, los endpoints REST
+  // van a devolver 401 y las cards se van a ver vacías sin explicación. Esto le da el porqué.
+  const authUnverified = isAuthUnverified();
+
   return (
     <header style={{
       display: 'flex',
@@ -43,6 +49,20 @@ export function StatusBar({ connectionStatus, lastUpdate }: Props) {
 
       {/* Right: status + last update + clock */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        {authUnverified && (
+          <span
+            title="La API no respondió al iniciar sesión, así que la Access Key no se pudo validar. Si es incorrecta, los datos van a venir vacíos con 401."
+            style={{
+              color: 'var(--yellow-gc)',
+              fontWeight: 700,
+              border: '1px solid var(--yellow-gc)',
+              borderRadius: 3,
+              padding: '1px 6px',
+            }}
+          >
+            SIN VALIDAR
+          </span>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span
             className={isOnline ? 'pulse-dot' : ''}
