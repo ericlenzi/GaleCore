@@ -1,12 +1,17 @@
 # GaleCore — Arquitectura de datos para N estrategias
 
-**Estado: PROPUESTA. Nada de esto está implementado.** Es el documento de decisión previo a incorporar
-la base de datos, escrito el **2026-08-11** con las mediciones de ese día (mercado abierto).
+**Estado: PROPUESTA. Nada de esto está implementado.** Escrito el **2026-08-11** con las mediciones
+de ese día (mercado abierto), y **revisado el mismo día** tras definirse que la base entra por
+multi-usuario y no por estado (§5, §10).
 
 Responde una pregunta: **¿la arquitectura actual sostiene que convivan varias estrategias, cada una
 con sus procesos de fondo, evaluando incluso los mismos símbolos?** La respuesta corta es que la
-forma es correcta pero el sentido del flujo de datos no escala, y que el momento de darlo vuelta es
-**antes** de la base de datos, porque el esquema fosiliza lo que haya.
+forma es correcta pero el sentido del flujo de datos no escala.
+
+**Lo que este documento NO dice** (lo decía en su primera versión y era falso): que la base de datos
+sea necesaria para arreglar eso. La inversión del flujo se resuelve en memoria. La base entra por
+otra puerta —usuarios, auth, cuentas de bróker— y las dos cosas son casi independientes: ver §5.4
+para el único punto donde se tocan.
 
 ---
 
@@ -139,6 +144,12 @@ Un **ingestor** es el único dueño del presupuesto de DXLink. Mantiene vivo el 
 suscripciones que la plataforma necesita y publica a un store. Las estrategias **no tocan DXLink**:
 leen el store.
 
+**Ese store es en memoria, no una base de datos.** Todo corre en un solo proceso, así que publicar
+es escribir en una estructura compartida — más rápido y más simple que meter una base en el camino
+caliente. Esta aclaración no es un detalle: la primera versión de este documento decía que la base
+era "la capa de desacople que hace posible §4", y era falso. **La inversión del flujo no necesita
+base de datos.** Ver §5.
+
 Lo que cambia:
 
 * Agregar una estrategia cuyos símbolos ya están cubiertos cuesta **cero** presupuesto de feed.
@@ -151,25 +162,77 @@ Lo que cambia:
 Lo que **no** cambia: las tres capas, MediatR, la convención de prefijo por estrategia, el contrato
 uniforme del switch, y sobre todo la regla de que **el JSON de reglas es fuente de verdad**.
 
-## 5. La base de datos: la decisión clave es qué NO va
+## 5. La base de datos: entra por usuarios, no por estado
 
-La base **no es "dónde guardar cosas"** — es la capa de desacople que hace posible §4. Si entra solo
-como log de trades, el acoplamiento queda igual y se paga el costo sin cobrar el beneficio.
+**Corrección de la primera versión de este documento.** Decía que había que migrar el estado
+(switches, estado de RPF, skew history) a una base. Es innecesario: **el estado completo de la
+plataforma son ~3 KB en 4 archivos**, los archivos ya sobreviven a un reinicio, y en el caso del
+switch una base **empeora** las cosas — le agrega el modo de falla "¿y si no responde?" justo a la
+pieza cuyo trabajo es apagar cosas. Hoy, si el override no se puede leer, manda el JSON y la
+estrategia queda **en ON**; con una base caída eso convertiría un kill switch apagado a propósito en
+uno que se prende solo.
 
-| Va a la base — **estado** | Se queda en git — **reglas** |
-|---|---|
-| Switches por estrategia (hoy `Files/<Prefijo>/<prefijo>_switch_state.json`, gitignoreados) | `galecore_rules_<prefijo>.json` — se edita deliberadamente, se versiona y se revisa |
-| Estado de RPF, sugerencias y acks (hoy singleton in-memory: se pierde al reiniciar) | `galecore_rules_core.json` (config de la aplicación) |
-| Serie de skew (hoy `skew25_history.json`) y calibración POP | |
-| Snapshots de GEX por strike/vencimiento (hoy se tiran cada 600 s) | |
+El problema que se había diagnosticado era de **propiedad del dato** (el switch tiene tres copias en
+el front, hay cinco caches privados en el backend). Eso se arregla teniendo **un solo dueño**, no
+cambiando el medio donde se guardan los bytes.
 
-La frontera preserva la regla actual: **reglas en git, estado en la base.** Los dos JSON que hoy son
-*estado* y no *reglas* — `skew25_history.json` y los `*_switch_state.json` — son literalmente las
-primeras dos tablas; ya incomodaban lo suficiente como para estar gitignoreados.
+### 5.1 Tres caminos que no hay que mezclar
 
-**Beneficio que hoy no existe:** si el ingestor persiste lo que ve, en unos meses hay con qué
-**backtestear contra datos propios**. Toda la calibración de RPF salió de backtests externos y quedó
-como una interpolación sin validar (~8 tr/año, ver `rpf/galecore-rpf-reconciliacion.md`).
+| Camino | Qué es | Dónde vive |
+|---|---|---|
+| **Caliente** | El feed → publicación → estrategias leyendo en cada tick | **Memoria.** Sin base |
+| **Frío** | Archivo histórico de lo que el ingestor vio | Base, más adelante, opcional |
+| **Dominio** | Usuarios, auth, cuentas de bróker, estrategias, research | **Base** |
+
+Publicación y archivo son trabajos distintos: uno es camino caliente y se lee en cada tick, el otro
+se escribe una vez y se lee en meses. Meterlos en la misma pieza es cómo se termina con un sistema
+lento.
+
+### 5.2 Qué justifica la base
+
+**El dominio.** GaleCore pasa a ser multi-usuario: cada operador se loguea y ve **su** cuenta de
+Tastytrade. Eso sí necesita base — usuarios, credenciales de bróker por usuario, estado de las
+estrategias por usuario. Es la decisión que ordena todo el resto.
+
+**El archivo histórico**, más adelante, es el único dato de mercado que la merece: es grande, es
+**imposible de recuperar después** (no se puede volver a pedir el GEX de ayer) y es lo que desbloquea
+**backtestear contra datos propios** — hoy toda la calibración de RPF salió de backtests externos y
+quedó como una interpolación sin validar (~8 tr/año, ver `rpf/galecore-rpf-reconciliacion.md`).
+
+### 5.3 La frontera que sí se sostiene
+
+**Declaración en git, estado donde corresponda.** Lo que define *qué es* una estrategia —sus reglas,
+sus umbrales, su universo— viaja versionado junto al código que lo implementa: si se agrega una
+estrategia, el código y su declaración entran en el mismo commit.
+
+* **Se quedan en git:** `galecore_rules_<prefijo>.json` y `pop_calibration.json`. Este último se había
+  listado como candidato a la base y estaba **mal clasificado**: es un artefacto congelado de BT-10,
+  de solo lectura en runtime. Eso es reglas.
+* **Se quedan como archivos:** los `*_switch_state.json` y `skew25_history.json`. No ganan nada
+  mudándose.
+* **Van a la base:** usuarios, cuentas de bróker, y el estado por usuario de cada estrategia.
+
+### 5.4 Mercado compartido, cuenta por usuario
+
+Con multi-usuario aparece una división que hay que respetar en todo el sistema:
+
+| Qué | Credencial | Ejemplos |
+|---|---|---|
+| Datos de **mercado** | Una credencial **de sistema** | precios, cadenas, Greeks, GEX, el ingestor |
+| Datos de **cuenta** | La **del usuario** que pide | posiciones, balances, el Monitor |
+
+SPY es SPY para todos; las posiciones no. Hoy `ITastytradeOAuth` es un singleton con un solo juego de
+tokens, y los procesos de fondo (`RpfLoopService`, `SkewSnapshotService`, `FlowBroadcastService`)
+corren sin request y sin usuario: por eso el mercado necesita una credencial de sistema, o no tienen
+con qué hablar.
+
+**Esta decisión es upstream del ingestor y hay que tomarla antes de escribirlo** — es el único punto
+de acople entre el trabajo de la base y el de §4. Si el ingestor se construye asumiendo el OAuth
+singleton de hoy y después el OAuth se vuelve por usuario, hay que rehacerlo.
+
+El hub también queda involucrado: hoy `/hubs` está **exento del middleware de API key**
+(`ApiKeyMiddleware.cs:17`), o sea sin autenticación de ningún tipo. Los precios se pueden seguir
+compartiendo, pero lo de cuenta necesita grupos por usuario.
 
 ## 6. Plan
 
@@ -180,14 +243,19 @@ como una interpolación sin validar (~8 tr/año, ver `rpf/galecore-rpf-reconcili
    obliga a tocar dos veces `DxLinkStreamingService`, que es la pieza más delicada del código (811
    líneas de handshake, keepalive, refcount y reconexión, con dos bugs caros pagados en agosto 2026),
    y la segunda vez se tira lo de la primera.
-1. **Diseñar el ingestor y el esquema juntos** — el esquema sale de qué necesita publicar el ingestor,
-   no de qué archivos hay hoy. Primero decidir qué eventos se mantienen vivos y para qué símbolos.
-2. **Migrar el estado a la base** (switches, estado de RPF, skew history). Es la parte de menor riesgo
-   y sola ya arregla el estado que se pierde al reiniciar.
+1. **Base + usuarios + auth** (§5.2). Va primero, no porque la inversión dependa de ella, sino porque
+   **compra seguridad hoy**: hoy la API key viaja en claro en la URL del front y el hub no autentica
+   nada. Y porque la inversión no es urgente — al 78 % se ve venir el techo, pero nada está roto.
+   Antes de escribir el ingestor hay que dejar decidida la división de §5.4.
+2. **Diseñar el ingestor** — qué eventos se mantienen vivos y para qué símbolos. Con la división de
+   credenciales ya tomada, se puede construir sin que el OAuth por usuario lo obligue a rehacerse.
 3. **Mover GEX a leer del store.** Es el cambio grande y el que libera el ~78 %.
 4. **Consolidar `CascadeCore`**, el follow-up que quedó pendiente cuando RPF se independizó del motor
    de Main: hoy la orquestación macro/strike/micro/sizing está triplicada (VL, PB, RPF) reusando los
    primitivos puros. Cae de maduro en el mismo movimiento.
+5. **Archivo histórico**, si se decide guardar historia de mercado. No antes: el esquema sale de qué
+   publica el ingestor, y llenar una tabla con la forma equivocada durante meses es peor que no
+   tenerla.
 
 ## 7. Riesgos y lo que NO está medido
 
@@ -203,6 +271,11 @@ como una interpolación sin validar (~8 tr/año, ver `rpf/galecore-rpf-reconcili
   el rollover del 0DTE son escenarios que el barrido resuelve por reinicio y el modelo persistente no.
 * Las mediciones son de **un solo día y un solo símbolo** (SPY). QQQ y AAPL tienen cadenas más chicas;
   ninguna se midió en vivo.
+* **El costo de multi-usuario no está en la base, está en el OAuth.** `ITastytradeOAuth` es un
+  singleton con un solo juego de tokens y de él dependen todos los providers; volverlo por usuario es
+  el trabajo caro del paso 1, no crear las tablas. Y guardar refresh tokens de cuentas de bróker
+  ajenas obliga a cifrado en reposo y vuelve a la plataforma responsable de material sensible de
+  terceros.
 
 ## 8. Deuda conocida que este trabajo destapó
 
@@ -211,8 +284,9 @@ como una interpolación sin validar (~8 tr/año, ver `rpf/galecore-rpf-reconcili
   un barrido propio recién hecho. Afecta solo a los flags de observabilidad, no a los datos de GEX.
 * **El estado del switch está duplicado en 3 lugares del front** (`StrategyCard` local,
   `useGexStore`, `useRpfStore`), así que prenderla desde su pestaña no actualiza la card de Main. El
-  dueño real del dato es el backend; las tres copias son caches que se desincronizan. Es el mismo
-  problema de propiedad del estado que resuelve §5.
+  dueño real del dato es el backend; las tres copias son caches que se desincronizan. **No lo arregla
+  la base**: se arregla con un store compartido en el front indexado por `switch_endpoint`, que es
+  media hora y no necesita nada nuevo.
 
 ## 9. Cómo reproducir las mediciones
 
@@ -231,11 +305,37 @@ Costó descubrirlo, así que queda escrito:
   replicando el handshake y el throttle de `DxLinkStreamingService`. No está en el repo; si se decide
   incorporarlo como herramienta de diagnóstico, es una decisión aparte.
 
-## 10. Decisiones pendientes del operador
+## 10. Decisiones
 
-1. ¿Se adopta la inversión del flujo (§4), o se prefiere estirar el diseño actual con la palanca del
-   paso 0?
-2. Motor de base de datos y dónde corre (local / Azure, junto a la API).
-3. Qué símbolos y qué eventos mantiene vivos el ingestor — de eso sale el esquema.
-4. Si los snapshots de GEX se persisten desde el día uno (habilita backtest propio, cuesta espacio) o
-   si la base arranca solo con estado.
+### Tomadas (2026-08-11)
+
+* **Motor y hosting:** PostgreSQL en Supabase, base `GaleCore`. Acceso con **EF Core** (las
+  migraciones valen más que su ceremonia con un esquema que va a evolucionar). Proyecto propio en la
+  solución. *Nota de nombre:* `DataFeed.Repositories` nombra un patrón, no una responsabilidad —
+  mismo criterio por el que "Workers" se renombró a switch en 2026-08-10. `DataFeed.Persistence`
+  dice para qué es.
+* **Multi-usuario:** son dos operadores, y **cada uno ve su propia cuenta de Tastytrade**. Las
+  credenciales por usuario (`accountNumber`, `refreshToken`, …) van a una tabla `Accounts`
+  relacionada con `Users`. Auth con **OAuth de Supabase**.
+* **Tabla `Strategies`:** nombre, descripción, prefijo y versión salen del JSON y pasan a la tabla.
+  **Condición que hay que cumplir:** el `prefix` está *compilado* (`[Route("App/Rpf")]`, `Files/Rpf/`,
+  el tag de Swagger, el id de pestaña en `TabNav.tsx`), y hoy ese invariante lo cuida
+  `RulesJsonTests.cs`. Si `strategies[]` sale del JSON, ese test muere y **hay que reemplazarlo por
+  uno que valide las filas de la base contra las rutas compiladas** — si no, queda la misma
+  duplicación con un guardián menos.
+* **El estado NO se migra** (§5). Los `*_switch_state.json` y `skew25_history.json` se quedan como
+  archivos.
+
+### Pendientes
+
+1. ¿Se adopta la inversión del flujo (§4)? El plan la pone después de la base, porque no es urgente.
+2. **Cuál es la credencial de sistema** para los datos de mercado (§5.4). Es upstream del ingestor:
+   hay que decidirla antes de escribirlo, aunque se implemente después.
+3. Si `client_secret` es de la **aplicación registrada** o de cada usuario. Si es de la app, no va en
+   `Accounts` — va en configuración, y duplicarlo por fila sería esparcir un secreto de aplicación.
+4. Cómo se cifran en reposo los refresh tokens de bróker (`pgcrypto` en Postgres, o cifrado en la
+   aplicación con la clave en Key Vault).
+5. Qué símbolos y qué eventos mantiene vivos el ingestor.
+6. La tabla de **research** queda **postergada a propósito**: hasta que exista una consulta concreta
+   que contestar, el esquema no se puede diseñar y una tabla sin consumidor es un cajón de sastre.
+   Con EF, agregarla después cuesta una migración.
