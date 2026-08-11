@@ -19,7 +19,7 @@ namespace DataFeed.Application.App.Gex
         /// Estado del switch de la estrategia. En false no se barrió nada: lo que viaja es el último
         /// dato que había en cache (congelado) o vacío si nunca se barrió en esta corrida.
         /// </summary>
-        public bool WorkersEnabled { get; set; } = true;
+        public bool SwitchEnabled { get; set; } = true;
 
         /// <summary>
         /// true = el dato es de un barrido anterior y nadie lo va a actualizar mientras el switch

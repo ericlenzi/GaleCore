@@ -16,23 +16,23 @@ namespace DataFeed.Controllers
     public class AppController : DataFeedControllerBase
     {
         private readonly IWebHostEnvironment _env;
-        private readonly DataFeed.Api.Infrastructure.RpfWorkerSwitch _rpfWorkerSwitch;
-        private readonly DataFeed.Api.Infrastructure.GexWorkerSwitch _gexWorkerSwitch;
+        private readonly DataFeed.Api.Infrastructure.RpfStrategySwitch _rpfSwitch;
+        private readonly DataFeed.Api.Infrastructure.GexStrategySwitch _gexSwitch;
         private readonly DataFeed.Application.App.Rpf.RpfStateStore _rpfStore;
         private readonly DataFeed.Infrastructure.Providers.Tastytrade.IMarketDataBroadcaster _broadcaster;
         private readonly ILogger<AppController> _logger;
 
         public AppController(IMediator mediator, IWebHostEnvironment env,
-            DataFeed.Api.Infrastructure.RpfWorkerSwitch rpfWorkerSwitch,
-            DataFeed.Api.Infrastructure.GexWorkerSwitch gexWorkerSwitch,
+            DataFeed.Api.Infrastructure.RpfStrategySwitch rpfSwitch,
+            DataFeed.Api.Infrastructure.GexStrategySwitch gexSwitch,
             DataFeed.Application.App.Rpf.RpfStateStore rpfStore,
             DataFeed.Infrastructure.Providers.Tastytrade.IMarketDataBroadcaster broadcaster,
             ILogger<AppController> logger)
             : base(mediator)
         {
             _env = env;
-            _rpfWorkerSwitch = rpfWorkerSwitch;
-            _gexWorkerSwitch = gexWorkerSwitch;
+            _rpfSwitch = rpfSwitch;
+            _gexSwitch = gexSwitch;
             _rpfStore = rpfStore;
             _broadcaster = broadcaster;
             _logger = logger;
@@ -88,14 +88,14 @@ namespace DataFeed.Controllers
             => await ServeRulesFileAsync("Rpf/galecore_rules_rpf.json");
 
         /// <summary>
-        /// Estado del switch de workers de RPF. `source` dice quién manda: "override" si el operador
+        /// Estado del switch de la estrategia RPF. `source` dice quién manda: "override" si el operador
         /// ya usó el switch, "rules" si todavía manda state_machine.enabled del JSON.
         /// </summary>
         [Tags("App.Rpf")]
-        [HttpGet("Rpf/Workers")]
-        public async Task<IActionResult> RpfWorkersGetAsync()
+        [HttpGet("Rpf/Switch")]
+        public async Task<IActionResult> RpfSwitchGetAsync()
         {
-            var ovr = _rpfWorkerSwitch.ReadOverride();
+            var ovr = _rpfSwitch.ReadOverride();
             return Ok(new
             {
                 enabled = ovr ?? await ReadRpfRulesEnabledAsync(),
@@ -104,14 +104,14 @@ namespace DataFeed.Controllers
         }
 
         /// <summary>
-        /// Prende o apaga los workers de RPF. Escribe un archivo de estado aparte — no toca
+        /// Prende o apaga la estrategia RPF. Escribe un archivo de estado aparte — no toca
         /// galecore_rules_rpf.json. `RpfLoopService` lo relee en cada tick.
         /// </summary>
         [Tags("App.Rpf")]
-        [HttpPost("Rpf/Workers")]
-        public async Task<IActionResult> RpfWorkersSetAsync([FromBody] RpfWorkersRequest body)
+        [HttpPost("Rpf/Switch")]
+        public async Task<IActionResult> RpfSwitchSetAsync([FromBody] RpfSwitchRequest body)
         {
-            _rpfWorkerSwitch.Set(body.Enabled);
+            _rpfSwitch.Set(body.Enabled);
 
             // Al apagar, el estado en memoria se descarta: con el loop inerte nadie lo actualiza, y un
             // tablero que se conecte después vería datos viejos como si fueran vigentes.
@@ -127,25 +127,25 @@ namespace DataFeed.Controllers
             // best-effort: el tablero que no se entere lo va a ver en su proximo GET.
             try
             {
-                await _broadcaster.BroadcastRpfWorkersAsync(body.Enabled)
+                await _broadcaster.BroadcastRpfSwitchAsync(body.Enabled)
                     .WaitAsync(TimeSpan.FromSeconds(2));
             }
             catch (TimeoutException)
             {
                 _logger.LogWarning(
-                    "RPF Workers → {State}: el broadcast al grupo 'rpf' no completo en 2s (cliente colgado). " +
+                    "RPF switch → {State}: el broadcast al grupo 'rpf' no completo en 2s (cliente colgado). " +
                     "El switch igual quedo aplicado.", body.Enabled ? "ON" : "OFF");
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "RPF Workers → {State}: fallo el broadcast al grupo 'rpf'. " +
+                _logger.LogWarning(ex, "RPF switch → {State}: fallo el broadcast al grupo 'rpf'. " +
                     "El switch igual quedo aplicado.", body.Enabled ? "ON" : "OFF");
             }
 
             return Ok(new { enabled = body.Enabled, source = "override" });
         }
 
-        public class RpfWorkersRequest
+        public class RpfSwitchRequest
         {
             public bool Enabled { get; set; }
         }
@@ -187,7 +187,7 @@ namespace DataFeed.Controllers
 
             // Kill switch: en OFF el handler no barre la cadena ni toca DXLink, devuelve lo último
             // cacheado marcado como congelado.
-            request.AllowScan = await GexWorkersEnabledAsync();
+            request.AllowScan = await GexSwitchEnabledAsync();
 
             return await Handle(request);
         }
@@ -197,10 +197,10 @@ namespace DataFeed.Controllers
         /// switch, "rules" si todavía manda gex.enabled del JSON.
         /// </summary>
         [Tags("App.Gex")]
-        [HttpGet("Gex/Workers")]
-        public async Task<IActionResult> GexWorkersGetAsync()
+        [HttpGet("Gex/Switch")]
+        public async Task<IActionResult> GexSwitchGetAsync()
         {
-            var ovr = _gexWorkerSwitch.ReadOverride();
+            var ovr = _gexSwitch.ReadOverride();
             return Ok(new
             {
                 enabled = ovr ?? await ReadGexRulesEnabledAsync(),
@@ -213,21 +213,21 @@ namespace DataFeed.Controllers
         /// galecore_rules_gex.json. En OFF la estrategia deja de competir por el feed DXLink.
         /// </summary>
         [Tags("App.Gex")]
-        [HttpPost("Gex/Workers")]
-        public IActionResult GexWorkersSet([FromBody] GexWorkersRequest body)
+        [HttpPost("Gex/Switch")]
+        public IActionResult GexSwitchSet([FromBody] GexSwitchRequest body)
         {
-            _gexWorkerSwitch.Set(body.Enabled);
+            _gexSwitch.Set(body.Enabled);
             return Ok(new { enabled = body.Enabled, source = "override" });
         }
 
-        public class GexWorkersRequest
+        public class GexSwitchRequest
         {
             public bool Enabled { get; set; }
         }
 
         /// <summary>Estado efectivo: override del operador si existe, si no lo que declara el JSON.</summary>
-        private async Task<bool> GexWorkersEnabledAsync()
-            => _gexWorkerSwitch.ReadOverride() ?? await ReadGexRulesEnabledAsync();
+        private async Task<bool> GexSwitchEnabledAsync()
+            => _gexSwitch.ReadOverride() ?? await ReadGexRulesEnabledAsync();
 
         private async Task<bool> ReadGexRulesEnabledAsync()
         {

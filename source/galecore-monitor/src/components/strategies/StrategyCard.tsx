@@ -1,10 +1,10 @@
 import React, { useCallback, useState } from 'react';
 import { BookOpen } from 'lucide-react';
-import { WorkersSwitch } from '../common/WorkersSwitch';
+import { StrategySwitch } from '../common/StrategySwitch';
 import { ReferencesModal } from '../common/ReferencesModal';
 import { getStrategyReference } from '../strategy/strategyReferences';
 import { StrategyEntry } from '../../types/api';
-import { fetchWorkers, setWorkers } from '../../api/strategies';
+import { fetchStrategySwitch, setStrategySwitch } from '../../api/strategies';
 import { tint } from '../../utils/formatters';
 
 interface Props {
@@ -21,11 +21,11 @@ const KIND_COLOR: Record<string, string> = {
  * Card de una estrategia implementada en Main. Muestra qué es y si está corriendo.
  *
  * La card entera es clickeable y lleva a la pestaña de la estrategia (`onOpen`). Los controles de
- * adentro (switch de Workers, botón References) cortan la propagación para no navegar al usarlos.
+ * adentro (switch de la estrategia, botón References) cortan la propagación para no navegar al usarlos.
  *
- * El estado que reporta es el del switch de Workers, que es lo único que la plataforma sabe de
+ * El estado que reporta es el del switch de la estrategia, que es lo único que la plataforma sabe de
  * una estrategia sin conocer su lógica interna: si sus procesos están prendidos o apagados.
- * El switch escribe en el backend de la propia estrategia (`workers_endpoint` del config), así
+ * El switch escribe en el backend de la propia estrategia (`switch_endpoint` del config), así
  * que apagar desde acá corta lo mismo que apagar desde su pestaña.
  */
 export function StrategyCard({ strategy, onOpen }: Props) {
@@ -35,10 +35,10 @@ export function StrategyCard({ strategy, onOpen }: Props) {
   const accent = KIND_COLOR[strategy.kind ?? ''] ?? 'var(--text-muted)';
   const ref = getStrategyReference(strategy.id);
 
-  const read = useCallback(() => fetchWorkers(strategy.workers_endpoint), [strategy.workers_endpoint]);
+  const read = useCallback(() => fetchStrategySwitch(strategy.switch_endpoint), [strategy.switch_endpoint]);
   const write = useCallback(
-    (next: boolean) => setWorkers(strategy.workers_endpoint, next),
-    [strategy.workers_endpoint],
+    (next: boolean) => setStrategySwitch(strategy.switch_endpoint, next),
+    [strategy.switch_endpoint],
   );
 
   // Evita que un click en un control interno navegue a la pestaña.
@@ -112,12 +112,12 @@ export function StrategyCard({ strategy, onOpen }: Props) {
           </button>
         )}
         <span onClick={stop} style={{ display: 'inline-flex', marginLeft: 'auto' }}>
-          <WorkersSwitch
+          <StrategySwitch
             enabled={enabled}
             fetchState={read}
             setState={write}
             onChange={setEnabled}
-            title={`Prender / apagar los workers de ${strategy.label}`}
+            title={`Prender / apagar la estrategia ${strategy.label}`}
           />
         </span>
       </div>

@@ -70,7 +70,7 @@ export interface GexAnalysisResponse {
   spotPrice: number;
   fromCache: boolean;
   /** Switch de la estrategia. En false no se barrió nada: lo que llega es el último dato. */
-  workersEnabled: boolean;
+  switchEnabled: boolean;
   /** El dato es de un barrido anterior y nadie lo va a actualizar mientras el switch esté en OFF. */
   frozen: boolean;
   elapsedMs: number;

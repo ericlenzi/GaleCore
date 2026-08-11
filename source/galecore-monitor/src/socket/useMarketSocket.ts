@@ -92,9 +92,9 @@ export function useMarketSocket(tickers: string[] = []) {
     connection.on('ReceiveTradeSuggestion', (symbol: string, data: TradeSuggestion) => {
       useRpfStore.getState().applySuggestion(symbol, data);
     });
-    // El operador toco el switch de workers. Al apagar, setWorkers vacia el tablero.
-    connection.on('ReceiveRpfWorkers', (enabled: boolean) => {
-      useRpfStore.getState().setWorkers(enabled);
+    // El operador toco el switch de la estrategia. Al apagar, setStrategySwitch vacia el tablero.
+    connection.on('ReceiveRpfSwitch', (enabled: boolean) => {
+      useRpfStore.getState().setStrategySwitch(enabled);
     });
 
     // ── Reconnect logic ───────────────────────────────────────────────────

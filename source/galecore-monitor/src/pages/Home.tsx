@@ -28,7 +28,7 @@ export function Home({ onNavigate }: Props) {
           fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase',
           color: 'var(--text-muted)',
         }}>
-          workers status
+          switches de estrategia
         </span>
       </div>
 

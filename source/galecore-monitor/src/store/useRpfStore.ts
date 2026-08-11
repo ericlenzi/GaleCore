@@ -6,14 +6,14 @@ interface RpfStore {
   states: Record<string, RpfStateUpdate>;
   /** Sugerencia vigente por símbolo (ReceiveTradeSuggestion); null si no hay/expiró. */
   suggestions: Record<string, TradeSuggestion | null>;
-  /** Switch de workers: null mientras no se leyó el estado desde /App/Rpf/Workers. */
-  workersEnabled: boolean | null;
+  /** Switch de la estrategia: null mientras no se leyó el estado desde /App/Rpf/Switch. */
+  switchEnabled: boolean | null;
 
   applyState: (symbol: string, update: RpfStateUpdate) => void;
   applySuggestion: (symbol: string, suggestion: TradeSuggestion) => void;
   clearSuggestion: (symbol: string) => void;
-  /** Estado del switch (fetch inicial o evento ReceiveRpfWorkers). Al apagar vuelve al estado inicial. */
-  setWorkers: (enabled: boolean) => void;
+  /** Estado del switch (fetch inicial o evento ReceiveRpfSwitch). Al apagar vuelve al estado inicial. */
+  setStrategySwitch: (enabled: boolean) => void;
   reset: () => void;
 }
 
@@ -21,7 +21,7 @@ const EMPTY = { states: {}, suggestions: {} };
 
 export const useRpfStore = create<RpfStore>((set) => ({
   ...EMPTY,
-  workersEnabled: null,
+  switchEnabled: null,
 
   applyState: (symbol, update) =>
     set((s) => {
@@ -39,10 +39,10 @@ export const useRpfStore = create<RpfStore>((set) => ({
   clearSuggestion: (symbol) =>
     set((s) => ({ suggestions: { ...s.suggestions, [symbol]: null } })),
 
-  // Apagar los workers deja el tablero como recién abierto: con el loop inerte nadie actualiza el
+  // Apagar la estrategia deja el tablero como recién abierto: con el loop inerte nadie actualiza el
   // estado, y dejarlo en pantalla haría pasar datos congelados por vigentes.
-  setWorkers: (enabled) =>
-    set(() => (enabled ? { workersEnabled: true } : { workersEnabled: false, ...EMPTY })),
+  setStrategySwitch: (enabled) =>
+    set(() => (enabled ? { switchEnabled: true } : { switchEnabled: false, ...EMPTY })),
 
-  reset: () => set({ ...EMPTY, workersEnabled: null }),
+  reset: () => set({ ...EMPTY, switchEnabled: null }),
 }));

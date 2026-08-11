@@ -23,8 +23,8 @@ interface GexStore {
   selectedExpiry: Record<string, string | null>;
 
   /** Switch de la estrategia. null = todavía no se leyó del backend. */
-  workersEnabled: boolean | null;
-  setWorkers: (enabled: boolean) => void;
+  switchEnabled: boolean | null;
+  setStrategySwitch: (enabled: boolean) => void;
 
   loadRules: () => Promise<void>;
   fetchGex: (symbol: string, refresh?: boolean) => Promise<void>;
@@ -42,9 +42,9 @@ export const useGexStore = create<GexStore>((set, get) => ({
   loading: {},
   error: {},
   selectedExpiry: {},
-  workersEnabled: null,
+  switchEnabled: null,
 
-  setWorkers: (enabled) => set({ workersEnabled: enabled }),
+  setStrategySwitch: (enabled) => set({ switchEnabled: enabled }),
 
   loadRules: async () => {
     set({ rulesLoading: true, rulesError: null });

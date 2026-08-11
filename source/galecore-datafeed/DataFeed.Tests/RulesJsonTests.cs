@@ -93,7 +93,7 @@ public class RulesJsonTests
         foreach (var s in strategies!)
         {
             var o = s!.AsObject();
-            foreach (var campo in new[] { "id", "prefix", "tab", "label", "rules_endpoint", "workers_endpoint" })
+            foreach (var campo in new[] { "id", "prefix", "tab", "label", "rules_endpoint", "switch_endpoint" })
                 Assert.False(string.IsNullOrWhiteSpace((string?)o[campo]),
                     $"strategies[] con '{campo}' vacio o ausente: {o.ToJsonString()}");
         }
@@ -117,7 +117,7 @@ public class RulesJsonTests
                 $"Falta la carpeta Files/{prefix}/ de la estrategia '{(string?)s["id"]}'.");
 
             Assert.Equal($"/App/{prefix}/Rules", (string?)s["rules_endpoint"]);
-            Assert.Equal($"/App/{prefix}/Workers", (string?)s["workers_endpoint"]);
+            Assert.Equal($"/App/{prefix}/Switch", (string?)s["switch_endpoint"]);
         }
     }
 

@@ -73,13 +73,13 @@ namespace DataFeed
             // Orquestación RPF (Fase 6a) — store in-memory + loop. El loop arranca INERTE:
             // no corre la cascada ni emite hasta state_machine.enabled=true en galecore_rules_rpf.json.
             builder.Services.AddSingleton<DataFeed.Application.App.Rpf.RpfStateStore>();
-            // Switch manual de workers: el operador puede cortar el loop desde el front sin reiniciar.
-            builder.Services.AddSingleton<RpfWorkerSwitch>();
+            // Switch de estrategia: el operador puede cortar el loop desde el front sin reiniciar.
+            builder.Services.AddSingleton<RpfStrategySwitch>();
             builder.Services.AddHostedService<RpfLoopService>();
 
             // GEX no tiene BackgroundService: su switch corta el barrido de la cadena, que es lo
             // único que esa estrategia corre por su cuenta (y lo que compite por el feed DXLink).
-            builder.Services.AddSingleton<GexWorkerSwitch>();
+            builder.Services.AddSingleton<GexStrategySwitch>();
 
             // MCP Server
             builder.Services

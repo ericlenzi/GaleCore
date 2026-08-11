@@ -6,10 +6,11 @@ import { MarketDiagnostics } from '../components/ticker/MarketDiagnostics';
 import { OptionsChainList } from '../components/gex/OptionsChainList';
 import { ExpiryEngine } from '../components/gex/ExpiryEngine';
 import { GexChart } from '../components/chart/GexChart';
-import { WorkersSwitch } from '../components/common/WorkersSwitch';
+import { StrategySwitch } from '../components/common/StrategySwitch';
+import { StrategyOffPanel } from '../components/common/StrategyOffPanel';
 import { ReferencesModal } from '../components/common/ReferencesModal';
 import { getStrategyReference } from '../components/strategy/strategyReferences';
-import { fetchGexWorkers, setGexWorkers } from '../api/gex';
+import { fetchGexSwitch, setGexSwitch } from '../api/gex';
 import { useGexStore } from '../store/useGexStore';
 import { useMarketStore } from '../store/useMarketStore';
 import { useAppConfigStore } from '../store/useAppConfigStore';
@@ -85,7 +86,7 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
   const {
     tickers, display, rulesLoading, rulesError, loadRules,
     cache, loading, error, selectedExpiry, fetchGex, selectExpiry,
-    workersEnabled, setWorkers,
+    switchEnabled, setStrategySwitch,
   } = useGexStore();
 
   const platformTickers = useAppConfigStore((s) => s.tickers);
@@ -104,26 +105,31 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
   // (AAPL, SKM…) para que sus cards tengan precio/quote/estado de mercado en vivo, no solo el REST
   // inicial. Se excluye lo que ya suscribe la plataforma para no desuscribírselo al salir de la
   // pestaña: la conexión del hub es única y compartida con Monitor/RPF/Home.
+  //
+  // Gateado por el switch: en OFF la estrategia no puede seguir ocupando el hub con símbolos que
+  // solo ella necesita. Apagarla tiene que apagar TODA su actividad, no solo el barrido.
   const extraTickersKey = tickers.filter((s) => !platformTickers.includes(s)).join(',');
   useEffect(() => {
-    if (socketStatus !== 'connected') return;
+    if (socketStatus !== 'connected' || !switchEnabled) return;
     const extras = extraTickersKey ? extraTickersKey.split(',') : [];
     extras.forEach(subscribeSymbol);
     return () => extras.forEach(unsubscribeSymbol);
-  }, [extraTickersKey, socketStatus, subscribeSymbol, unsubscribeSymbol]);
+  }, [extraTickersKey, socketStatus, switchEnabled, subscribeSymbol, unsubscribeSymbol]);
 
   // Carga inicial + auto-refresh del símbolo activo. El período sale del JSON (display_config).
   // Con el switch en OFF no se programa nada: el backend igual rechazaría el barrido, pero pedirlo
   // sería ruido. Se hace una sola lectura para traer el dato congelado a la pantalla.
   const refreshSeconds = display?.refresh_seconds ?? DEFAULT_REFRESH_SECONDS;
   useEffect(() => {
-    if (!active || workersEnabled == null) return;
+    // En OFF no se pide NADA, ni siquiera la lectura inicial: antes se hacía un fetch para traer el
+    // dato congelado a pantalla, pero con la pantalla reducida al cartel de apagado ese dato no se
+    // muestra en ningún lado. Era una request al backend cuyo resultado nadie miraba.
+    if (!active || !switchEnabled) return;
     if (!cache[active]) fetchGex(active);
-    if (!workersEnabled) return;
 
     intervalRef.current = setInterval(() => fetchGex(active), refreshSeconds * 1000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [active, refreshSeconds, workersEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, refreshSeconds, switchEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const entry = active ? cache[active] : undefined;
   const data = entry?.data ?? null;
@@ -150,7 +156,7 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
 
   // Switch en OFF: lo que se ve es el último barrido y nadie lo va a actualizar. Se marca con la
   // hora del dato para que no se lea como vigente.
-  const frozen = workersEnabled === false || !!data?.frozen;
+  const frozen = switchEnabled === false || !!data?.frozen;
 
   const updated = entry?.updatedAt ?? null;
   const stale = isStale(updated, refreshSeconds * 1000 * 1.5);
@@ -187,11 +193,11 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
           >
             <BookOpen size={12} /> References
           </button>
-          <WorkersSwitch
-            enabled={workersEnabled}
-            fetchState={fetchGexWorkers}
-            setState={setGexWorkers}
-            onChange={setWorkers}
+          <StrategySwitch
+            enabled={switchEnabled}
+            fetchState={fetchGexSwitch}
+            setState={setGexSwitch}
+            onChange={setStrategySwitch}
             title="Prender / apagar el barrido de la cadena. En OFF no se toca DXLink."
           />
         </span>
@@ -208,6 +214,16 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
         />
       )}
 
+      {/* Switch en OFF: la pantalla se reduce al encabezado y un cartel. Cortar el árbol acá apaga
+          actividad real, no solo píxeles — TickerGrid hace su propio polling REST de respaldo y el
+          gráfico mantiene series vivas. Mostrar el último barrido "congelado" era peor: un panel
+          lleno de números se lee como vigente aunque diga que no lo está. */}
+      {switchEnabled === false ? (
+        <div className="px-3">
+          <StrategyOffPanel detail="No se barre la cadena, no se toca DXLink ni a pedido, y no se suscribe ningun simbolo propio de la estrategia. El estado se guarda en disco, asi que un reinicio no la vuelve a prender sola." />
+        </div>
+      ) : (
+      <>
       <div className="p-3">
         <TickerGrid symbols={tickers} selectedSymbol={active} onSelect={setSelectedSymbol} />
       </div>
@@ -288,7 +304,7 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
                   onClick={() => fetchGex(active, true)}
                   disabled={isLoading || frozen}
                   className="btn"
-                  title={frozen ? 'Barrido detenido: prendé Workers para rebarrer' : 'Rebarrer la cadena'}
+                  title={frozen ? 'Barrido detenido: prendé la estrategia para rebarrer' : 'Rebarrer la cadena'}
                   style={frozen ? { opacity: 0.45, cursor: 'default' } : undefined}
                 >
                   <RefreshCw size={10} className={isLoading ? 'animate-spin' : ''} />
@@ -402,6 +418,8 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
             </div>
           </div>
         </>
+      )}
+      </>
       )}
     </div>
   );

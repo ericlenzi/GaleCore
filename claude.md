@@ -27,7 +27,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   Los tres lugares donde vive una estrategia y que **tienen que coincidir**:
   * **Este nodo** — el índice narrativo, con el link a su doc.
   * **`strategies[]` de `galecore_rules_core.json`** — lo que Main renderiza (`prefix`, `kind`, `name`,
-    `description`, `rules_endpoint`, `workers_endpoint`). Es lo que lee la app; este nodo es lo que
+    `description`, `rules_endpoint`, `switch_endpoint`). Es lo que lee la app; este nodo es lo que
     leemos nosotros.
   * **`docs/<prefijo>/`** — la carpeta con toda su documentación.
 
@@ -50,7 +50,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   strikes, ni sizing. Contrato:
 
   * `strategies[]` — las estrategias implementadas. Cada entrada: `id`, `prefix`, `tab`, `label`,
-    `name`, `kind` (`operativa` / `informativa`), `description`, `rules_endpoint`, `workers_endpoint`.
+    `name`, `kind` (`operativa` / `informativa`), `description`, `rules_endpoint`, `switch_endpoint`.
     Es lo que **Main** renderiza como cards. Una estrategia que no figura acá existe en la API pero
     es invisible en el tablero.
   * `monitor` — config de la pestaña Monitor, que es transversal (monitorea las posiciones de la
@@ -80,8 +80,8 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
      `App.<Prefijo>`. Mínimo: `GET /App/<Prefijo>/Rules` sirviendo el JSON tal cual.
   4. **Entrada en `strategies[]` de `galecore_rules_core.json`.** Sin esto no aparece en Main.
   5. Pestaña propia en `TabNav.tsx`, con el mismo id que declara `tab` en el config.
-  6. Switch **Workers** si corre procesos o mantiene sockets propios (ver "switch Workers"), con su
-     `<prefijo>_workers_state.json` en su carpeta — gitignoreado.
+  6. Switch ON/OFF de la estrategia (ver "switch por estrategia"), con su
+     `<prefijo>_switch_state.json` en su carpeta — gitignoreado.
   7. Test que congele los invariantes de su JSON, al estilo `GexRulesJsonTests.cs`.
   8. **Carpeta `docs/<prefijo>/`** (minúscula) con su definición canónica
      `galecore-estrategia-<prefijo>.md` y un `README.md` que indexe la carpeta. Ahí va TODA su
@@ -200,8 +200,8 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   Los archivos propios de una estrategia (JSON de reglas, estado de runtime, etc.) van en una
   subcarpeta `DataFeed.Api/Files/<Prefix>/`, con el **mismo `<Prefix>` que su ruta HTTP** (`/App/Rpf`
   → `Files/Rpf/`). Así se ve de un vistazo qué archivo pertenece a qué estrategia.
-  * RPF → `Files/Rpf/galecore_rules_rpf.json`, `Files/Rpf/rpf_workers_state.json`.
-  * GEX → `Files/Gex/galecore_rules_gex.json`, `Files/Gex/gex_workers_state.json`.
+  * RPF → `Files/Rpf/galecore_rules_rpf.json`, `Files/Rpf/rpf_switch_state.json`.
+  * GEX → `Files/Gex/galecore_rules_gex.json`, `Files/Gex/gex_switch_state.json`.
 
   **En la raíz de `Files/` quedan la config de app y lo que no es de ninguna estrategia:**
   `galecore_rules_core.json` (config de la aplicación), `pop_calibration.json` (tabla POP del gate
@@ -214,31 +214,48 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   copien. Con el glob de un solo nivel (`Files\*.json`) el archivo compila pero desaparece del
   output, y el fallo aparece recién en runtime como "archivo no encontrado".
 
-- Regla — switch "Workers" por estrategia
-  Toda estrategia que corra procesos en la API (workers / `BackgroundService`) o mantenga conexiones
-  socket propias **debe** exponer en el frontend un switch llamado **"Workers"** que permita prenderlos
-  y apagarlos manualmente, sin reiniciar la API ni editar archivos a mano.
+- Regla — switch por estrategia
+  Toda estrategia **debe** exponer en el frontend un switch **ON/OFF** que permita prenderla y
+  apagarla, sin reiniciar la API ni editar archivos a mano.
   Motivo: son procesos que corren solos y emiten sin que nadie los pida; el operador tiene que poder
   cortarlos en el acto.
-  Workers actuales: `RpfLoopService`, `FlowBroadcastService`, `SkewSnapshotService`
+
+  **Se llamaba "Workers" hasta 2026-08-10.** El nombre describía la implementación —un
+  `BackgroundService`, que en GEX ni siquiera existe— y no lo que el operador hace con él. La
+  etiqueta del botón es solo **ON/OFF**: qué se apaga lo dice el contexto donde vive el switch.
+
+  **El switch apaga TODA la actividad de su estrategia**, no solo sus procesos de fondo: loops,
+  suscripciones al hub, timers de refresh y las llamadas REST que dispara su pantalla. Una estrategia
+  en OFF no puede seguir ocupando el feed ni pidiendo datos.
+  Procesos de fondo actuales: `RpfLoopService`, `FlowBroadcastService`, `SkewSnapshotService`
   (todos en `DataFeed.Api/Infrastructure`).
 
   **El estado de los switches se ve también en Main**, que renderiza una card por estrategia leyendo
-  `strategies[]` del config de la app; cada card monta el mismo `WorkersSwitch` apuntando al
-  `workers_endpoint` que la estrategia declara. Por eso el contrato tiene que ser uniforme:
-  `GET <workers_endpoint>` → `{ enabled, source }` y `POST <workers_endpoint>` con `{ enabled }`.
+  `strategies[]` del config de la app; cada card monta el mismo `StrategySwitch` apuntando al
+  `switch_endpoint` que la estrategia declara. Por eso el contrato tiene que ser uniforme:
+  `GET <switch_endpoint>` → `{ enabled, source }` y `POST <switch_endpoint>` con `{ enabled }`.
 
   **Dónde vive el estado (regla, no detalle de una estrategia):** en
-  `Files/<Prefijo>/<prefijo>_workers_state.json`, **nunca** dentro del JSON de reglas. El JSON de reglas
+  `Files/<Prefijo>/<prefijo>_switch_state.json`, **nunca** dentro del JSON de reglas. El JSON de reglas
   es fuente de verdad y se edita deliberadamente, no en runtime; el archivo de estado es un **override**
   y si no existe manda lo que declara el JSON (por eso `source` vale `"override"` o `"rules"`). Persiste
   a disco a propósito — un kill switch que vuelve solo a ON después de un restart es un agujero de
   seguridad. Está gitignoreado: un deploy pisaría el switch del operador.
 
-  **En OFF, la estrategia no hace nada Y su tablero vuelve al estado inicial.** No alcanza con frenar el
-  proceso: hay que limpiar el estado que quedó publicado, o un tablero que se conecte después recibe un
-  estado congelado como si fuera vigente. Y el semáforo de "online" del front tiene que salir del switch
-  **más** la frescura del último dato, para que un worker crasheado también se vea offline.
+  **En OFF, la estrategia no hace nada Y su pantalla se reduce al encabezado más un cartel.** No
+  alcanza con frenar el proceso: hay que limpiar el estado publicado, o un tablero que se conecte
+  después recibe un estado congelado como si fuera vigente. Y tampoco alcanza con marcar los datos
+  como "congelados" dejándolos a la vista — un panel lleno de números se lee como vigente aunque diga
+  que no lo está. Se muestran solo título, References, el switch y `StrategyOffPanel`.
+  Cortar el árbol de React ahí apaga actividad real, no solo píxeles: los efectos que suscriben al
+  hub viven dentro de los componentes que dejan de montarse.
+  El semáforo de "online" del front sale del switch **más** la frescura del último dato, para que un
+  proceso crasheado también se vea offline.
+
+  **Ninguna pantalla transversal puede depender de una estrategia.** El Monitor suscribe sus propios
+  subyacentes por eso: hasta 2026-08-10 el spot de una posición en un símbolo fuera de
+  `universe.tickers` venía de que la pantalla de GEX lo suscribiera, así que apagar una estrategia
+  informativa se llevaba puesto el precio de una posición abierta.
 
   Ambas estrategias lo tienen implementado; el cómo, en su doc:
   * **RPF** — kill switch de `RpfLoopService`. Ver
@@ -352,7 +369,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
 
 - Resumen del proyecto:
   Dashboard de trading en **React + TypeScript + Create React App** para la plataforma GaleCore.
-  Pestañas: **Main** (índice de estrategias implementadas + estado de sus workers), **Monitor**
+  Pestañas: **Main** (índice de estrategias implementadas + estado de sus switches), **Monitor**
   (posiciones abiertas de la cuenta, transversal a estrategias) y una pestaña por estrategia
   (**GEX**, **RPF**). References dejó de ser pestaña: cada estrategia tiene un botón **References** en
   la cabecera de su pantalla, que abre un modal con dos solapas — **Definiciones** (el panel de la
@@ -396,10 +413,10 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   ├── api/
   │   ├── client.ts           # axios instance con X-API-KEY interceptor
   │   ├── rules.ts            # fetchAppConfig() (/App/GaleCore/Rules/Core) + fetchRpfRulesRaw()
-  │   ├── strategies.ts       # fetchWorkers(endpoint) / setWorkers(endpoint, enabled) — genéricos por endpoint
+  │   ├── strategies.ts       # fetchStrategySwitch(endpoint) / setStrategySwitch(endpoint, enabled) — genéricos por endpoint
   │   ├── analytics.ts        # /App.Analytics/* (GammaExposure, IVRank, ImpliedVolatility)
-  │   ├── gex.ts              # /App/Gex/{Rules,Analysis,Workers}
-  │   ├── rpf.ts              # /App/Rpf/Workers
+  │   ├── gex.ts              # /App/Gex/{Rules,Analysis,Switch}
+  │   ├── rpf.ts              # /App/Rpf/Switch
   │   ├── marketdata.ts       # /Data/Tastytrade/MarketData/*
   │   └── account.ts          # /Data/Account/*
   ├── socket/
@@ -417,10 +434,10 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   │   ├── StatusBar.tsx       # Barra superior: estado sistema, estado mercado, hora
   │   │   └── TabNav.tsx          # Tabs: Main / Monitor / GEX / RPF
   │   ├── common/
-  │   │   ├── WorkersSwitch.tsx   # Switch Workers reusable: recibe fetchState/setState, no conoce la estrategia
+  │   │   ├── StrategySwitch.tsx   # Switch ON/OFF reusable: recibe fetchState/setState, no conoce la estrategia
   │   │   └── ReferencesModal.tsx # Modal de References por estrategia: solapas Definiciones + Json. Transversal: recibe el panel y fetchJson
   │   ├── strategies/             # Tab Main
-  │   │   └── StrategyCard.tsx    # Card por estrategia: identidad + WorkersSwitch a su workers_endpoint + "Abrir"
+  │   │   └── StrategyCard.tsx    # Card por estrategia: identidad + StrategySwitch a su switch_endpoint + "Abrir"
   │   ├── ticker/
   │   │   ├── TickerCard.tsx      # Card por ticker: precio, variación, bid/ask/vol
   │   │   ├── TickerGrid.tsx      # Grid de TickerCards. `symbols` es obligatorio: lo pasa la estrategia dueña de la pantalla
@@ -449,7 +466,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │       ├── ReferencePrimitives.tsx # Primitivas visuales compartidas por los paneles de References (Card, CollapsibleCard, Stat, TH/TD)
   │       └── StrategyReference.tsx # Panel de Definiciones de RPF (solapa del modal References): reglas, umbrales, protocolo (lee /App/Rpf/Rules). `embedded` le saca el chrome de página
   ├── pages/
-  │   ├── Home.tsx            # Tab Main: índice de estrategias implementadas (cards desde strategies[]) + estado de workers
+  │   ├── Home.tsx            # Tab Main: índice de estrategias implementadas (cards desde strategies[]) + estado de los switches
   │   ├── Monitor.tsx         # Tab Monitor: wrapper de PositionMonitor
   │   ├── Rpf.tsx             # Tab RPF: tablero de orquestación (motor→ejes→estados→candidato→sugerencia) por SignalR
   │   └── Gex.tsx             # Tab GEX: universo + Details (checks + diagnóstico, GEX global) +

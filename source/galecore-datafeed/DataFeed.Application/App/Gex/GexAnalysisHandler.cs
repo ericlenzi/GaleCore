@@ -90,7 +90,7 @@ namespace DataFeed.Application.App.Gex
             if (_cache.TryGetValue(symbol, out var cached))
             {
                 cached.Response.FromCache = true;
-                cached.Response.WorkersEnabled = false;
+                cached.Response.SwitchEnabled = false;
                 cached.Response.Frozen = true;
                 return cached.Response;
             }
@@ -99,7 +99,7 @@ namespace DataFeed.Application.App.Gex
             {
                 Symbol = symbol,
                 Timestamp = DateTime.UtcNow,
-                WorkersEnabled = false,
+                SwitchEnabled = false,
                 Frozen = true,
                 Gex = new GexPayload { Config = scan.ToDto() },
             };
@@ -127,7 +127,7 @@ namespace DataFeed.Application.App.Gex
 
             // La entrada del cache es un objeto compartido y se muta al servirlo: si estuvo en OFF
             // quedó marcada como congelada, y al volver a ON hay que limpiar esos flags.
-            cached.Response.WorkersEnabled = true;
+            cached.Response.SwitchEnabled = true;
             cached.Response.Frozen = false;
 
             cached.Response.FromCache = true;

@@ -142,7 +142,20 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
                 _disconnectSub = socket.DisconnectionHappened.Subscribe(info =>
                 {
-                    _logger.LogWarning("DxLink desconectado: {Type} - {CloseStatus}", info.Type, info.CloseStatus);
+                    // Se loguea TODO lo que trae DisconnectionInfo, no solo Type y CloseStatus.
+                    //
+                    // Hasta 2026-08-10 esta línea imprimía solo esos dos, y como los `Lost` vienen sin
+                    // close frame el resultado era siempre "Lost - (null)". Durante toda una sesión de
+                    // diagnóstico esos cortes se anotaron como "sin causa identificada" — pero la causa
+                    // no faltaba, la estábamos descartando antes de mirarla: Exception y
+                    // CloseStatusDescription ya venían en el evento y nadie los leía.
+                    //
+                    // Type=Lost + CloseStatus=null significa algo preciso: la conexión murió SIN
+                    // handshake de cierre, o sea que se cayó el TCP en vez de que el server cerrara
+                    // ordenadamente. Exception es la única pista de por qué.
+                    _logger.LogWarning(info.Exception,
+                        "DxLink desconectado: Type={Type} CloseStatus={CloseStatus} Desc={Desc} SubProtocol={SubProtocol}",
+                        info.Type, info.CloseStatus, info.CloseStatusDescription, info.SubProtocol);
                     _isConnected = false;
                     _handshakeComplete = false;
 

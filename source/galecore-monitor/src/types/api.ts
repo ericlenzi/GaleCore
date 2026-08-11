@@ -16,7 +16,7 @@ export interface StrategyEntry {
   kind?: string;
   description?: string;
   rules_endpoint: string;
-  workers_endpoint: string;
+  switch_endpoint: string;
 }
 
 export interface AppConfig {

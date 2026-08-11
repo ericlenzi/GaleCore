@@ -2,18 +2,18 @@ import apiClient from './client';
 import { GexAnalysisResponse, GexRules } from '../types/gex';
 
 /** Estado del switch de GEX. `source` = quién manda: el override del operador o el JSON de reglas. */
-export interface GexWorkersState {
+export interface GexSwitchState {
   enabled: boolean;
   source: 'override' | 'rules';
 }
 
-export async function fetchGexWorkers(): Promise<GexWorkersState> {
-  const { data } = await apiClient.get<GexWorkersState>('/App/Gex/Workers');
+export async function fetchGexSwitch(): Promise<GexSwitchState> {
+  const { data } = await apiClient.get<GexSwitchState>('/App/Gex/Switch');
   return data;
 }
 
-export async function setGexWorkers(enabled: boolean): Promise<GexWorkersState> {
-  const { data } = await apiClient.post<GexWorkersState>('/App/Gex/Workers', { enabled });
+export async function setGexSwitch(enabled: boolean): Promise<GexSwitchState> {
+  const { data } = await apiClient.post<GexSwitchState>('/App/Gex/Switch', { enabled });
   return data;
 }
 

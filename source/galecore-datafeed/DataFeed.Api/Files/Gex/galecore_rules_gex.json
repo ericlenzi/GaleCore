@@ -10,7 +10,7 @@
     "purpose": "Mostrar el gamma exposure de un simbolo para la toma de decisiones. NO propone trades, NO calcula setups, NO ejecuta nada.",
     "schema_note": "Declara macro_regime.checks + definitions + position_builder.layers[id=2].config.structure_selection.thresholds con el schema que leen los primitivos compartidos de App/Shared/CascadeUtils (EvaluateLayer1, ComputePriceZScore, ComputeTrend...), asi la estrategia no necesita codigo nuevo. Mismo criterio que el JSON de RPF.",
     "scope_note": "El GEX de esta estrategia es GLOBAL: agrega todos los strikes de todos los vencimientos de la cadena dentro de gex.max_dte, incluido 0DTE. El GEX de /App/GaleCore/* sigue siendo de un solo vencimiento — son numeros distintos a proposito.",
-    "workers_note": "No corre BackgroundService ni sockets propios (todo es REST on-demand), por eso no expone el switch 'Workers' que exige la convencion de estrategias."
+    "switch_note": "No corre BackgroundService ni sockets propios (todo es REST on-demand), pero igual expone el switch de estrategia: lo que apaga es el barrido de la cadena, que anda solo y compite por DXLink."
   },
 
   "strategy_scope": {
@@ -28,7 +28,7 @@
 
   "gex": {
     "enabled": true,
-    "_enabled_note": "Estado por defecto del switch 'Workers' de la pestana. En OFF el endpoint /App/Gex/Analysis NO barre la cadena ni toca DXLink: devuelve lo ultimo cacheado marcado como congelado. El operador lo cambia desde el front, y ese override se guarda en Files/Gex/gex_workers_state.json — este valor solo manda mientras nadie haya tocado el switch.",
+    "_enabled_note": "Estado por defecto del switch de la estrategia. En OFF el endpoint /App/Gex/Analysis NO barre la cadena ni toca DXLink: devuelve lo ultimo cacheado marcado como congelado. El operador lo cambia desde el front, y ese override se guarda en Files/Gex/gex_switch_state.json — este valor solo manda mientras nadie haya tocado el switch.",
     "max_dte": 50,
     "include_zero_dte": true,
     "expiration_types": ["Regular", "Weekly"],

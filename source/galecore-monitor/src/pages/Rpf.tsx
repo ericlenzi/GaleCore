@@ -8,11 +8,13 @@ import { useMarketStore } from '../store/useMarketStore';
 import { RpfStateBadge } from '../components/rpf/RpfStateBadge';
 import { RpfSuggestionCard } from '../components/rpf/RpfSuggestionCard';
 import { ReferencesModal } from '../components/common/ReferencesModal';
+import { StrategySwitch } from '../components/common/StrategySwitch';
+import { StrategyOffPanel } from '../components/common/StrategyOffPanel';
 import { getStrategyReference } from '../components/strategy/strategyReferences';
 import { RpfStateUpdate, RpfCheck, RpfCandidate, RpfStateName } from '../types/rpf';
 import { ConnectionStatus } from '../socket/useMarketSocket';
 import { LegMeta } from '../types/api';
-import { fetchRpfWorkers, setRpfWorkers } from '../api/rpf';
+import { fetchRpfSwitch, setRpfSwitch } from '../api/rpf';
 import { tint, fmtPrice, fmtOI, fmtExpiry, fmtTime } from '../utils/formatters';
 
 const RPF_REF = getStrategyReference('rpf');
@@ -501,62 +503,26 @@ function SymbolPanel({ symbol, st, suggestion, onAccept, onDismiss, subscribeLeg
 }
 
 /**
- * Switch manual de los workers de RPF (regla "switch Workers por estrategia" de CLAUDE.md).
- * Apagarlo corta el loop del backend dentro de un tick, sin reiniciar la API. El estado persiste
- * a disco, así que un restart no lo vuelve a prender solo.
+ * Switch de RPF. Delega en el componente compartido en vez de reimplementarlo: hasta 2026-08-10 esta
+ * pantalla tenía su propia copia del botón, con su propio "WORKERS ON/OFF" hardcodeado y su propio
+ * manejo de error — que ya había divergido del compartido (el compartido reintenta cuando el estado
+ * es desconocido; esta copia se quedaba muerta).
+ *
+ * Lo único propio de RPF es de dónde sale el estado: llega también por SignalR (ReceiveRpfSwitch),
+ * así que vive en el store y no en el componente.
  */
-function WorkersSwitch() {
-  const enabled = useRpfStore((s) => s.workersEnabled);
-  const setWorkers = useRpfStore((s) => s.setWorkers);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    fetchRpfWorkers()
-      .then((s) => { setWorkers(s.enabled); setError(false); })
-      .catch(() => setError(true));
-  }, [setWorkers]);
-
-  const toggle = useCallback(() => {
-    if (enabled == null || busy) return;
-    const next = !enabled;
-    setBusy(true);
-    setRpfWorkers(next)
-      .then((s) => { setWorkers(s.enabled); setError(false); })
-      .catch(() => setError(true))
-      .finally(() => setBusy(false));
-  }, [enabled, busy, setWorkers]);
-
-  const unknown = enabled == null || error;
-  const color = unknown ? 'var(--text-muted)' : enabled ? 'var(--green)' : 'var(--red-gc)';
+function RpfSwitch() {
+  const enabled = useRpfStore((s) => s.switchEnabled);
+  const setStrategySwitch = useRpfStore((s) => s.setStrategySwitch);
 
   return (
-    <button
-      onClick={toggle}
-      disabled={unknown || busy}
-      title={error ? 'No se pudo leer el estado de los workers' : 'Prender / apagar los workers de RPF'}
-      style={{
-        display: 'inline-flex', alignItems: 'center', gap: 7,
-        padding: '3px 9px', borderRadius: 20,
-        backgroundColor: tint(color, 10), border: `1px solid ${tint(color, 30)}`,
-        color, cursor: unknown || busy ? 'default' : 'pointer',
-        fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
-        fontFamily: 'JetBrains Mono, monospace', opacity: busy ? 0.6 : 1,
-      }}
-    >
-      {/* Riel del switch */}
-      <span style={{
-        width: 22, height: 12, borderRadius: 20, flexShrink: 0,
-        backgroundColor: tint(color, 30), position: 'relative', transition: 'background-color 150ms',
-      }}>
-        <span style={{
-          position: 'absolute', top: 2, left: enabled ? 12 : 2,
-          width: 8, height: 8, borderRadius: '50%', backgroundColor: color,
-          transition: 'left 150ms',
-        }} />
-      </span>
-      WORKERS {unknown ? '—' : enabled ? 'ON' : 'OFF'}
-    </button>
+    <StrategySwitch
+      enabled={enabled}
+      fetchState={fetchRpfSwitch}
+      setState={setRpfSwitch}
+      onChange={setStrategySwitch}
+      title="Prender / apagar la estrategia RPF. En OFF el loop no corre y el tablero se vacía."
+    />
   );
 }
 
@@ -574,7 +540,7 @@ function WorkersSwitch() {
 const STALE_MS = 150_000;
 
 export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubscribeLeg, socketStatus }: Props) {
-  const { states, suggestions, workersEnabled } = useRpfStore();
+  const { states, suggestions, switchEnabled } = useRpfStore();
 
   // Reloj propio: sin esto el semáforo solo se recalcularía cuando llega un evento, que es
   // justamente lo que deja de pasar cuando el loop se cae.
@@ -593,11 +559,11 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
   const lastTs = symbols.map((s) => states[s]?.timestamp).filter(Boolean).sort().slice(-1)[0];
   const lastTick = tickTime(lastTs);
 
-  // El semáforo sale de dos cosas distintas: si los workers están apagados el loop está parado a
+  // El semáforo sale de dos cosas distintas: si el switch está en OFF el loop está parado a
   // propósito; si están prendidos pero hace rato que no llega estado, se cayó o se colgó.
-  const workersOff = workersEnabled === false;
+  const switchOff = switchEnabled === false;
   const fresh = !!lastTs && now - new Date(lastTs).getTime() < STALE_MS;
-  const loopOnline = !workersOff && fresh;
+  const loopOnline = !switchOff && fresh;
 
   return (
     <div style={{ padding: '14px 18px 40px', height: '100%', overflowY: 'auto', fontFamily: 'Inter, sans-serif' }}>
@@ -621,7 +587,7 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
           >
             <BookOpen size={12} /> References
           </button>
-          <WorkersSwitch />
+          <RpfSwitch />
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace',
             color: loopOnline ? 'var(--green)' : 'var(--text-muted)' }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: loopOnline ? 'var(--green)' : 'var(--text-muted)' }} />
@@ -641,6 +607,14 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
         />
       )}
 
+      {/* Switch en OFF: la pantalla se reduce al encabezado y un cartel. La estrategia no corre —
+          ni loop, ni suscripciones, ni tablero — así que mostrar paneles vacíos o con el último
+          estado invitaría a leerlos como vigentes. Cortar acá desmonta también CandidateCard, que
+          es quien suscribe los legs del candidato al hub. */}
+      {switchOff ? (
+        <StrategyOffPanel detail="El loop no corre, no se suscribe nada al hub y no se emite estado. El backend confirma el corte dentro de un tick y lo persiste a disco, asi que un reinicio no la vuelve a prender sola." />
+      ) : (
+      <>
       {/* Motor: nodo raíz del flujo de orquestación */}
       <MotorStrip online={loopOnline} lastTick={lastTick} />
       {symbols.length > 0 && <Connector />}
@@ -648,15 +622,15 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
       {!loopOnline && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', marginTop: 8, marginBottom: 16, borderRadius: 8,
           backgroundColor: 'var(--bg-secondary)', border: '1px dashed var(--border)' }}>
-          {workersOff
+          {switchOff
             ? <Ban size={16} style={{ color: 'var(--red-gc)', flexShrink: 0, marginTop: 1 }} />
             : <WifiOff size={16} style={{ color: 'var(--text-muted)', flexShrink: 0, marginTop: 1 }} />}
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: workersOff ? 'var(--red-gc)' : 'var(--text-secondary)', marginBottom: 3 }}>
-              {workersOff ? 'Workers apagados' : 'Loop offline'}
+            <div style={{ fontSize: 12, fontWeight: 700, color: switchOff ? 'var(--red-gc)' : 'var(--text-secondary)', marginBottom: 3 }}>
+              {switchOff ? 'Estrategia apagada' : 'Loop offline'}
             </div>
             <div style={{ fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              {workersOff
+              {switchOff
                 ? <>El loop está parado a propósito: no corre la cascada ni emite. El tablero vuelve a llenarse al prender el switch.</>
                 : <>El backend no está empujando por el grupo <code style={{ fontFamily: 'JetBrains Mono, monospace' }}>rpf</code>. El tablero se llena en cuanto el loop emite.
                    No se corre la cascada localmente: una sola fuente de verdad.</>}
@@ -683,6 +657,8 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
         <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '10px 12px', marginTop: 8, border: '1px dashed var(--border-dark)', borderRadius: 8 }}>
           Loop conectado — esperando el primer estado del universo RPF (SPY).
         </div>
+      )}
+      </>
       )}
     </div>
   );

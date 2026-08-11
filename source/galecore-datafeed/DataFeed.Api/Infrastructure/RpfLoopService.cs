@@ -29,7 +29,7 @@ namespace DataFeed.Api.Infrastructure
         private readonly IWebHostEnvironment _env;
         private readonly IMarketDataBroadcaster _broadcaster;
         private readonly RpfStateStore _store;
-        private readonly RpfWorkerSwitch _workerSwitch;
+        private readonly RpfStrategySwitch _strategySwitch;
         private readonly ILogger<RpfLoopService> _logger;
 
         // Archivos propios de RPF bajo Files/Rpf/ (regla "archivos por estrategia" de CLAUDE.md).
@@ -41,14 +41,14 @@ namespace DataFeed.Api.Infrastructure
             IWebHostEnvironment env,
             IMarketDataBroadcaster broadcaster,
             RpfStateStore store,
-            RpfWorkerSwitch workerSwitch,
+            RpfStrategySwitch strategySwitch,
             ILogger<RpfLoopService> logger)
         {
             _scopeFactory = scopeFactory;
             _env = env;
             _broadcaster = broadcaster;
             _store = store;
-            _workerSwitch = workerSwitch;
+            _strategySwitch = strategySwitch;
             _logger = logger;
         }
 
@@ -74,7 +74,7 @@ namespace DataFeed.Api.Infrastructure
                             // nadie lo actualiza. Cubre también el apagado por fuera del switch (edición
                             // directa del archivo de estado o del JSON de reglas).
                             _store.Clear();
-                            _logger.LogInformation("RpfLoopService INERTE: workers apagados — no se corre la cascada ni se emite.");
+                            _logger.LogInformation("RpfLoopService INERTE: switch en OFF — no se corre la cascada ni se emite.");
                             _inertLogged = true;
                         }
                     }
@@ -105,7 +105,7 @@ namespace DataFeed.Api.Infrastructure
             // El switch manual del operador (Files/Rpf/rpf_workers_state.json) pisa lo que declara el
             // JSON de reglas. Si nunca se tocó, manda state_machine.enabled. Se relee en cada tick, así
             // que apagar desde el front corta el loop dentro de un tick, sin reiniciar la API.
-            bool enabled = _workerSwitch.ReadOverride() ?? (bool?)root["state_machine"]?["enabled"] ?? false;
+            bool enabled = _strategySwitch.ReadOverride() ?? (bool?)root["state_machine"]?["enabled"] ?? false;
             var orch = root["orchestration"]?.AsObject();
             int tickB = (int?)orch?["tier_b_tick_seconds"] ?? 30;
             int cooldown = (int?)orch?["cooldown_seconds"] ?? 120;

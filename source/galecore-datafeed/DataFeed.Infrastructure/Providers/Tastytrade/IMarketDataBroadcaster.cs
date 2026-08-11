@@ -31,9 +31,9 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         Task BroadcastTradeSuggestionAsync(string symbol, object suggestion);
 
         /// <summary>
-        /// Emite ReceiveRpfWorkers al grupo "rpf" cuando el operador toca el switch de workers.
+        /// Emite ReceiveRpfSwitch al grupo "rpf" cuando el operador toca el switch de la estrategia.
         /// Al apagar, el tablero vuelve al estado inicial en el acto en vez de esperar el staleness.
         /// </summary>
-        Task BroadcastRpfWorkersAsync(bool enabled);
+        Task BroadcastRpfSwitchAsync(bool enabled);
     }
 }

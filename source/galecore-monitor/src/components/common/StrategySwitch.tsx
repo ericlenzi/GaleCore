@@ -13,11 +13,16 @@ interface Props {
 }
 
 /**
- * Switch "Workers" de una estrategia (regla de CLAUDE.md: todo lo que corra solo se tiene que poder
- * cortar en el acto desde el front). El estado vive en el backend y persiste a disco, así que el
- * botón no es el dueño de la verdad: la lee al montar y la reescribe al togglear.
+ * Switch de una estrategia (regla de CLAUDE.md: todo lo que corra solo se tiene que poder cortar en
+ * el acto desde el front). El estado vive en el backend y persiste a disco, así que el botón no es
+ * el dueño de la verdad: la lee al montar y la reescribe al togglear.
+ *
+ * Se llamaba WorkersSwitch y decía "WORKERS ON/OFF" hasta 2026-08-10. El nombre describía la
+ * implementación —un BackgroundService que en GEX ni siquiera existe— y no lo que el operador hace
+ * con él: apagar la estrategia ENTERA (loop, sockets, refresh y tablero). La etiqueta quedó en solo
+ * ON/OFF: qué se apaga lo dice el contexto donde vive el switch.
  */
-export function WorkersSwitch({ enabled, fetchState, setState, onChange, title }: Props) {
+export function StrategySwitch({ enabled, fetchState, setState, onChange, title }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
 
@@ -78,7 +83,7 @@ export function WorkersSwitch({ enabled, fetchState, setState, onChange, title }
           transition: 'left 150ms',
         }} />
       </span>
-      WORKERS {unknown ? '—' : enabled ? 'ON' : 'OFF'}{error ? ' ⚠' : ''}
+      {unknown ? '—' : enabled ? 'ON' : 'OFF'}{error ? ' ⚠' : ''}
     </button>
   );
 }
