@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DataFeed.Infrastructure\DataFeed.Infrastructure.csproj" />
+    <ProjectReference Include="..\DataFeed.Repositories\DataFeed.Repositories.csproj" />
   </ItemGroup>
 
 </Project>
