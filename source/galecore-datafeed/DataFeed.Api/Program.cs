@@ -75,6 +75,44 @@ namespace DataFeed
                     .UseSnakeCaseNamingConvention());
             }
 
+            // ── Autenticación con Supabase Auth (JWT) ──────────────────────────────────────────
+            //
+            // El proyecto firma los tokens de forma ASIMÉTRICA (ES256) y publica sus claves en
+            // /auth/v1/.well-known/jwks.json, así que NO hay ningún secreto que guardar: la API baja
+            // las claves públicas del emisor y las refresca sola cuando Supabase las rota. El
+            // Authority alcanza porque Supabase expone el documento de descubrimiento OIDC.
+            //
+            // AGREGA una forma de autenticar; todavía no OBLIGA a ninguna. ApiKeyMiddleware sigue
+            // igual y el front sigue entrando con X-API-KEY: si acá se exigiera JWT de una, el
+            // tablero dejaría de funcionar en el mismo commit que agrega el login. La migración de
+            // endpoint por endpoint viene después, y recién ahí se decide qué pasa con la API key.
+            //
+            // El issuer NO es un secreto (el JWKS es público), por eso vive en appsettings.
+            var supabaseIssuer = builder.Configuration["Supabase:Issuer"];
+            if (!string.IsNullOrWhiteSpace(supabaseIssuer))
+            {
+                builder.Services
+                    .AddAuthentication(Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme)
+                    .AddJwtBearer(options =>
+                    {
+                        options.Authority = supabaseIssuer;
+                        options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+                        {
+                            ValidateIssuer = true,
+                            ValidIssuer = supabaseIssuer,
+                            ValidateAudience = true,
+                            // Supabase emite aud="authenticated" para cualquier usuario logueado.
+                            ValidAudience = builder.Configuration["Supabase:Audience"] ?? "authenticated",
+                            ValidateLifetime = true,
+                            ValidateIssuerSigningKey = true,
+                            // Sin tolerancia: los access tokens de Supabase duran una hora y el front
+                            // los renueva solo. Los 5 minutos por defecto son una ventana regalada.
+                            ClockSkew = TimeSpan.Zero,
+                        };
+                    });
+                builder.Services.AddAuthorization();
+            }
+
             // SignalR
             builder.Services.AddSignalR()
                 .AddNewtonsoftJsonProtocol(options =>
@@ -122,6 +160,11 @@ namespace DataFeed
                     : "GaleCore DB: NO configurada — la API corre sin base. Configurar " +
                       "ConnectionStrings:GaleCore en user-secrets (local) o variable de entorno (Azure).");
 
+            app.Services.GetRequiredService<ILogger<Program>>().LogInformation(
+                string.IsNullOrWhiteSpace(supabaseIssuer)
+                    ? "Supabase Auth: NO configurada — no se validan JWT. Configurar Supabase:Issuer."
+                    : "Supabase Auth: validando JWT contra {Issuer}", supabaseIssuer);
+
             // Pipeline (orden corregido)
             app.UseMiddleware<ExceptionHandlerMiddleware>();
 
@@ -140,6 +183,15 @@ namespace DataFeed
             app.UseCors("ReactAppPolicy");
 
             app.UseMiddleware<ApiKeyMiddleware>();
+
+            // Después de la API key a propósito: por ahora las dos capas se suman, y un endpoint
+            // marcado [Authorize] exige API key Y token. Cuando la migración termine, ApiKeyMiddleware
+            // se retira o pasa a ser solo para máquina a máquina.
+            if (!string.IsNullOrWhiteSpace(supabaseIssuer))
+            {
+                app.UseAuthentication();
+                app.UseAuthorization();
+            }
 
             //app.MapGet("/health", () => "DataFeed OK");
             app.MapControllers();

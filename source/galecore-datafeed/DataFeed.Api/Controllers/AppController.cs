@@ -74,6 +74,37 @@ namespace DataFeed.Controllers
         public async Task<IActionResult> RulesCoreAsync()
             => await ServeRulesFileAsync("galecore_rules_core.json");
 
+        /// <summary>
+        /// Quién es el portador del token. Endpoint de diagnóstico de la autenticación con Supabase:
+        /// es la única forma de comprobar de punta a punta que la API valida los JWT del proyecto
+        /// (firma ES256 contra el JWKS público, emisor y audiencia).
+        ///
+        /// Sin token devuelve 401; con uno válido, el uuid del usuario — que es la clave con la que
+        /// se lo busca en la tabla `users`, porque users.id ES el auth.users.id de Supabase.
+        ///
+        /// Ojo: hoy exige TAMBIÉN la API key, porque ApiKeyMiddleware corre antes y sigue aplicando
+        /// a todo /App. Las dos capas conviven mientras dure la migración al login.
+        /// </summary>
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        [Tags("App.GaleCore")]
+        [HttpGet("GaleCore/Me")]
+        public IActionResult Me()
+        {
+            // "sub" es el uuid del usuario en Supabase. ASP.NET lo mapea a NameIdentifier salvo que
+            // se desactive el mapeo de claims, así que se buscan los dos nombres.
+            var sub = User.FindFirst("sub")?.Value
+                   ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+            return Ok(new
+            {
+                userId = sub,
+                email = User.FindFirst("email")?.Value,
+                role = User.FindFirst("role")?.Value,
+                issuer = User.Claims.FirstOrDefault(c => c.Type == "iss")?.Value,
+                claims = User.Claims.Select(c => new { type = c.Type, value = c.Value }),
+            });
+        }
+
         #endregion
 
         #region Rpf
