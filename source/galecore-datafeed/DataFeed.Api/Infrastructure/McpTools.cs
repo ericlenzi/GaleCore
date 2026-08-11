@@ -21,7 +21,11 @@ namespace DataFeed.Infrastructure
         private static readonly JsonSerializerOptions _jsonOptions = new()
         {
             WriteIndented = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            // Sin esto, TODOS los tools de market data fallaban con cualquier símbolo que trajera
+            // datos reales: dxFeed manda NaN en los campos que no aplican (un índice no tiene volumen)
+            // y System.Text.Json se niega a escribirlo. Ver NonFiniteDoubleConverter.
+            Converters = { new DataFeed.Application.Shared.NonFiniteDoubleConverter() },
         };
 
         [McpServerTool, Description("Obtiene datos de mercado por tipo para un símbolo de equity. Devuelve precio, volumen y datos fundamentales.")]
