@@ -1,48 +1,52 @@
 import React, { useState } from 'react';
-import apiClient from '../api/client';
-import { AUTH_UNVERIFIED } from '../utils/authState';
+import { signIn, supabaseConfigured } from '../auth/supabase';
 
 interface Props {
   onAuthenticated: () => void;
 }
 
+/**
+ * Entrada al tablero, con usuario y contraseña de Supabase.
+ *
+ * Reemplaza a la pantalla de Access Key, que tenía dos problemas de fondo: la clave era COMPARTIDA
+ * (no identificaba a nadie, así que la API no podía saber de quién era la cuenta de bróker que
+ * estaba sirviendo) y no servía para autenticar el hub, porque en el upgrade a WebSocket el
+ * navegador no deja mandar headers propios.
+ *
+ * La sesión la administra supabase-js: la guarda y renueva el access token sola antes de que venza.
+ */
 export function LoginScreen({ onAuthenticated }: Props) {
-  const [apiKey, setApiKey] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleConnect = async (e: React.FormEvent) => {
+  const canSubmit = email.trim().length > 0 && password.length > 0 && supabaseConfigured;
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!apiKey.trim()) return;
+    if (!canSubmit) return;
 
     setLoading(true);
     setError(null);
 
-    // Store temporarily so the interceptor can use it for validation
-    sessionStorage.setItem('galecore:apiKey', apiKey.trim());
-
     try {
-      // La ruta correcta lleva el segmento del proveedor. Hasta 2026-08-10 esto pegaba a
-      // '/Data/Account/Balances', que NO EXISTE: devolvía 404 siempre, el 404 caía al else de abajo
-      // y el else llamaba a onAuthenticated(). Resultado: la Access Key nunca se validaba y cualquier
-      // clave dejaba entrar. La rama de "Invalid access key" era código muerto que nunca corrió.
-      await apiClient.get('/Data/Tastytrade/Account/Balances');
-      sessionStorage.removeItem(AUTH_UNVERIFIED);
+      const { error: authError } = await signIn(email.trim(), password);
+
+      if (authError) {
+        // Supabase distingue credenciales inválidas de problemas de red. Mostrar el motivo real
+        // evita que el operador pruebe la contraseña diez veces cuando el problema es la conexión.
+        setError(
+          authError.message === 'Invalid login credentials'
+            ? 'Usuario o contraseña incorrectos'
+            : authError.message
+        );
+        return;
+      }
+
       onAuthenticated();
     } catch (err: any) {
-      if (err?.response?.status === 401) {
-        // La API respondió y rechazó la clave. Es un no.
-        sessionStorage.removeItem('galecore:apiKey');
-        sessionStorage.removeItem(AUTH_UNVERIFIED);
-        setError('Invalid access key');
-      } else {
-        // La API NO respondió (caída, timeout, CORS). Distinto de "la clave está mal": dejar al
-        // operador afuera cuando el backend no contesta le impide incluso abrir el tablero para ver
-        // que el backend no contesta. Se entra, pero marcado — la StatusBar muestra SIN VALIDAR,
-        // porque entrar sin verificación no puede verse igual que entrar verificado.
-        sessionStorage.setItem(AUTH_UNVERIFIED, '1');
-        onAuthenticated();
-      }
+      setError(err?.message || 'No se pudo conectar con el servicio de autenticación');
     } finally {
       setLoading(false);
     }
@@ -60,7 +64,6 @@ export function LoginScreen({ onAuthenticated }: Props) {
           border: '1px solid var(--border-dark)',
         }}
       >
-        {/* Logo / Title */}
         <div className="text-center mb-8">
           <div
             className="text-2xl font-bold tracking-widest mb-1"
@@ -73,21 +76,55 @@ export function LoginScreen({ onAuthenticated }: Props) {
           </div>
         </div>
 
-        <form onSubmit={handleConnect} className="space-y-4">
+        {!supabaseConfigured && (
+          <div
+            className="text-xs py-2 px-3 rounded mb-4"
+            style={{ backgroundColor: 'rgba(239,68,68,0.12)', color: 'var(--red-gc)' }}
+          >
+            Falta configurar REACT_APP_SUPABASE_URL y REACT_APP_SUPABASE_ANON_KEY.
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label
-              htmlFor="apikey"
+              htmlFor="email"
               className="block text-xs tracking-wider mb-1"
               style={{ color: 'var(--text-muted)' }}
             >
-              Access Key
+              Email
             </label>
             <input
-              id="apikey"
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+              id="email"
+              type="email"
+              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               autoFocus
+              className="w-full px-3 py-2 rounded text-sm font-mono outline-none"
+              style={{
+                backgroundColor: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-dark)',
+                color: 'var(--text-primary)',
+              }}
+              placeholder="operador@ejemplo.com"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="password"
+              className="block text-xs tracking-wider mb-1"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               className="w-full px-3 py-2 rounded text-sm font-mono outline-none"
               style={{
                 backgroundColor: 'var(--bg-tertiary)',
@@ -109,22 +146,22 @@ export function LoginScreen({ onAuthenticated }: Props) {
 
           <button
             type="submit"
-            disabled={loading || !apiKey.trim()}
+            disabled={loading || !canSubmit}
             className="w-full py-2 rounded text-sm font-medium transition-opacity"
             style={{
-              backgroundColor: loading || !apiKey.trim() ? 'var(--bg-tertiary)' : 'var(--blue-gc)',
-              color: loading || !apiKey.trim() ? 'var(--text-muted)' : '#fff',
-              cursor: loading || !apiKey.trim() ? 'not-allowed' : 'pointer',
+              backgroundColor: loading || !canSubmit ? 'var(--bg-tertiary)' : 'var(--blue-gc)',
+              color: loading || !canSubmit ? 'var(--text-muted)' : '#fff',
+              cursor: loading || !canSubmit ? 'not-allowed' : 'pointer',
               border: 'none',
             }}
           >
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="spinner" style={{ width: 14, height: 14 }} />
-                Connecting…
+                Entrando…
               </span>
             ) : (
-              'Connect'
+              'Entrar'
             )}
           </button>
         </form>

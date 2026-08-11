@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './index.css';
 import { LoginScreen } from './components/LoginScreen';
+import { supabase, getSession, signOut } from './auth/supabase';
 import { StatusBar } from './components/layout/StatusBar';
 import { Sidebar } from './components/layout/Sidebar';
 import { TabNav, Tab } from './components/layout/TabNav';
@@ -79,14 +80,47 @@ function Dashboard({ onLogout }: DashboardProps) {
 }
 
 function App() {
-  const [authenticated, setAuthenticated] = useState<boolean>(
-    () => !!sessionStorage.getItem('galecore:apiKey')
-  );
+  // null = todavía no sabemos. La sesión de Supabase vive en localStorage y leerla es asincrónico,
+  // así que hay un instante inicial sin respuesta. Sin este tercer estado, ese instante se
+  // renderizaría como "no autenticado" y mostraría el login por un parpadeo a quien YA tiene sesión.
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
 
-  const handleLogout = () => {
+  useEffect(() => {
+    let alive = true;
+
+    getSession().then((session) => {
+      if (alive) setAuthenticated(!!session);
+    });
+
+    // Mantiene el tablero en sincronía con la sesión real: cierre desde otra pestaña, token que no
+    // se pudo renovar, logout. Sin esto, una sesión vencida dejaría la UI montada pidiendo datos
+    // que la API ya rechaza.
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (alive) setAuthenticated(!!session);
+    });
+
+    return () => {
+      alive = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    await signOut();
     sessionStorage.removeItem('galecore:apiKey');
     setAuthenticated(false);
   };
+
+  if (authenticated === null) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: 'var(--bg-primary)' }}
+      >
+        <span className="spinner" style={{ width: 20, height: 20 }} />
+      </div>
+    );
+  }
 
   if (!authenticated) {
     return <LoginScreen onAuthenticated={() => setAuthenticated(true)} />;

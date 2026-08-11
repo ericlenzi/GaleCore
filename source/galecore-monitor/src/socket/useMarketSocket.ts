@@ -4,6 +4,7 @@ import { useMarketStore } from '../store/useMarketStore';
 import { useFlowStore } from '../store/useFlowStore';
 import { useRpfStore } from '../store/useRpfStore';
 import { TradePayload, QuotePayload, FlowPayload, GreeksPayload } from '../types/api';
+import { getAccessToken } from '../auth/supabase';
 import { RpfStateUpdate, TradeSuggestion } from '../types/rpf';
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -55,11 +56,17 @@ export function useMarketSocket(tickers: string[] = []) {
     // Azure App Service los WebSockets son un setting por aplicación que viene apagado por defecto.
     // Negociando, ese entorno cae solo a long-polling en vez de quedarse sin conexión.
     //
-    // Tampoco va más el `?apiKey=` en la URL: nadie lo lee (el middleware sale antes de validar para
-    // las rutas /hubs) y filtraba la clave a logs y proxies a cambio de nada. Si algún día el hub
-    // lleva auth, la forma correcta es accessTokenFactory, no la query string a mano.
+    // El token va por accessTokenFactory y NO por la query string a mano, que es lo que hacía el
+    // viejo `?apiKey=`: la librería lo manda como header cuando el transporte lo permite y solo cae
+    // a `?access_token=` en el WebSocket, donde el navegador no deja poner headers propios.
+    //
+    // Se lo llama en CADA (re)conexión, así que una reconexión después de una hora usa un token
+    // renovado y no el que ya venció. Devolver '' cuando no hay sesión es válido: hoy el hub acepta
+    // conexiones anónimas (Supabase:RequireAuthOnHub=false en la API).
     const connection = new signalR.HubConnectionBuilder()
-      .withUrl(hubUrl)
+      .withUrl(hubUrl, {
+        accessTokenFactory: async () => (await getAccessToken()) ?? '',
+      })
       .withAutomaticReconnect()
       .configureLogging(signalR.LogLevel.Warning)
       .build();

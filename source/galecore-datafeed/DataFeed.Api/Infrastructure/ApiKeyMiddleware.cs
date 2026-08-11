@@ -20,6 +20,18 @@
                 return;
             }
 
+            // Un JWT válido ya identifica a una persona, que es MÁS de lo que prueba una clave
+            // compartida: la clave dice "alguien que la tiene", el token dice quién. Aceptarlo es lo
+            // que permite que el tablero deje de cargar una API key en su bundle.
+            //
+            // La clave sigue valiendo para lo que no puede loguearse: llamadas de máquina a máquina,
+            // pruebas con curl, y el propio tablero hasta que termine de migrar al login.
+            if (context.User?.Identity?.IsAuthenticated == true)
+            {
+                await _next(context);
+                return;
+            }
+
             if (!context.Request.Headers.TryGetValue(ApiKeyHeaderName, out var apiKeyHeader))
             {
                 context.Response.StatusCode = 401;

@@ -254,17 +254,19 @@ namespace DataFeed
             app.UseStaticFiles();
             app.UseCors("ReactAppPolicy");
 
-            app.UseMiddleware<ApiKeyMiddleware>();
-
-            // Después de la API key a propósito: por ahora las dos capas se suman, y un endpoint
-            // marcado [Authorize] exige API key Y token. Cuando la migración termine, ApiKeyMiddleware
-            // se retira o pasa a ser solo para máquina a máquina.
+            // ANTES de la API key: así ApiKeyMiddleware puede ver si el request ya viene
+            // autenticado con un JWT válido y dejarlo pasar sin exigir además la clave. Sin esto,
+            // el tablero tendría que seguir cargando una API key en el bundle —o sea pública— solo
+            // para satisfacer una capa que el login ya reemplaza.
             if (!string.IsNullOrWhiteSpace(supabaseIssuer))
             {
                 app.UseAuthentication();
             }
-            // Siempre: la política del hub se evalúa aunque no haya autenticación configurada
-            // (en ese caso deja pasar, ver arriba).
+
+            app.UseMiddleware<ApiKeyMiddleware>();
+
+            // La política del hub se evalúa aunque no haya autenticación configurada (en ese caso
+            // deja pasar, ver arriba).
             app.UseAuthorization();
 
             //app.MapGet("/health", () => "DataFeed OK");
