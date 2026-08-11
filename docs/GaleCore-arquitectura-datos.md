@@ -88,9 +88,27 @@ Regular/Weekly → 6.476). La lista sale por REST de `/Data/Tastytrade/OptionCha
 | **Quote** (toda la cadena) | ~1.900 ev/s | 411–485 KB/s | 9–11 GB |
 
 Greeks casi no tiene tráfico continuo: la mayoría de las ventanas de 10 s vienen en **cero**, y cada
-tanto llega una ráfaga de exactamente 7.114 eventos — un refresh completo de la cadena. No es un feed
-tick a tick; dxFeed recalcula Greeks por lote. Suscribir los 7.114 cuesta **72 s** (es el throttle) y
-devuelve un snapshot por símbolo.
+tanto llega una ráfaga de refresh. No es un feed tick a tick; dxFeed recalcula Greeks por lote.
+Suscribir los 7.114 cuesta **72 s** (es el throttle) y devuelve un snapshot por símbolo.
+
+### 2.5 La cadencia del refresh: cada símbolo se recalcula cada ~1,5-2 min
+
+Medido con una ventana de **45 min (2.700 s), 51 ráfagas**. La cadena se refresca en **dos grupos
+independientes que la particionan exacto**: 5.317 + 1.797 = 7.114.
+
+| Grupo | Símbolos | Cadencia media | Mediana | Rango |
+|---|---|---|---|---|
+| A | 5.317 (75 %) | **97 s** | 93 s | 73–166 s |
+| B | 1.797 (25 %) | **129 s** | 126 s | 86–230 s |
+
+Contra el diseño actual, que refresca cada 600 s de cache y cuyo barrido tarda 127 s — así que el
+dato puede llegar con hasta **~727 s** de antigüedad — la cadena viva es **~6× más fresca**.
+
+En la ventana larga el tráfico se confirmó en **71 ev/s y 23 KB/s** (contra 61 ev/s y 20 KB/s de la
+ventana de 120 s): el costo es estable, no fue un artefacto de medir poco.
+
+**Qué separa a los dos grupos no se determinó.** La partición es estable a lo largo de los 45 min, así
+que no es aleatoria. Si el ingestor va a apoyarse en esa cadencia, conviene entenderlo antes.
 
 Quote es ~30× más pesado, pero **ninguna estrategia lo necesita sobre la cadena entera**: RPF quiere
 quotes de sus 2 legs y el Monitor de los suyos. Se midió para acotar el espacio de diseño.
@@ -106,10 +124,11 @@ Con una estrategia eso es un costo. Con N es una colisión de N×N contra un rec
 crece. **El aislamiento por estrategia no existe en la única capa donde importa, que es el feed.**
 
 Puesto en una línea: se pagan **126 s de presupuesto cada 600 s** para re-derivar por barrido lo que
-una suscripción permanente daría por **20 KB/s**.
+una suscripción permanente daría por **23 KB/s — y con ~6× más frescura**.
 
-Los dos supuestos que sostenían el diseño actual se cayeron con las mediciones: el volumen de la
-cadena viva no es prohibitivo (§2.4) y el presupuesto no es único (§2.3).
+Los tres supuestos que sostenían el diseño actual se cayeron con las mediciones: el volumen de la
+cadena viva no es prohibitivo (§2.4), su frescura es mejor y no peor que la del barrido (§2.5), y el
+presupuesto no es único (§2.3).
 
 ## 4. La propuesta: un escritor, muchos lectores
 
@@ -156,7 +175,11 @@ como una interpolación sin validar (~8 tr/año, ver `rpf/galecore-rpf-reconcili
 
 0. **Palanca de corto plazo, sin rediseñar nada:** darle al barrido de GEX **su propia sesión DXLink**.
    §2.3 dice que el presupuesto es por sesión, así que el barrido deja de bloquear al resto hoy mismo.
-   Compra tiempo para hacer bien el resto.
+   **Se justifica solo si el rediseño se va a más de un par de meses**, o si la saturación ya duele:
+   al 78 % con 4 símbolos todavía no duele. Si el ingestor llega en semanas, **saltear este paso** —
+   obliga a tocar dos veces `DxLinkStreamingService`, que es la pieza más delicada del código (811
+   líneas de handshake, keepalive, refcount y reconexión, con dos bugs caros pagados en agosto 2026),
+   y la segunda vez se tira lo de la primera.
 1. **Diseñar el ingestor y el esquema juntos** — el esquema sale de qué necesita publicar el ingestor,
    no de qué archivos hay hoy. Primero decidir qué eventos se mantienen vivos y para qué símbolos.
 2. **Migrar el estado a la base** (switches, estado de RPF, skew history). Es la parte de menor riesgo
@@ -168,13 +191,15 @@ como una interpolación sin validar (~8 tr/año, ver `rpf/galecore-rpf-reconcili
 
 ## 7. Riesgos y lo que NO está medido
 
-* **La cadencia del refresh de Greeks no quedó determinada.** Con 120 s de ventana se vio una sola
-  ráfaga. El orden de magnitud es sólido; la frecuencia exacta no. Si el refresh fuera mucho más
-  espaciado de lo que conviene, la cadena viva podría tener *menos* frescura que el barrido — hay que
-  medirlo con una ventana larga antes del paso 3.
+* ~~La cadencia del refresh de Greeks no quedó determinada.~~ **CERRADO** el mismo día con una
+  ventana de 45 min: cada símbolo se recalcula cada ~1,5-2 min, o sea ~6× más fresco que el barrido
+  (§2.5). Era el riesgo que podía invertir la recomendación y cayó a favor. **Queda abierto** qué
+  separa a los dos grupos de refresh.
 * **Solo se verificaron 2 sesiones DXLink concurrentes**, y con una sola de ellas realmente saturada
   de forma sostenida.
-* **La cadena viva no se probó a lo largo de una rueda entera**: reconexiones, expiración de tokens y
+* **La cadena viva no se probó a lo largo de una rueda entera.** Hay 45 min continuos de sesión
+  secundaria persistente con cero `Lost`, cero reconexiones y cero errores — evidencia parcial de que
+  una sesión de larga vida se sostiene, pero 45 min no son 6,5 h: reconexiones, expiración de tokens y
   el rollover del 0DTE son escenarios que el barrido resuelve por reinicio y el modelo persistente no.
 * Las mediciones son de **un solo día y un solo símbolo** (SPY). QQQ y AAPL tienen cadenas más chicas;
   ninguna se midió en vivo.
