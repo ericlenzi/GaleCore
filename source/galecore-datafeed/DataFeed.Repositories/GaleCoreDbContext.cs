@@ -83,7 +83,6 @@ namespace DataFeed.Repositories
                 e.Property(x => x.Name).HasMaxLength(120).IsRequired();
                 e.Property(x => x.Description).IsRequired();
                 e.Property(x => x.Kind).HasMaxLength(20).IsRequired();
-                e.Property(x => x.Version).HasMaxLength(20);
                 e.Property(x => x.RulesEndpoint).HasMaxLength(200).IsRequired();
                 e.Property(x => x.SwitchEndpoint).HasMaxLength(200).IsRequired();
                 e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");

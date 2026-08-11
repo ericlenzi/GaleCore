@@ -21,7 +21,6 @@ namespace DataFeed.Repositories.Migrations
                     name = table.Column<string>(type: "character varying(120)", maxLength: 120, nullable: false),
                     description = table.Column<string>(type: "text", nullable: false),
                     kind = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
-                    version = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: true),
                     rules_endpoint = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     switch_endpoint = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "now()"),

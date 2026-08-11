@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DataFeed.Repositories.Migrations
 {
     [DbContext(typeof(GaleCoreDbContext))]
-    [Migration("20260811202818_InitialCreate")]
+    [Migration("20260811204149_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -146,11 +146,6 @@ namespace DataFeed.Repositories.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at")
                         .HasDefaultValueSql("now()");
-
-                    b.Property<string>("Version")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("version");
 
                     b.HasKey("Id")
                         .HasName("pk_strategies");

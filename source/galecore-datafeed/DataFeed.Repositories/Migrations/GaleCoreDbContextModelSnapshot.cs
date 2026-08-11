@@ -144,11 +144,6 @@ namespace DataFeed.Repositories.Migrations
                         .HasColumnName("updated_at")
                         .HasDefaultValueSql("now()");
 
-                    b.Property<string>("Version")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("version");
-
                     b.HasKey("Id")
                         .HasName("pk_strategies");
 

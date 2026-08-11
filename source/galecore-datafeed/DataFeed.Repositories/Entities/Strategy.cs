@@ -31,12 +31,10 @@ namespace DataFeed.Repositories.Entities
         /// <summary>"operativa" | "informativa". Restringido por check constraint.</summary>
         public string Kind { get; set; } = "";
 
-        /// <summary>
-        /// Versión de la estrategia. OJO con la doble fuente de verdad: cada
-        /// galecore_rules_&lt;prefijo&gt;.json tiene su _meta.version. Si las dos se mantienen a mano
-        /// van a driftear — hay que decidir cuál manda (decisión pendiente del doc de arquitectura).
-        /// </summary>
-        public string? Version { get; set; }
+        // NO hay columna Version a propósito. La versión de una estrategia sale del _meta.version de
+        // su galecore_rules_<prefijo>.json, que es su fuente de verdad y se edita junto con las
+        // reglas que describe. Guardarla también acá creaba un segundo lugar con el mismo dato y sin
+        // nadie que los sincronice: el JSON manda, y quien sirva el catálogo la lee de ahí.
 
         public string RulesEndpoint { get; set; } = "";
         public string SwitchEndpoint { get; set; } = "";
