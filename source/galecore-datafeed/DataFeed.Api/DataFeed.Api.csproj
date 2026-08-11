@@ -9,6 +9,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.17" />
+    <!-- Alinea Microsoft.IdentityModel.* en una sola version. JwtBearer 8.0.17 arrastra
+         Protocols/Protocols.OpenIdConnect 7.1.2, pero los paquetes de .NET 10 de este proyecto
+         (SignalR.Protocols.NewtonsoftJson, Extensions.Configuration.Json) suben Tokens y
+         JsonWebTokens a 8.14.0. Con las versiones partidas, el recuperador de OIDC (7.x) arma la
+         configuracion y el validador (8.x) la lee vacia: GetConfigurationAsync devuelve CERO claves
+         SIN lanzar excepcion, y todo JWT valido termina en 401 "IDX10500: no security keys were
+         provided". Diagnosticado el 2026-08-11; no lo arregla ninguna opcion de JwtBearer. -->
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.14.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="8.0.17" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.NewtonsoftJson" Version="10.0.6" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.5" />

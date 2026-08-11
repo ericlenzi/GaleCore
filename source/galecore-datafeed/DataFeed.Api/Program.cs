@@ -96,6 +96,14 @@ namespace DataFeed
                     .AddJwtBearer(options =>
                     {
                         options.Authority = supabaseIssuer;
+
+                        // Los claims conservan el nombre que les puso Supabase. Por defecto ASP.NET
+                        // los renombra a URIs XML heredadas de WS-Federation (sub -> nameidentifier,
+                        // email -> .../claims/emailaddress), así que buscar "sub" o "email" devuelve
+                        // null aunque el token los traiga. Se verificó en vivo: el token llegaba con
+                        // el mail y /Me lo reportaba vacío.
+                        options.MapInboundClaims = false;
+
                         options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
                         {
                             ValidateIssuer = true,
@@ -108,6 +116,26 @@ namespace DataFeed
                             // Sin tolerancia: los access tokens de Supabase duran una hora y el front
                             // los renueva solo. Los 5 minutos por defecto son una ventana regalada.
                             ClockSkew = TimeSpan.Zero,
+
+                            // Con el renombrado apagado hay que decirle explícitamente de qué claim
+                            // sale la identidad y de cuál el rol, o User.Identity.Name queda vacío y
+                            // [Authorize(Roles=...)] no encontraría nada.
+                            NameClaimType = "sub",
+                            RoleClaimType = "role",
+                        };
+
+                        // Un 401 sin motivo es indepurable: el cliente solo ve "invalid_token" y el
+                        // servidor no deja rastro. Acá queda la excepción real (IDX…), que distingue
+                        // firma inválida de metadata inalcanzable, de audiencia equivocada.
+                        options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+                        {
+                            OnAuthenticationFailed = ctx =>
+                            {
+                                ctx.HttpContext.RequestServices
+                                    .GetRequiredService<ILogger<Program>>()
+                                    .LogWarning(ctx.Exception, "JWT rechazado: {Message}", ctx.Exception.Message);
+                                return Task.CompletedTask;
+                            },
                         };
                     });
                 builder.Services.AddAuthorization();
@@ -164,6 +192,7 @@ namespace DataFeed
                 string.IsNullOrWhiteSpace(supabaseIssuer)
                     ? "Supabase Auth: NO configurada — no se validan JWT. Configurar Supabase:Issuer."
                     : "Supabase Auth: validando JWT contra {Issuer}", supabaseIssuer);
+
 
             // Pipeline (orden corregido)
             app.UseMiddleware<ExceptionHandlerMiddleware>();
