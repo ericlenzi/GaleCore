@@ -136,6 +136,22 @@ namespace DataFeed
                         // firma inválida de metadata inalcanzable, de audiencia equivocada.
                         options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
                         {
+                            // SignalR sobre WebSocket no puede mandar headers propios: el navegador
+                            // no lo permite en el upgrade. Por eso la convención es el token en la
+                            // query string, que es lo que pone accessTokenFactory del cliente.
+                            // Se acepta SOLO para /hubs — en el resto de la API el token va donde
+                            // corresponde, en el header, y no queriendo quedar en logs de acceso.
+                            OnMessageReceived = ctx =>
+                            {
+                                var token = ctx.Request.Query["access_token"];
+                                if (!string.IsNullOrEmpty(token) &&
+                                    ctx.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                                {
+                                    ctx.Token = token;
+                                }
+                                return Task.CompletedTask;
+                            },
+
                             OnAuthenticationFailed = ctx =>
                             {
                                 ctx.HttpContext.RequestServices
@@ -145,8 +161,28 @@ namespace DataFeed
                             },
                         };
                     });
-                builder.Services.AddAuthorization();
             }
+
+            // La política del hub se arma UNA vez al arrancar, desde configuración. Se registra
+            // siempre —incluso sin Supabase configurado— porque el atributo [Authorize(Policy=...)]
+            // del hub tiene que poder resolverse igual; si no hay autenticación armada, la política
+            // deja pasar y el hub se comporta como hasta hoy.
+            //
+            // Se hace con política y no con Context.Abort() adentro del hub porque abortar actúa
+            // DESPUÉS del handshake: el cliente conecta, lo cortan, y con withAutomaticReconnect
+            // entra en un ciclo de reconexión. Con política, el negotiate devuelve 401 y el cliente
+            // sabe desde el principio que no tiene permiso.
+            var requireAuthOnHub = !string.IsNullOrWhiteSpace(supabaseIssuer)
+                                   && builder.Configuration.GetValue<bool>("Supabase:RequireAuthOnHub");
+
+            builder.Services.AddAuthorization(options =>
+            {
+                options.AddPolicy("HubAccess", policy =>
+                {
+                    if (requireAuthOnHub) policy.RequireAuthenticatedUser();
+                    else policy.RequireAssertion(_ => true);
+                });
+            });
 
             // SignalR
             builder.Services.AddSignalR()
@@ -226,8 +262,10 @@ namespace DataFeed
             if (!string.IsNullOrWhiteSpace(supabaseIssuer))
             {
                 app.UseAuthentication();
-                app.UseAuthorization();
             }
+            // Siempre: la política del hub se evalúa aunque no haya autenticación configurada
+            // (en ese caso deja pasar, ver arriba).
+            app.UseAuthorization();
 
             //app.MapGet("/health", () => "DataFeed OK");
             app.MapControllers();

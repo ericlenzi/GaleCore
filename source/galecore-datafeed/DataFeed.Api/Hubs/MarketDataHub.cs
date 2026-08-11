@@ -12,6 +12,7 @@ namespace DataFeed.Api.Hubs
     /// Hub SignalR para streaming de datos de mercado en tiempo real.
     /// Los clientes se suscriben a simbolos y reciben Trade, Quote, Greeks y Flow en tiempo real.
     /// </summary>
+    [Microsoft.AspNetCore.Authorization.Authorize(Policy = "HubAccess")]
     public class MarketDataHub : Hub
     {
         private readonly IDxLinkStreamingService _streaming;
@@ -33,12 +34,15 @@ namespace DataFeed.Api.Hubs
         // Tracking: symbol -> lista de DxFeed symbols suscritos (para unsubscribe batch)
         private static readonly ConcurrentDictionary<string, List<string>> _flowDxFeedSymbols = new();
 
+        private readonly IConfiguration _config;
+
         public MarketDataHub(
             IDxLinkStreamingService streaming,
             IFlowAggregatorService flowAggregator,
             IMediator mediator,
             RpfStateStore rpfStore,
             IWebHostEnvironment env,
+            IConfiguration config,
             ILogger<MarketDataHub> logger)
         {
             _streaming = streaming;
@@ -46,7 +50,55 @@ namespace DataFeed.Api.Hubs
             _mediator = mediator;
             _rpfStore = rpfStore;
             _env = env;
+            _config = config;
             _logger = logger;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // Autenticación
+        // ═══════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Estado de la autenticación del hub, en una sola línea por conexión.
+        ///
+        /// CONTEXTO (2026-08-11): hasta hoy el hub NO tenía autenticación de ningún tipo — está
+        /// exento de ApiKeyMiddleware junto con /swagger y /mcp. Cualquiera que alcance la API puede
+        /// conectarse y recibir precios, el estado de RPF y sus sugerencias de trade. NO viajan
+        /// datos de cuenta por acá (balances y posiciones van por REST), así que el alcance del
+        /// agujero es el feed y la estrategia, no la plata. En local es inocuo; contra Azure no.
+        ///
+        /// El servidor ya sabe validar el JWT que venga por ?access_token (ver OnMessageReceived en
+        /// Program.cs). Lo que falta para poder EXIGIRLO es del lado del tablero: todavía entra con
+        /// una Access Key y no tiene login de Supabase, así que no tiene ningún token que mandar.
+        /// Exigirlo hoy dejaría el tablero sin datos en vivo.
+        ///
+        /// Por eso el interruptor: `Supabase:RequireAuthOnHub` arranca en false y se prende el día
+        /// que el front tenga login. Mientras tanto cada conexión anónima queda registrada, para que
+        /// el agujero sea visible en el log y no una nota en un documento.
+        /// </summary>
+        public override async Task OnConnectedAsync()
+        {
+            var user = Context.User;
+            var authenticated = user?.Identity?.IsAuthenticated == true;
+
+            // Acá NO se rechaza nada: de eso se encarga la política "HubAccess", que corta en el
+            // negotiate antes de que la conexión exista. Esto solo deja registro de quién entró.
+            if (authenticated)
+            {
+                var sub = user!.FindFirst("sub")?.Value
+                       ?? user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                _logger.LogInformation("Hub: conexión autenticada, usuario {UserId} ({ConnectionId})",
+                    sub, Context.ConnectionId);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Hub: conexión ANÓNIMA ({ConnectionId}). El hub no exige autenticación todavía " +
+                    "(Supabase:RequireAuthOnHub=false) porque el tablero aún no tiene login de Supabase.",
+                    Context.ConnectionId);
+            }
+
+            await base.OnConnectedAsync();
         }
 
         // ═══════════════════════════════════════════════════════════════════════
