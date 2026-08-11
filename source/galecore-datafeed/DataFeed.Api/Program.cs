@@ -53,6 +53,11 @@ namespace DataFeed
 
             // HttpClient + OAuth
             builder.Services.AddHttpClient();
+            // Credenciales de Tastytrade: sistema para mercado, usuario para cuenta (§5.4 del doc de
+            // arquitectura). Mientras no haya filas en `accounts`, el store cae a appsettings y la
+            // plataforma se comporta igual que antes de existir la base.
+            builder.Services.AddSingleton<ITokenProtector, DataFeed.Infrastructure.Security.AesGcmTokenProtector>();
+            builder.Services.AddSingleton<ITastytradeCredentialStore, TastytradeCredentialStore>();
             builder.Services.AddSingleton<ITastytradeOAuth, TastytradeOAuth>();
 
             // Base de datos de dominio: usuarios, cuentas de bróker, catálogo de estrategias.
