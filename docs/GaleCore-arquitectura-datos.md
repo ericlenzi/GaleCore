@@ -1,0 +1,216 @@
+# GaleCore — Arquitectura de datos para N estrategias
+
+**Estado: PROPUESTA. Nada de esto está implementado.** Es el documento de decisión previo a incorporar
+la base de datos, escrito el **2026-08-11** con las mediciones de ese día (mercado abierto).
+
+Responde una pregunta: **¿la arquitectura actual sostiene que convivan varias estrategias, cada una
+con sus procesos de fondo, evaluando incluso los mismos símbolos?** La respuesta corta es que la
+forma es correcta pero el sentido del flujo de datos no escala, y que el momento de darlo vuelta es
+**antes** de la base de datos, porque el esquema fosiliza lo que haya.
+
+---
+
+## 1. Cómo está hoy
+
+Lo que está bien resuelto y **no hay que tocar**:
+
+* **Una sola conexión a DXLink** para toda la plataforma (`DxLinkStreamingService`, singleton), con
+  handshake propio, keepalive y reconexión controlada.
+* **Reference counting por `(símbolo, eventType)`**: dos estrategias mirando SPY comparten el feed del
+  subyacente. El instinto de deduplicar es correcto.
+* **Aislamiento por estrategia**: prefijo en la ruta, JSON propio, carpeta propia, switch propio,
+  pestaña propia. Es de lo mejor que tiene el proyecto.
+
+Lo que impone el techo:
+
+* **Un presupuesto global de suscripción de ~100 items/s.** Todo `add` y todo `remove` pasa por
+  `SendSubscriptionChunkedAsync` (50 items cada 500 ms, serializado por `_subSendLock`). Ese throttle
+  existe por una buena razón — sin él DXLink responde `BAD_ACTION 'subscription rate is too high'` y,
+  como el canal 3 es compartido, el rechazo se lleva puesto también Trade/Quote de los subyacentes.
+* **El barrido de la cadena consume ese presupuesto entero durante ~2 minutos por símbolo.**
+* **`_scanGate`**, un semáforo estático que serializa TODOS los barridos, de todos los símbolos y de
+  todas las estrategias.
+* **Cinco caches privados** que no se conocen entre sí: `_cache` (`GexAnalysisHandler`),
+  `_chainCache` y `_oiCache` (`GammaExposureHandler`), `_tierACache` (`RpfTickHandler`) y
+  `RpfStateStore`. Cada uno con su TTL y su clave.
+
+## 2. Las mediciones (2026-08-11, mercado abierto)
+
+### 2.1 El barrido ES el throttle
+
+Cadena de SPY ≤50 DTE: 6.476 símbolos suscritos y después desuscritos = 12.952 items ÷ 100/s ≈
+**129 s**. Medido: **126,7 s**. El tiempo del barrido no lo explican los timeouts ni el tamaño de
+lote — lo explica el throttle, casi al segundo.
+
+Corolario contraintuitivo, verificado: **lotes más chicos son más rápidos**. El delay se saltea al
+cerrar cada lote, así que 33 lotes chicos se saltean 33 esperas y 11 lotes grandes solo 11.
+
+| `greeks_batch_size` | Corridas | Media |
+|---|---|---|
+| 200 | 127,5 s · 126,3 s · 126,2 s | **126,7 s** |
+| 600 | 132,8 s · 132,7 s | 132,8 s |
+
+Que el modelo prediga un resultado que nadie esperaba es la razón para tratarlo como mecanismo y no
+como correlación. **`greeks_batch_size` se queda en 200.**
+
+### 2.2 Ya se usa el ~78 % de la capacidad, con 2 estrategias y 4 símbolos
+
+El universo entero tarda **471 s** y el cache dura **600 s**. Un quinto símbolo, o una tercera
+estrategia que barra cadenas, y el sistema queda saturado de forma permanente: los barridos no
+terminan antes de que expire el cache y el `_scanGate` encola a todos. **No falla con un error —
+degrada mostrando datos viejos**, que es peor. Ya se observó: una petición esperó 110 s en el
+semáforo detrás del barrido que había disparado el front.
+
+### 2.3 El presupuesto es POR SESIÓN, no por cuenta
+
+Una segunda sesión DXLink simultánea es aceptada. Y con **las dos sesiones bajo carga pesada a la
+vez** (sesión 2 suscribiendo 7.114 símbolos de Quote, sesión 1 corriendo el barrido completo):
+
+| | Barrido solo | Barrido con la otra sesión saturada |
+|---|---|---|
+| Tiempo | 126,2–127,5 s | **126,0 s** |
+| Vencimientos | 17/17 | 17/17 |
+| Cobertura | 100 % | 100 % |
+
+Cero `BAD_ACTION`, cero `Lost`, en ninguna de las dos. El límite se aplica **por conexión**: abrir una
+segunda sesión duplica el presupuesto real, sin interferencia medible.
+*Alcance: se verificaron 2 sesiones concurrentes; no se buscó el techo (3, 4, N).*
+
+### 2.4 Mantener la cadena viva es casi gratis con Greeks
+
+Cadena de SPY ≤50 DTE = **7.114 símbolos streamer** (18 vencimientos; el barrido usa 17 tras filtrar
+Regular/Weekly → 6.476). La lista sale por REST de `/Data/Tastytrade/OptionChains?Symbol=SPY` en
+**3 s y sin tocar el feed**.
+
+| Evento | Régimen permanente | Tráfico | Por rueda (6,5 h) |
+|---|---|---|---|
+| **Greeks** (toda la cadena) | 61 ev/s | **20 KB/s** | **0,5 GB** |
+| **Quote** (toda la cadena) | ~1.900 ev/s | 411–485 KB/s | 9–11 GB |
+
+Greeks casi no tiene tráfico continuo: la mayoría de las ventanas de 10 s vienen en **cero**, y cada
+tanto llega una ráfaga de exactamente 7.114 eventos — un refresh completo de la cadena. No es un feed
+tick a tick; dxFeed recalcula Greeks por lote. Suscribir los 7.114 cuesta **72 s** (es el throttle) y
+devuelve un snapshot por símbolo.
+
+Quote es ~30× más pesado, pero **ninguna estrategia lo necesita sobre la cadena entera**: RPF quiere
+quotes de sus 2 legs y el Monitor de los suyos. Se midió para acotar el espacio de diseño.
+
+## 3. Diagnóstico
+
+**El problema no es de prolijidad, es el sentido del flujo.** Hoy cada estrategia *tira* del feed
+cuando necesita: suscribe, espera el snapshot, desuscribe. Se está usando un feed de streaming como
+si fuera un servicio de request/response — 12.952 operaciones de suscripción para contestar una
+pregunta sobre SPY, y el resultado se tira a los 600 s.
+
+Con una estrategia eso es un costo. Con N es una colisión de N×N contra un recurso serializado que no
+crece. **El aislamiento por estrategia no existe en la única capa donde importa, que es el feed.**
+
+Puesto en una línea: se pagan **126 s de presupuesto cada 600 s** para re-derivar por barrido lo que
+una suscripción permanente daría por **20 KB/s**.
+
+Los dos supuestos que sostenían el diseño actual se cayeron con las mediciones: el volumen de la
+cadena viva no es prohibitivo (§2.4) y el presupuesto no es único (§2.3).
+
+## 4. La propuesta: un escritor, muchos lectores
+
+**No es una reescritura.** Es un componente nuevo y estrategias que dejan de llamar a un handler para
+leer de un store.
+
+Un **ingestor** es el único dueño del presupuesto de DXLink. Mantiene vivo el conjunto de
+suscripciones que la plataforma necesita y publica a un store. Las estrategias **no tocan DXLink**:
+leen el store.
+
+Lo que cambia:
+
+* Agregar una estrategia cuyos símbolos ya están cubiertos cuesta **cero** presupuesto de feed.
+* Dos estrategias sobre SPY leen la misma fila; no barren dos veces.
+* La cadena deja de re-suscribirse cada 600 s: se suscribe una vez (72 s) y los updates llegan solos.
+  El costo pasa de **recurrente** a **inicial**.
+* El `_scanGate` deja de ser el cuello de botella de la plataforma, porque deja de haber barridos que
+  serializar.
+
+Lo que **no** cambia: las tres capas, MediatR, la convención de prefijo por estrategia, el contrato
+uniforme del switch, y sobre todo la regla de que **el JSON de reglas es fuente de verdad**.
+
+## 5. La base de datos: la decisión clave es qué NO va
+
+La base **no es "dónde guardar cosas"** — es la capa de desacople que hace posible §4. Si entra solo
+como log de trades, el acoplamiento queda igual y se paga el costo sin cobrar el beneficio.
+
+| Va a la base — **estado** | Se queda en git — **reglas** |
+|---|---|
+| Switches por estrategia (hoy `Files/<Prefijo>/<prefijo>_switch_state.json`, gitignoreados) | `galecore_rules_<prefijo>.json` — se edita deliberadamente, se versiona y se revisa |
+| Estado de RPF, sugerencias y acks (hoy singleton in-memory: se pierde al reiniciar) | `galecore_rules_core.json` (config de la aplicación) |
+| Serie de skew (hoy `skew25_history.json`) y calibración POP | |
+| Snapshots de GEX por strike/vencimiento (hoy se tiran cada 600 s) | |
+
+La frontera preserva la regla actual: **reglas en git, estado en la base.** Los dos JSON que hoy son
+*estado* y no *reglas* — `skew25_history.json` y los `*_switch_state.json` — son literalmente las
+primeras dos tablas; ya incomodaban lo suficiente como para estar gitignoreados.
+
+**Beneficio que hoy no existe:** si el ingestor persiste lo que ve, en unos meses hay con qué
+**backtestear contra datos propios**. Toda la calibración de RPF salió de backtests externos y quedó
+como una interpolación sin validar (~8 tr/año, ver `rpf/galecore-rpf-reconciliacion.md`).
+
+## 6. Plan
+
+0. **Palanca de corto plazo, sin rediseñar nada:** darle al barrido de GEX **su propia sesión DXLink**.
+   §2.3 dice que el presupuesto es por sesión, así que el barrido deja de bloquear al resto hoy mismo.
+   Compra tiempo para hacer bien el resto.
+1. **Diseñar el ingestor y el esquema juntos** — el esquema sale de qué necesita publicar el ingestor,
+   no de qué archivos hay hoy. Primero decidir qué eventos se mantienen vivos y para qué símbolos.
+2. **Migrar el estado a la base** (switches, estado de RPF, skew history). Es la parte de menor riesgo
+   y sola ya arregla el estado que se pierde al reiniciar.
+3. **Mover GEX a leer del store.** Es el cambio grande y el que libera el ~78 %.
+4. **Consolidar `CascadeCore`**, el follow-up que quedó pendiente cuando RPF se independizó del motor
+   de Main: hoy la orquestación macro/strike/micro/sizing está triplicada (VL, PB, RPF) reusando los
+   primitivos puros. Cae de maduro en el mismo movimiento.
+
+## 7. Riesgos y lo que NO está medido
+
+* **La cadencia del refresh de Greeks no quedó determinada.** Con 120 s de ventana se vio una sola
+  ráfaga. El orden de magnitud es sólido; la frecuencia exacta no. Si el refresh fuera mucho más
+  espaciado de lo que conviene, la cadena viva podría tener *menos* frescura que el barrido — hay que
+  medirlo con una ventana larga antes del paso 3.
+* **Solo se verificaron 2 sesiones DXLink concurrentes**, y con una sola de ellas realmente saturada
+  de forma sostenida.
+* **La cadena viva no se probó a lo largo de una rueda entera**: reconexiones, expiración de tokens y
+  el rollover del 0DTE son escenarios que el barrido resuelve por reinicio y el modelo persistente no.
+* Las mediciones son de **un solo día y un solo símbolo** (SPY). QQQ y AAPL tienen cadenas más chicas;
+  ninguna se midió en vivo.
+
+## 8. Deuda conocida que este trabajo destapó
+
+* **`GexAnalysisHandler` cachea la misma instancia del response** y los lectores concurrentes la
+  mutan (`cached.Response.FromCache = true`). Una respuesta puede viajar con `fromCache: true` siendo
+  un barrido propio recién hecho. Afecta solo a los flags de observabilidad, no a los datos de GEX.
+* **El estado del switch está duplicado en 3 lugares del front** (`StrategyCard` local,
+  `useGexStore`, `useRpfStore`), así que prenderla desde su pestaña no actualiza la card de Main. El
+  dueño real del dato es el backend; las tres copias son caches que se desincronizan. Es el mismo
+  problema de propiedad del estado que resuelve §5.
+
+## 9. Cómo reproducir las mediciones
+
+Costó descubrirlo, así que queda escrito:
+
+* **No hace falta reiniciar la API** para cambiar `greeks_batch_size`: el JSON se relee por request y
+  el `rulesHash` invalida el cache. Reiniciar es **contraproducente** — el front se reconecta y
+  dispara su propio barrido, que contamina la medición.
+* Usar `GET /App/Gex/Analysis?Symbol=SPY&Refresh=true` y leer el **`elapsedMs` de la respuesta**, no
+  el reloj de pared: si otro barrido tiene el semáforo, el wall-clock incluye la espera (se vio un
+  236 s de wall contra 126 s reales).
+* Verificar que el front no esté barriendo en paralelo:
+  `Get-NetTCPConnection -State Established -RemotePort 7001` muestra las conexiones de Chrome.
+  Cualquier edición del front dispara HMR, que remonta la pestaña GEX y arranca un barrido del universo.
+* El volumen del feed se midió con un script descartable de Node que abre su **propia** sesión DXLink
+  replicando el handshake y el throttle de `DxLinkStreamingService`. No está en el repo; si se decide
+  incorporarlo como herramienta de diagnóstico, es una decisión aparte.
+
+## 10. Decisiones pendientes del operador
+
+1. ¿Se adopta la inversión del flujo (§4), o se prefiere estirar el diseño actual con la palanca del
+   paso 0?
+2. Motor de base de datos y dónde corre (local / Azure, junto a la API).
+3. Qué símbolos y qué eventos mantiene vivos el ingestor — de eso sale el esquema.
+4. Si los snapshots de GEX se persisten desde el día uno (habilita backtest propio, cuesta espacio) o
+   si la base arranca solo con estado.

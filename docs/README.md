@@ -9,6 +9,7 @@ superado va a [`archive/`](archive/) con cabecera que lo marca.
 |---|---|
 | [`../CLAUDE.md`](../CLAUDE.md) | **Contrato de arquitectura** (plataforma, backend, front, endpoints, convención de estrategias). |
 | [`GaleCore-ways-of-working.md`](GaleCore-ways-of-working.md) | **Sistema de trabajo**: git, harness, agentes IA, cadencia. |
+| [`GaleCore-arquitectura-datos.md`](GaleCore-arquitectura-datos.md) | **PROPUESTA** (no implementada): cómo sostener N estrategias sobre un feed compartido, con las mediciones de capacidad de DXLink del 2026-08-11. Documento de decisión previo a la base de datos. |
 | [`rpf/`](rpf/) | Estrategia **RPF** ("disparo por prima real", operativa): definición, research, reconciliación. |
 | [`gex/`](gex/) | Estrategia **GEX** (Gamma Exposure, informativa): definición + referencia del endpoint. |
 
