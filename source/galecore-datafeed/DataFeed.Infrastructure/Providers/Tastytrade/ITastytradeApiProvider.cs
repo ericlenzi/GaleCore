@@ -10,9 +10,11 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
         Task<OptionChainsModel?> GetOptionChainsAsync(string symbol, CancellationToken cancellationToken);
 
-        Task<AccountBalancesModel?> GetAccountBalancesAsync(string accountNumber, CancellationToken cancellationToken);
+        /// <param name="credential">null = credencial de sistema. Los datos de cuenta son por usuario.</param>
+        Task<AccountBalancesModel?> GetAccountBalancesAsync(string accountNumber, CancellationToken cancellationToken, TastytradeCredential? credential = null);
 
-        Task<AccountPositionsModel?> GetAccountPositionsAsync(string accountNumber, CancellationToken cancellationToken);
+        /// <param name="credential">null = credencial de sistema. Los datos de cuenta son por usuario.</param>
+        Task<AccountPositionsModel?> GetAccountPositionsAsync(string accountNumber, CancellationToken cancellationToken, TastytradeCredential? credential = null);
 
         Task<MarketMetricsVolatilityModel?> GetMarketMetricsVolatilityAsync(string symbols, CancellationToken cancellationToken);
     }

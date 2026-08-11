@@ -11,25 +11,36 @@ namespace DataFeed.Application.Data.Tastytrade.AccountPositions
         private readonly IMapper _mapper;
         private readonly ITastytradeOAuth _auth;
         private readonly IHttpClientFactory _client;
+        private readonly ICurrentUser _currentUser;
+        private readonly ITastytradeCredentialStore _credentials;
 
-        public AccountPositionsHandler(IConfiguration config, IMapper mapper, ITastytradeOAuth auth, IHttpClientFactory client)
+        public AccountPositionsHandler(IConfiguration config, IMapper mapper, ITastytradeOAuth auth,
+            IHttpClientFactory client, ICurrentUser currentUser, ITastytradeCredentialStore credentials)
         {
             _config = config;
             _mapper = mapper;
             _auth = auth;
             _client = client;
+            _currentUser = currentUser;
+            _credentials = credentials;
         }
 
         public async Task<AccountPositionsResponse> Handle(AccountPositionsRequest request, CancellationToken cancellationToken)
         {
             try
             {
+                // Posiciones son datos DE CUENTA: si hay usuario autenticado, van con SU credencial
+                // y SU número de cuenta. Sin usuario (el tablero de hoy, que entra con API key y sin
+                // token) se cae al comportamiento previo. Aditivo a propósito: nada se rompe.
+                var credential = await ResolveCredentialAsync(cancellationToken);
+
                 var accountNumber = request.AccountNumber
+                    ?? credential?.AccountNumber
                     ?? _config["Tastytrade:AccountNumber"]
                     ?? throw new Exception("Número de cuenta requerido. Enviarlo en el request o configurar Tastytrade:AccountNumber.");
 
                 var provider = new TastytradeApiProvider(_config, _auth, _client);
-                var positions = await provider.GetAccountPositionsAsync(accountNumber, cancellationToken);
+                var positions = await provider.GetAccountPositionsAsync(accountNumber, cancellationToken, credential);
 
                 if (positions?.Data == null)
                     throw new Exception($"No se encontraron posiciones para la cuenta: {accountNumber}");
@@ -40,6 +51,22 @@ namespace DataFeed.Application.Data.Tastytrade.AccountPositions
             {
                 throw new Exception($"AccountPositionsHandler Error: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// null = usar la credencial de sistema (el camino de compatibilidad). Se devuelve null solo
+        /// cuando NO hay usuario autenticado. Si hay usuario pero no tiene cuenta vinculada se
+        /// LANZA: devolverle silenciosamente las posiciones de la cuenta de sistema sería mostrarle
+        /// posiciones ajenas, que es peor que un error.
+        /// </summary>
+        private async Task<TastytradeCredential?> ResolveCredentialAsync(CancellationToken ct)
+        {
+            var userId = _currentUser.UserId;
+            if (userId == null) return null;
+
+            return await _credentials.GetForUserAsync(userId.Value, ct)
+                ?? throw new Exception(
+                    "El usuario autenticado no tiene una cuenta de bróker vinculada.");
         }
     }
 }

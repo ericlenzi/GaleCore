@@ -8,6 +8,7 @@ using DataFeed.Application.App.Gex;
 using DataFeed.Application.App.ImpliedVolatility;
 using DataFeed.Application.App.IVRank;
 using DataFeed.Application.App.PutSkew;
+using Microsoft.EntityFrameworkCore;
 
 namespace DataFeed.Controllers
 {
@@ -103,6 +104,101 @@ namespace DataFeed.Controllers
                 issuer = User.Claims.FirstOrDefault(c => c.Type == "iss")?.Value,
                 claims = User.Claims.Select(c => new { type = c.Type, value = c.Value }),
             });
+        }
+
+        /// <summary>
+        /// La cuenta de bróker vinculada al usuario autenticado. Nunca devuelve el refresh token:
+        /// entra a la base cifrado y no vuelve a salir por HTTP.
+        /// </summary>
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        [Tags("App.GaleCore")]
+        [HttpGet("GaleCore/Account")]
+        public async Task<IActionResult> GetBrokerAccountAsync(
+            [FromServices] DataFeed.Repositories.GaleCoreDbContext db,
+            [FromServices] DataFeed.Infrastructure.Providers.Tastytrade.ICurrentUser currentUser,
+            CancellationToken ct)
+        {
+            var userId = currentUser.UserId;
+            if (userId == null) return Unauthorized();
+
+            var account = await db.Accounts.AsNoTracking()
+                .FirstOrDefaultAsync(a => a.UserId == userId.Value, ct);
+
+            if (account == null) return Ok(new { linked = false });
+
+            return Ok(new
+            {
+                linked = true,
+                broker = account.Broker,
+                accountNumber = account.AccountNumber,
+                isSystem = account.IsSystem,
+                updatedAt = account.UpdatedAt,
+            });
+        }
+
+        /// <summary>
+        /// Vincula (o actualiza) la cuenta de bróker del usuario autenticado. El refresh token se
+        /// cifra con AES-GCM antes de guardarse.
+        ///
+        /// Crea la fila de `users` si no existe: la identidad la maneja Supabase Auth y esta tabla
+        /// solo le cuelga las FK, así que la primera vez que alguien válido aparece hay que
+        /// materializarlo. El uuid y el mail salen del token, NO del body — si vinieran del body,
+        /// cualquiera podría vincular una cuenta al usuario de otro.
+        /// </summary>
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        [Tags("App.GaleCore")]
+        [HttpPost("GaleCore/Account")]
+        public async Task<IActionResult> LinkBrokerAccountAsync(
+            [FromBody] DataFeed.Api.Controllers.Dtos.LinkBrokerAccountRequest body,
+            [FromServices] DataFeed.Repositories.GaleCoreDbContext db,
+            [FromServices] DataFeed.Infrastructure.Providers.Tastytrade.ICurrentUser currentUser,
+            [FromServices] DataFeed.Infrastructure.Providers.Tastytrade.ITokenProtector protector,
+            CancellationToken ct)
+        {
+            var userId = currentUser.UserId;
+            if (userId == null) return Unauthorized();
+
+            if (string.IsNullOrWhiteSpace(body.AccountNumber) || string.IsNullOrWhiteSpace(body.RefreshToken))
+                return BadRequest(new { error = "accountNumber y refreshToken son requeridos." });
+
+            var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId.Value, ct);
+
+            if (user == null)
+            {
+                user = new DataFeed.Repositories.Entities.User
+                {
+                    Id = userId.Value,
+                    Email = currentUser.Email ?? $"{userId.Value}@sin-mail.local",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                };
+                db.Users.Add(user);
+            }
+
+            var account = await db.Accounts
+                .FirstOrDefaultAsync(a => a.UserId == userId.Value && a.Broker == "tastytrade", ct);
+
+            if (account == null)
+            {
+                account = new DataFeed.Repositories.Entities.Account
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = userId.Value,
+                    Broker = "tastytrade",
+                    CreatedAt = DateTime.UtcNow,
+                };
+                db.Accounts.Add(account);
+            }
+
+            account.AccountNumber = body.AccountNumber.Trim();
+            account.RefreshTokenEncrypted = protector.Protect(body.RefreshToken.Trim());
+            account.UpdatedAt = DateTime.UtcNow;
+
+            await db.SaveChangesAsync(ct);
+
+            _logger.LogInformation("Cuenta de bróker vinculada para el usuario {UserId}", userId.Value);
+
+            return Ok(new { linked = true, accountNumber = account.AccountNumber });
         }
 
         #endregion

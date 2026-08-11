@@ -66,11 +66,18 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             return result;
         }
 
-        public async Task<AccountBalancesModel?> GetAccountBalancesAsync(string accountNumber, CancellationToken cancellationToken)
+        /// <param name="credential">
+        /// Credencial con la que se pide. Los datos de cuenta son POR USUARIO: pedirlos con la
+        /// credencial equivocada devuelve, sin error visible, las posiciones de otra persona. Si
+        /// viene null se usa la de sistema, que es el comportamiento previo a multi-usuario.
+        /// </param>
+        public async Task<AccountBalancesModel?> GetAccountBalancesAsync(string accountNumber, CancellationToken cancellationToken, TastytradeCredential? credential = null)
         {
             _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             _client.DefaultRequestHeaders.UserAgent.ParseAdd("PostmanRuntime/7.36.0");
-            var request = await _auth.CreateOAuthApiRequestAsync($"/accounts/{accountNumber}/balances");
+            var request = credential == null
+                ? await _auth.CreateOAuthApiRequestAsync($"/accounts/{accountNumber}/balances")
+                : await _auth.CreateOAuthApiRequestAsync($"/accounts/{accountNumber}/balances", credential);
             var response = await _client.SendAsync(request);
             response.EnsureSuccessStatusCode();
 
@@ -83,11 +90,14 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             return JsonSerializer.Deserialize<AccountBalancesModel>(content, options);
         }
 
-        public async Task<AccountPositionsModel?> GetAccountPositionsAsync(string accountNumber, CancellationToken cancellationToken)
+        /// <param name="credential">Ver <see cref="GetAccountBalancesAsync"/>: null = credencial de sistema.</param>
+        public async Task<AccountPositionsModel?> GetAccountPositionsAsync(string accountNumber, CancellationToken cancellationToken, TastytradeCredential? credential = null)
         {
             _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             _client.DefaultRequestHeaders.UserAgent.ParseAdd("PostmanRuntime/7.36.0");
-            var request = await _auth.CreateOAuthApiRequestAsync($"/accounts/{accountNumber}/positions");
+            var request = credential == null
+                ? await _auth.CreateOAuthApiRequestAsync($"/accounts/{accountNumber}/positions")
+                : await _auth.CreateOAuthApiRequestAsync($"/accounts/{accountNumber}/positions", credential);
             var response = await _client.SendAsync(request);
             response.EnsureSuccessStatusCode();
 

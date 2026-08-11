@@ -56,6 +56,8 @@ namespace DataFeed
             // Credenciales de Tastytrade: sistema para mercado, usuario para cuenta (§5.4 del doc de
             // arquitectura). Mientras no haya filas en `accounts`, el store cae a appsettings y la
             // plataforma se comporta igual que antes de existir la base.
+            builder.Services.AddHttpContextAccessor();
+            builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
             builder.Services.AddSingleton<ITokenProtector, DataFeed.Infrastructure.Security.AesGcmTokenProtector>();
             builder.Services.AddSingleton<ITastytradeCredentialStore, TastytradeCredentialStore>();
             builder.Services.AddSingleton<ITastytradeOAuth, TastytradeOAuth>();
