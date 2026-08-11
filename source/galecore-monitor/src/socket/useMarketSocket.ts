@@ -32,18 +32,34 @@ export function useMarketSocket(tickers: string[] = []) {
       setStatus('error');
       return;
     }
-    const apiKey = sessionStorage.getItem('galecore:apiKey') ?? '';
-
     // Marca esta conexión como descartada (cleanup del efecto). La leen los handlers de abajo para
     // no tocar el estado compartido una vez que el efecto se desmontó — ver el comentario largo en
     // "Reconnect logic".
     let disposed = false;
 
+    // SIN `transport`: se deja negociar. SignalR intenta WebSocket y sólo cae a SSE o long-polling
+    // si el entorno no lo permite.
+    //
+    // Hasta 2026-08-10 acá había `transport: HttpTransportType.LongPolling`, forzado desde el commit
+    // inicial del monitor y sin ninguna razón registrada. El motivo habitual para forzarlo — que el
+    // navegador no puede mandar headers custom en el upgrade de WebSocket, y la API key viaja en
+    // header — acá no aplica: `/hubs` está exento del ApiKeyMiddleware.
+    //
+    // Y no era gratis. El long-polling es lo que hizo posible el cuelgue del loop de RPF (f1a6179):
+    // un cliente que deja de pollear sin cerrar limpio deja al servidor escribiendo en un buffer que
+    // nunca drena, y el SendAsync al grupo espera para siempre. Con WebSocket la conexión muerta se
+    // detecta. Además llenaba el log de red del navegador con cientos de GET, lo que hizo mucho más
+    // difícil diagnosticar ese mismo cuelgue.
+    //
+    // Se NEGOCIA en vez de forzar WebSocket: forzarlo sería cambiar un absolutismo por otro, y en
+    // Azure App Service los WebSockets son un setting por aplicación que viene apagado por defecto.
+    // Negociando, ese entorno cae solo a long-polling en vez de quedarse sin conexión.
+    //
+    // Tampoco va más el `?apiKey=` en la URL: nadie lo lee (el middleware sale antes de validar para
+    // las rutas /hubs) y filtraba la clave a logs y proxies a cambio de nada. Si algún día el hub
+    // lleva auth, la forma correcta es accessTokenFactory, no la query string a mano.
     const connection = new signalR.HubConnectionBuilder()
-      .withUrl(`${hubUrl}?apiKey=${encodeURIComponent(apiKey)}`, {
-        headers: { 'X-API-KEY': apiKey },
-        transport: signalR.HttpTransportType.LongPolling,
-      })
+      .withUrl(hubUrl)
       .withAutomaticReconnect()
       .configureLogging(signalR.LogLevel.Warning)
       .build();
