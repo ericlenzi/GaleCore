@@ -62,7 +62,8 @@ function Dashboard({ onLogout }: DashboardProps) {
             <Home onNavigate={(t) => setTab(t as Tab)} />
           </div>
           <div style={{ display: tab === 'monitor' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
-            <Monitor subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} />
+            <Monitor subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg}
+              subscribeSymbol={subscribeSymbol} unsubscribeSymbol={unsubscribeSymbol} socketStatus={socketStatus} />
           </div>
           <div style={{ display: tab === 'rpf' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
             <Rpf acceptSuggestion={acceptSuggestion} dismissSuggestion={dismissSuggestion}

@@ -16,10 +16,13 @@ const REFRESH_INTERVAL_MS = 60_000; // Auto-refresh account positions every 60s
 interface Props {
   subscribeLeg:   (sym: string) => void;
   unsubscribeLeg: (sym: string) => void;
+  /** Subyacentes (sin Greeks). Distinto de subscribeLeg, que pide Greeks para las opciones. */
+  subscribeSymbol:   (sym: string) => void;
+  unsubscribeSymbol: (sym: string) => void;
   socketStatus:   ConnectionStatus;
 }
 
-export function PositionMonitor({ subscribeLeg, unsubscribeLeg, socketStatus }: Props) {
+export function PositionMonitor({ subscribeLeg, unsubscribeLeg, subscribeSymbol, unsubscribeSymbol, socketStatus }: Props) {
   const { config }         = useAppConfigStore();
   const { positions, setPositions, setBalances } = useAccountStore();
   const marketTickers      = useMarketStore(s => s.tickers);
@@ -77,6 +80,24 @@ export function PositionMonitor({ subscribeLeg, unsubscribeLeg, socketStatus }: 
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Suscribir los SUBYACENTES de las posiciones ──────────────────────────
+  // El Monitor lee el spot de useMarketStore, pero hasta 2026-08-10 no suscribía ningún subyacente:
+  // solo las patas. Con SPY y QQQ no se notaba porque los suscribe la plataforma (universe.tickers
+  // del config de app); con cualquier otro símbolo el spot venía de que la pantalla de GEX lo
+  // suscribiera como "extra" — y GEX se monta recién al entrar a su pestaña.
+  //
+  // O sea: el spot de una posición en SKM dependía de haber visitado GEX. El Monitor es TRANSVERSAL
+  // a las estrategias (CLAUDE.md) y no puede depender de ninguna. Se hizo evidente al gatear las
+  // suscripciones de GEX por su switch: apagar una estrategia informativa se llevaba puesto el
+  // precio de una posición abierta.
+  const underlyingsKey = Array.from(new Set(spreads.map(s => s.underlyingSymbol))).sort().join(',');
+  useEffect(() => {
+    if (socketStatus !== 'connected' || !underlyingsKey) return;
+    const syms = underlyingsKey.split(',');
+    syms.forEach(subscribeSymbol);
+    return () => syms.forEach(unsubscribeSymbol);
+  }, [underlyingsKey, socketStatus, subscribeSymbol, unsubscribeSymbol]);
 
   // ── Fetch GEX walls + IV Rank for unique tickers ────────────────────────
   useEffect(() => {
