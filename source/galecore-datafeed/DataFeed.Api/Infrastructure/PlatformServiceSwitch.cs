@@ -5,7 +5,7 @@ namespace DataFeed.Api.Infrastructure
 {
     /// <summary>
     /// Switch ON/OFF de los servicios de PLATAFORMA: los procesos que corren solos y no son de
-    /// ninguna estrategia (hoy <see cref="SkewSnapshotService"/> y <see cref="FlowBroadcastService"/>).
+    /// ninguna estrategia (hoy <see cref="SkewSnapshotService"/>).
     ///
     /// Misma regla que las estrategias —todo lo que corra solo se tiene que poder cortar en el acto
     /// desde el front, sin reiniciar la API— con dos diferencias que salen de qué son:

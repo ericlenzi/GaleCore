@@ -8,7 +8,7 @@ interface Props {
 
 /**
  * Card de un servicio de plataforma en Main: un proceso que corre solo y no es de ninguna
- * estrategia (hoy SkewSnapshotService y FlowBroadcastService).
+ * estrategia (hoy SkewSnapshotService).
  *
  * Se parece a StrategyCard pero NO es la misma card, y las diferencias son de fondo:
  *   - no navega a ninguna parte: un servicio no tiene pestaña, solo se prende y se apaga;

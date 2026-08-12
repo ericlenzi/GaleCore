@@ -54,7 +54,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     Es lo que **Main** renderiza como cards. Una estrategia que no figura acá existe en la API pero
     es invisible en el tablero.
   * `services[]` — los procesos de plataforma que corren solos y no son de ninguna estrategia
-    (`SkewSnapshotService`, `FlowBroadcastService`). Cada entrada: `id`, `label`, `name`,
+    (hoy solo `SkewSnapshotService`). Cada entrada: `id`, `label`, `name`,
     `description`, `enabled` (el nivel de reglas de su switch), `switch_endpoint`. Es lo que **Main**
     renderiza en la sección Plataforma. Ver "switch por estrategia".
   * `monitor` — config de la pestaña Monitor, que es transversal (monitorea las posiciones de la
@@ -173,7 +173,11 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     `ValidationLayer` en vivo hoy lo hace el loop de RPF; los `structureInputs` los expone `/App/Gex/Analysis`.
   * WebSocket `/hubs/marketdata`:
     - `Subscribe(symbol, includeGreeks)` → `ReceiveTrade`, `ReceiveQuote` (precio); con `includeGreeks=true` también `ReceiveGreeks` (delta/gamma/theta/vega/IV por opción). Los legs del Monitor se suscriben con `includeGreeks=true`.
-    - `SubscribeFlow(symbol)` → `ReceiveFlow` cada 30s (flow de opciones via `FlowBroadcastService`)
+    **Se eliminó `SubscribeFlow`/`ReceiveFlow` el 2026-08-12** junto con todo el pipeline de flow
+    agresivo (`FlowAggregatorService`, `FlowBroadcastService`, `useFlowStore`). Nunca lo consumió
+    ninguna pantalla: el hub tenía métodos que nadie llamaba y `DxLinkStreamingService` clasificaba
+    cada trade de opción para un agregador que nadie leía. Si vuelve a hacer falta, se rehace
+    contra lo que la pantalla necesite, no antes.
 
 - `GammaExposureHandler` — dos modos, y el global es opt-in
   Handler **compartido**: lo consumen `PutSkew`, RPF, `SkewSnapshotService`, el
@@ -232,7 +236,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   **El switch apaga TODA la actividad de su estrategia**, no solo sus procesos de fondo: loops,
   suscripciones al hub, timers de refresh y las llamadas REST que dispara su pantalla. Una estrategia
   en OFF no puede seguir ocupando el feed ni pidiendo datos.
-  Procesos de fondo actuales: `RpfLoopService`, `FlowBroadcastService`, `SkewSnapshotService`
+  Procesos de fondo actuales: `RpfLoopService`, `SkewSnapshotService`
   (todos en `DataFeed.Api/Infrastructure`).
 
   **El estado de los switches se ve también en Main**, que renderiza una card por estrategia leyendo
@@ -305,9 +309,9 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     el switch es un kill switch de ese barrido. Ver
     [`docs/gex/galecore-estrategia-gex.md`](docs/gex/galecore-estrategia-gex.md).
 
-  **Los servicios de plataforma también tienen switch** (desde 2026-08-12): `SkewSnapshotService` y
-  `FlowBroadcastService` corren solos y no son de ninguna estrategia, así que van por su propio
-  carril y no por el de arriba:
+  **Los servicios de plataforma también tienen switch** (desde 2026-08-12). Hoy el único es
+  `SkewSnapshotService`: corre solo y no es de ninguna estrategia, así que va por su propio carril y
+  no por el de arriba:
   * se declaran en **`services[]` de `galecore_rules_core.json`** (`id`, `label`, `name`,
     `description`, `enabled`, `switch_endpoint`), que es su nivel de reglas;
   * el estado comparte **un** archivo en la raíz de `Files/`
@@ -315,18 +319,14 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     convención de estrategias;
   * los endpoints son `GET`/`POST /App/GaleCore/Services/{id}/Switch`, con el mismo contrato
     `{ enabled, source }`;
-  * **son dos niveles, no tres.** Una estrategia trabaja para alguien; estos no —el flow va a quien
-    se suscribió y el skew escribe un archivo compartido—, así que no hay preferencia por usuario y
-    tocarlos es cosa de admin;
+  * **son dos niveles, no tres.** Una estrategia trabaja para alguien; un servicio no —el skew
+    escribe un archivo compartido—, así que no hay preferencia por usuario y tocarlos es cosa de
+    admin;
   * Main los renderiza en la sección **Plataforma** con `ServiceCard`, que monta el mismo
     `StrategySwitch`.
 
   **Apagar `skew` no es gratis:** es el que escribe `skew25_history.json`, de donde sale el RoC 5d
-  del gate `tail_score` de RPF. Cada tick apagado es un hueco en la serie. `flow`, en cambio, hoy
-  está inerte de punta a punta: ninguna pantalla llama a `SubscribeFlow`, así que el agregador no
-  trackea nada. Ojo con lo que su switch NO apaga — la suscripción a DXLink la abre `SubscribeFlow`
-  en el hub, no el broadcaster; el día que alguna pantalla lo use, el switch tiene que cortar ahí
-  también.
+  del gate `tail_score` de RPF. Cada tick apagado es un hueco en la serie.
 
 - Lógica compartida — `App/Shared/`
   Lo que comparten los motores de decisión de las estrategias. Separado en dos: **lógica** en
@@ -348,11 +348,6 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
 
   `CascadeContracts.cs` — `MacroRegimeResult` + sus 6 checks, `StrikeEngineResult` + `LegSymbols`/`LegMeta`,
   `MicrostructureResult` + sus checks, `RiskAndSizingResult`, `StructureInputs` + sus factores.
-
-- FlowAggregatorService
-  Singleton que clasifica trades de opciones por agresión (ask-side = bullish, bid-side = bearish).
-  Filtra por premium >= $25K. Calcula `netDeltaFlow = (bullish - bearish) / (bullish + bearish)`.
-  `FlowBroadcastService` lee el agregador y emite `ReceiveFlow` al hub cada 30s o en cambio de signo de `netDeltaFlow`.
 
 - gex_skew (reemplaza gex_sign)
   Cuando una estrategia exige GEX positivo en su `macro_regime.gex_total`, `gex_sign: "negative"` es
@@ -481,7 +476,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   ├── marketdata.ts       # /Data/Tastytrade/MarketData/*
   │   └── account.ts          # /Data/Account/*
   ├── socket/
-  │   └── useMarketSocket.ts  # Hook SignalR: connect, subscribe/unsubscribe (subscribeLeg usa includeGreeks=true), subscribeFlow/unsubscribeFlow, handlers ReceiveTrade/Quote/Greeks/Flow
+  │   └── useMarketSocket.ts  # Hook SignalR: connect, subscribe/unsubscribe (subscribeLeg usa includeGreeks=true), handlers ReceiveTrade/Quote/Greeks + los de RPF
   ├── store/
   │   ├── useMarketStore.ts   # Estado en tiempo real (Zustand): precio/bid/ask + Greeks por símbolo (updateGreeks: delta/gamma/theta/vega/iv) + ivRank
   │   ├── useAccountStore.ts  # Balances y posiciones
@@ -489,7 +484,6 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   ├── useGexStore.ts      # Estrategia GEX: reglas propias (/App/Gex/Rules) + cache de /App/Gex/Analysis por símbolo + vencimiento seleccionado
   │   ├── useRpfStore.ts      # Estrategia RPF: estados por símbolo + sugerencias (SignalR)
   │   ├── useStrategySwitchStore.ts # Dueño ÚNICO del estado de los switches, indexado por switch_endpoint
-  │   └── useFlowStore.ts     # Snapshots de flow de opciones (ReceiveFlow → FlowPayload)
   ├── components/
   │   ├── layout/
   │   │   ├── Sidebar.tsx         # Barra lateral con AccountSummary
@@ -536,7 +530,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │                           #   Graph (Options Chain + Expiry Engine + velas 1h×100 + barras del vencimiento).
   │                           #   Se monta recién al entrar a la pestaña (el barrido es caro).
   ├── types/
-  │   ├── api.ts              # AppConfig/StrategyEntry, ValidationLayerApiResponse, StructureInputs, FlowPayload
+  │   ├── api.ts              # AppConfig/StrategyEntry/ServiceEntry, ValidationLayerApiResponse, StructureInputs
   │   ├── market.ts           # Tipos de mercado (ticker state, capas, señal)
   │   ├── position.ts         # Tipos de posiciones y P&L
   │   ├── gex.ts              # Tipos de /App/Gex/*
@@ -565,8 +559,8 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   connection.on('ReceiveQuote', (symbol, data) => updateQuote(symbol, data));
   ```
   **La conexión NO depende de tener universo.** El hub transporta mucho más que precios de
-  subyacentes: la orquestación de RPF (`SubscribeRpf`), los quotes/Greeks de los legs del Monitor y
-  el flow. Un `if (!tickers.length) return` antes de conectar dejaba todo eso muerto cuando el config
+  subyacentes: la orquestación de RPF (`SubscribeRpf`) y los quotes/Greeks de los legs del Monitor.
+  Un `if (!tickers.length) return` antes de conectar dejaba todo eso muerto cuando el config
   no declaraba universo. Se conecta siempre; `Subscribe` es lo único condicional.
 
   * Estado en Zustand

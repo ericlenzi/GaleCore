@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { useMarketStore } from '../store/useMarketStore';
-import { useFlowStore } from '../store/useFlowStore';
 import { useRpfStore } from '../store/useRpfStore';
 import { useStrategySwitchStore } from '../store/useStrategySwitchStore';
 import { RPF_SWITCH_ENDPOINT } from '../api/rpf';
-import { TradePayload, QuotePayload, FlowPayload, GreeksPayload } from '../types/api';
+import { TradePayload, QuotePayload, GreeksPayload } from '../types/api';
 import { getAccessToken } from '../auth/supabase';
 import { RpfStateUpdate, TradeSuggestion } from '../types/rpf';
 
@@ -89,11 +88,6 @@ export function useMarketSocket(tickers: string[] = []) {
       updateGreeks(symbol, data);
     });
 
-    // ── Flow handler ──────────────────────────────────────────────────────
-    connection.on('ReceiveFlow', (symbol: string, data: FlowPayload) => {
-      useFlowStore.getState().updateFlow(symbol, data);
-    });
-
     // ── RPF orchestration handlers (Fase 6b) ───────────────────────────────
     connection.on('ReceiveRpfState', (symbol: string, data: RpfStateUpdate) => {
       useRpfStore.getState().applyState(symbol, data);
@@ -129,11 +123,6 @@ export function useMarketSocket(tickers: string[] = []) {
         connection.invoke('Subscribe', symbol, false).catch(console.error);
         setStreaming(symbol, true);
       });
-      // Re-subscribe flow symbols
-      const flowSymbols = useFlowStore.getState().subscribedSymbols;
-      flowSymbols.forEach((symbol) => {
-        connection.invoke('SubscribeFlow', symbol, null, null).catch(console.error);
-      });
       // Re-join the RPF board group
       connection.invoke('SubscribeRpf').catch(console.error);
     });
@@ -165,14 +154,6 @@ export function useMarketSocket(tickers: string[] = []) {
     return () => {
       disposed = true;
       connectionRef.current = null;
-
-      // Unsubscribe flow symbols mientras la conexión todavía sirve
-      if (connection.state === signalR.HubConnectionState.Connected) {
-        const flowSymbols = useFlowStore.getState().subscribedSymbols;
-        flowSymbols.forEach((symbol) => {
-          connection.invoke('UnsubscribeFlow', symbol).catch(() => {});
-        });
-      }
 
       // Llamar stop() antes de que start() resuelva tira "Failed to start the HttpConnection
       // before stop() was called". Hay que esperar a que el start termine, salga bien o mal —
@@ -241,29 +222,6 @@ export function useMarketSocket(tickers: string[] = []) {
     }
   }, []);
 
-  // ── Flow subscription methods ─────────────────────────────────────────
-  const subscribeFlow = useCallback(
-    (symbol: string, expirationDate?: string, flowWindowMinutes?: number) => {
-      const conn = connectionRef.current;
-      if (conn?.state === signalR.HubConnectionState.Connected) {
-        conn
-          .invoke('SubscribeFlow', symbol, expirationDate ?? null, flowWindowMinutes ?? null)
-          .then(() => useFlowStore.getState().addSubscription(symbol))
-          .catch(console.error);
-      }
-    },
-    [],
-  );
-
-  const unsubscribeFlow = useCallback((symbol: string) => {
-    const conn = connectionRef.current;
-    if (conn?.state === signalR.HubConnectionState.Connected) {
-      conn.invoke('UnsubscribeFlow', symbol).catch(console.error);
-    }
-    useFlowStore.getState().removeSubscription(symbol);
-    useFlowStore.getState().clearFlow(symbol);
-  }, []);
-
   // ── RPF ack methods (Fase 6b) ─────────────────────────────────────────
   // El sistema sugiere, nunca ejecuta: Accept confirma intención + cooldown, NO abre la orden.
   const acceptSuggestion = useCallback((suggestionId: string) => {
@@ -280,5 +238,5 @@ export function useMarketSocket(tickers: string[] = []) {
     }
   }, []);
 
-  return { status, subscribeFlow, unsubscribeFlow, subscribeSymbol, unsubscribeSymbol, subscribeLeg, unsubscribeLeg, acceptSuggestion, dismissSuggestion };
+  return { status, subscribeSymbol, unsubscribeSymbol, subscribeLeg, unsubscribeLeg, acceptSuggestion, dismissSuggestion };
 }

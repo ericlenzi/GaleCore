@@ -48,14 +48,6 @@
       "description": "Cada 6h registra el skew25 del dia por simbolo en skew25_history.json. Es la serie de la que sale el RoC 5d del gate tail_score de RPF, asi que apagarlo no es gratis: cada dia sin registrar es un hueco en la historia. Corre un GammaExposure completo por simbolo, o sea que compite por DXLink.",
       "enabled": true,
       "switch_endpoint": "/App/GaleCore/Services/skew/Switch"
-    },
-    {
-      "id": "flow",
-      "label": "Flow broadcast",
-      "name": "FlowBroadcastService",
-      "description": "Emite el snapshot de flow agresivo cada 30s a los clientes suscritos. Hoy no lo consume ninguna pantalla: nadie llama a SubscribeFlow, asi que el agregador no trackea nada y el tick no hace nada. El costo real esta en SubscribeFlow, que suscribe una expiracion entera a DXLink.",
-      "enabled": true,
-      "switch_endpoint": "/App/GaleCore/Services/flow/Switch"
     }
   ],
 

@@ -199,13 +199,11 @@ namespace DataFeed
                     options.PayloadSerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
                 });
 
-            // Streaming: DxLink persistente + broadcaster SignalR + flow aggregator
+            // Streaming: DxLink persistente + broadcaster SignalR
             builder.Services.AddSingleton<IMarketDataBroadcaster, MarketDataBroadcaster>();
-            builder.Services.AddSingleton<IFlowAggregatorService, FlowAggregatorService>();
             builder.Services.AddSingleton<DxLinkStreamingService>();
             builder.Services.AddSingleton<IDxLinkStreamingService>(sp => sp.GetRequiredService<DxLinkStreamingService>());
             builder.Services.AddHostedService(sp => sp.GetRequiredService<DxLinkStreamingService>());
-            builder.Services.AddHostedService<FlowBroadcastService>();
             builder.Services.AddHostedService<SkewSnapshotService>();
 
             // Orquestación RPF (Fase 6a) — store in-memory + loop. El loop arranca INERTE:

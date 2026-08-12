@@ -11,7 +11,7 @@ namespace DataFeed.Api.Infrastructure
 {
     /// <summary>
     /// Loop de orquestación RPF (diseño Fase 5 §3). BackgroundService singleton, molde de
-    /// FlowBroadcastService/SkewSnapshotService. SPY-only. En cada tick corre la cascada existente
+    /// SkewSnapshotService. SPY-only. En cada tick corre la cascada existente
     /// (ValidationLayerRequest sobre galecore_rules_rpf.json) y mapea su salida a la máquina de estados
     /// (RpfStateMachine, función pura); emite RpfStateUpdate al cambiar de estado y TradeSuggestion al
     /// entrar en TRIGGERED. El sistema SUGIERE, nunca ejecuta.

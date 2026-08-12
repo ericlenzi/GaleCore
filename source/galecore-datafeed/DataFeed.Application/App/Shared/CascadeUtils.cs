@@ -353,7 +353,6 @@ namespace DataFeed.Application.App.Shared
                 "price_zscore" when conditionValue?.Contains("<") == true => priceZScore < -extremeZ,
                 "gex_skew" => gexSkew == conditionValue,
                 "trend" => trendSignal == conditionValue,
-                "flow" => true,
                 _ => true
             };
         }

@@ -32,7 +32,7 @@ namespace DataFeed.Repositories.Entities
 
         /// <summary>
         /// Marca la cuenta que usan los procesos de fondo para pedir DATOS DE MERCADO (el ingestor,
-        /// RpfLoopService, SkewSnapshotService, FlowBroadcastService). Esos corren en un timer, sin
+        /// RpfLoopService, SkewSnapshotService). Esos corren en un timer, sin
         /// request y sin usuario logueado, así que necesitan una credencial que no sea de nadie en
         /// particular.
         ///

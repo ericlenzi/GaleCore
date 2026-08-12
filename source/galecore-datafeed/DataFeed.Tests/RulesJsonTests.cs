@@ -190,7 +190,6 @@ public class RulesJsonTests
         var ids = AppConfig()["services"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
 
         Assert.Contains("skew", ids);   // SkewSnapshotService.ServiceId
-        Assert.Contains("flow", ids);   // FlowBroadcastService.ServiceId
     }
 
     // ── Config de Monitor ──

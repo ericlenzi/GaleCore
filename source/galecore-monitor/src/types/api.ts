@@ -49,7 +49,7 @@ export interface AppConfig {
     tickers?: string[];
   };
   strategies?: StrategyEntry[];
-  /** Procesos de plataforma con switch propio (SkewSnapshotService, FlowBroadcastService). */
+  /** Procesos de plataforma con switch propio (hoy SkewSnapshotService). */
   services?: ServiceEntry[];
   /** Config de la pestaña Monitor — transversal a las estrategias. */
   monitor?: {
@@ -529,34 +529,3 @@ export interface GreeksPayload {
   timestamp?: string;
 }
 
-// ─── Flow Payload (SignalR ReceiveFlow) ──────────────────────────────────────
-export interface FlowPayload {
-  symbol: string;
-  expiration: string;
-  windowMinutes: number;
-  timestamp: string;
-  bullish: FlowSide;
-  bearish: FlowSide;
-  netDeltaFlow: number;
-  signal: string;
-  recentTrades: FlowTrade[];
-}
-
-export interface FlowSide {
-  premiumUsd: number;
-  tradeCount: number;
-  avgTradeSize: number;
-  dominantStrike: number | null;
-  dominantType: string | null;
-}
-
-export interface FlowTrade {
-  timestamp: string;
-  optionSymbol: string;
-  callPut: string;
-  strike: number;
-  tradePrice: number;
-  size: number;
-  premiumUsd: number;
-  aggression: string;
-}

@@ -10,9 +10,6 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         Task BroadcastQuoteAsync(string symbol, object quoteData);
         Task BroadcastGreeksAsync(string symbol, object greeksData);
 
-        /// <summary>Emite ReceiveFlow al grupo "flow_{symbol}" con el snapshot de flow agresivo.</summary>
-        Task BroadcastFlowAsync(string symbol, object flowData);
-
         /// <summary>
         /// Emite ReceiveRpfState al grupo "rpf" con el snapshot de estado del loop RPF (Fase 6a).
         /// El frontend es tablero: consume este evento en vez de correr la cascada.

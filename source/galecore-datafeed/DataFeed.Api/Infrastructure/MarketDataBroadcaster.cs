@@ -32,11 +32,6 @@ namespace DataFeed.Api.Infrastructure
             await _hubContext.Clients.Group(symbol).SendAsync("ReceiveGreeks", symbol, greeksData);
         }
 
-        public async Task BroadcastFlowAsync(string symbol, object flowData)
-        {
-            await _hubContext.Clients.Group($"flow_{symbol}").SendAsync("ReceiveFlow", symbol, flowData);
-        }
-
         public async Task BroadcastRpfStateAsync(string symbol, object stateUpdate, CancellationToken ct)
         {
             await _hubContext.Clients.Group("rpf").SendAsync("ReceiveRpfState", symbol, stateUpdate, ct);
