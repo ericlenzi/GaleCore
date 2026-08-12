@@ -3,6 +3,8 @@ import * as signalR from '@microsoft/signalr';
 import { useMarketStore } from '../store/useMarketStore';
 import { useFlowStore } from '../store/useFlowStore';
 import { useRpfStore } from '../store/useRpfStore';
+import { useStrategySwitchStore } from '../store/useStrategySwitchStore';
+import { RPF_SWITCH_ENDPOINT } from '../api/rpf';
 import { TradePayload, QuotePayload, FlowPayload, GreeksPayload } from '../types/api';
 import { getAccessToken } from '../auth/supabase';
 import { RpfStateUpdate, TradeSuggestion } from '../types/rpf';
@@ -99,9 +101,10 @@ export function useMarketSocket(tickers: string[] = []) {
     connection.on('ReceiveTradeSuggestion', (symbol: string, data: TradeSuggestion) => {
       useRpfStore.getState().applySuggestion(symbol, data);
     });
-    // El operador toco el switch de la estrategia. Al apagar, setStrategySwitch vacia el tablero.
+    // El operador toco el switch de la estrategia, quiza desde otra pestana del navegador o desde
+    // la card de Main de otro cliente. Va al store compartido: lo ven la pantalla de RPF y Main.
     connection.on('ReceiveRpfSwitch', (enabled: boolean) => {
-      useRpfStore.getState().setStrategySwitch(enabled);
+      useStrategySwitchStore.getState().apply(RPF_SWITCH_ENDPOINT, enabled);
     });
 
     // ── Reconnect logic ───────────────────────────────────────────────────

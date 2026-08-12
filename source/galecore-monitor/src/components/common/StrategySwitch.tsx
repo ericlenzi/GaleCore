@@ -1,55 +1,36 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
+import { useStrategySwitchStore, useSwitchEntry } from '../../store/useStrategySwitchStore';
 import { tint } from '../../utils/formatters';
 
 interface Props {
-  /** Estado actual. null = todavía no se leyó del backend (el switch queda inerte). */
-  enabled: boolean | null;
-  /** Lee el estado del backend al montar. */
-  fetchState: () => Promise<{ enabled: boolean }>;
-  /** Persiste el cambio en el backend. */
-  setState: (enabled: boolean) => Promise<{ enabled: boolean }>;
-  onChange: (enabled: boolean) => void;
+  /** `switch_endpoint` de la estrategia. Es la identidad: dos switches con el mismo endpoint son
+   *  el mismo switch, aunque estén en pantallas distintas. */
+  endpoint: string;
   title?: string;
 }
 
 /**
  * Switch de una estrategia (regla de CLAUDE.md: todo lo que corra solo se tiene que poder cortar en
  * el acto desde el front). El estado vive en el backend y persiste a disco, así que el botón no es
- * el dueño de la verdad: la lee al montar y la reescribe al togglear.
+ * el dueño de la verdad: lo lee al montar y lo reescribe al togglear.
+ *
+ * El componente NO guarda estado propio. Hasta 2026-08-11 recibía `enabled`/`onChange` por props, y
+ * cada pantalla traía su propia copia: la card de Main y la pestaña de la estrategia mostraban
+ * cosas distintas del mismo switch. Ahora todos leen `useStrategySwitchStore` por endpoint, así que
+ * apagar desde cualquier lado se ve en todos lados en el acto.
  *
  * Se llamaba WorkersSwitch y decía "WORKERS ON/OFF" hasta 2026-08-10. El nombre describía la
  * implementación —un BackgroundService que en GEX ni siquiera existe— y no lo que el operador hace
  * con él: apagar la estrategia ENTERA (loop, sockets, refresh y tablero). La etiqueta quedó en solo
  * ON/OFF: qué se apaga lo dice el contexto donde vive el switch.
  */
-export function StrategySwitch({ enabled, fetchState, setState, onChange, title }: Props) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
+export function StrategySwitch({ endpoint, title }: Props) {
+  const { enabled, busy, error } = useSwitchEntry(endpoint);
+  const read = useStrategySwitchStore((s) => s.read);
+  const toggle = useStrategySwitchStore((s) => s.toggle);
 
-  const read = useCallback(() => {
-    setBusy(true);
-    fetchState()
-      .then((s) => { onChange(s.enabled); setError(false); })
-      .catch(() => setError(true))
-      .finally(() => setBusy(false));
-  }, [fetchState, onChange]);
-
-  useEffect(() => { read(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Un fallo NO deja el switch muerto. Antes `error` era un latch: se pintaba deshabilitado y
-  // como estaba deshabilitado nunca se podia reintentar, asi que un POST que fallaba una vez
-  // (p. ej. el broadcast del backend colgado) mataba el kill switch hasta recargar la pagina.
-  // Ahora, con el estado desconocido el click reintenta leerlo; con estado conocido, togglea.
-  const click = useCallback(() => {
-    if (busy) return;
-    if (enabled == null) { read(); return; }
-    const next = !enabled;
-    setBusy(true);
-    setState(next)
-      .then((s) => { onChange(s.enabled); setError(false); })
-      .catch(() => setError(true))
-      .finally(() => setBusy(false));
-  }, [enabled, busy, setState, onChange, read]);
+  // El store deduplica: que la card de Main y la pestaña monten a la vez no dispara dos GET.
+  useEffect(() => { read(endpoint); }, [endpoint, read]);
 
   const unknown = enabled == null;
   const color = error ? 'var(--yellow-gc)'
@@ -58,7 +39,7 @@ export function StrategySwitch({ enabled, fetchState, setState, onChange, title 
 
   return (
     <button
-      onClick={click}
+      onClick={() => toggle(endpoint)}
       disabled={busy}
       title={error
         ? 'El backend no respondio. El estado que se muestra puede no ser el vigente — clickeá para reintentar.'

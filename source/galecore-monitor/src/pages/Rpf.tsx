@@ -1,10 +1,12 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   WifiOff, Check, X, Circle, AlertTriangle, Clock, ChevronDown, RefreshCw,
   Moon, Target, Zap, Ban, Hourglass, Layers, Briefcase, BookOpen, LucideIcon,
 } from 'lucide-react';
 import { useRpfStore } from '../store/useRpfStore';
 import { useMarketStore } from '../store/useMarketStore';
+import { useSwitchEndpoint } from '../store/useAppConfigStore';
+import { useSwitchEnabled } from '../store/useStrategySwitchStore';
 import { RpfStateBadge } from '../components/rpf/RpfStateBadge';
 import { RpfSuggestionCard } from '../components/rpf/RpfSuggestionCard';
 import { ReferencesModal } from '../components/common/ReferencesModal';
@@ -14,7 +16,7 @@ import { getStrategyReference } from '../components/strategy/strategyReferences'
 import { RpfStateUpdate, RpfCheck, RpfCandidate, RpfStateName } from '../types/rpf';
 import { ConnectionStatus } from '../socket/useMarketSocket';
 import { LegMeta } from '../types/api';
-import { fetchRpfSwitch, setRpfSwitch } from '../api/rpf';
+import { RPF_SWITCH_ENDPOINT } from '../api/rpf';
 import { tint, fmtPrice, fmtOI, fmtExpiry, fmtTime } from '../utils/formatters';
 
 const RPF_REF = getStrategyReference('rpf');
@@ -502,30 +504,6 @@ function SymbolPanel({ symbol, st, suggestion, onAccept, onDismiss, subscribeLeg
   );
 }
 
-/**
- * Switch de RPF. Delega en el componente compartido en vez de reimplementarlo: hasta 2026-08-10 esta
- * pantalla tenía su propia copia del botón, con su propio "WORKERS ON/OFF" hardcodeado y su propio
- * manejo de error — que ya había divergido del compartido (el compartido reintenta cuando el estado
- * es desconocido; esta copia se quedaba muerta).
- *
- * Lo único propio de RPF es de dónde sale el estado: llega también por SignalR (ReceiveRpfSwitch),
- * así que vive en el store y no en el componente.
- */
-function RpfSwitch() {
-  const enabled = useRpfStore((s) => s.switchEnabled);
-  const setStrategySwitch = useRpfStore((s) => s.setStrategySwitch);
-
-  return (
-    <StrategySwitch
-      enabled={enabled}
-      fetchState={fetchRpfSwitch}
-      setState={setRpfSwitch}
-      onChange={setStrategySwitch}
-      title="Prender / apagar la estrategia RPF. En OFF el loop no corre y el tablero se vacía."
-    />
-  );
-}
-
 // Sin estado nuevo por más de este tiempo, el loop se considera caído.
 //
 // OJO con el cálculo: la cadencia de emisión NO es tier_b_tick_seconds. Ese valor es la espera
@@ -540,7 +518,18 @@ function RpfSwitch() {
 const STALE_MS = 150_000;
 
 export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubscribeLeg, socketStatus }: Props) {
-  const { states, suggestions, switchEnabled } = useRpfStore();
+  const { states, suggestions, clear } = useRpfStore();
+
+  // El switch es el mismo que muestra la card de RPF en Main: mismo endpoint, mismo store. Su
+  // estado también llega por SignalR (ReceiveRpfSwitch), que escribe en ese mismo lugar.
+  const switchEndpoint = useSwitchEndpoint('rpf', RPF_SWITCH_ENDPOINT);
+  const switchEnabled = useSwitchEnabled(switchEndpoint);
+
+  // Apagar deja el tablero como recién abierto. Con el loop inerte nadie actualiza el estado, y
+  // dejarlo en pantalla haría pasar datos congelados por vigentes cuando la estrategia se vuelva a
+  // prender. Vive acá y no en el store del switch: quién tiene que limpiar qué es asunto de cada
+  // estrategia, y el store compartido no sabe de ninguna.
+  useEffect(() => { if (switchEnabled === false) clear(); }, [switchEnabled, clear]);
 
   // Reloj propio: sin esto el semáforo solo se recalcularía cuando llega un evento, que es
   // justamente lo que deja de pasar cuando el loop se cae.
@@ -587,7 +576,10 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
           >
             <BookOpen size={12} /> References
           </button>
-          <RpfSwitch />
+          <StrategySwitch
+            endpoint={switchEndpoint}
+            title="Prender / apagar la estrategia RPF. En OFF el loop no corre y el tablero se vacía."
+          />
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace',
             color: loopOnline ? 'var(--green)' : 'var(--text-muted)' }}>
             <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: loopOnline ? 'var(--green)' : 'var(--text-muted)' }} />

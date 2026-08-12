@@ -235,6 +235,16 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   `switch_endpoint` que la estrategia declara. Por eso el contrato tiene que ser uniforme:
   `GET <switch_endpoint>` → `{ enabled, source }` y `POST <switch_endpoint>` con `{ enabled }`.
 
+  **En el front el estado del switch tiene un solo dueño: `useStrategySwitchStore`,** indexado por
+  `switch_endpoint`. La card de Main, la pantalla de la estrategia y el evento `ReceiveRpfSwitch`
+  del hub leen y escriben ahí, así que apagar desde cualquier lado se ve en todos lados en el acto.
+  Ninguna estrategia guarda su switch en su propio store. Hasta 2026-08-11 había tres copias que no
+  se avisaban entre sí (el `useState` de `StrategyCard` + `switchEnabled` en `useGexStore` y en
+  `useRpfStore`) y, como Main nunca se desmonta, su card mostraba el estado del arranque de la app
+  hasta recargar la página. El endpoint lo resuelve `useSwitchEndpoint(id, fallback)` desde
+  `strategies[]`: si la pantalla lo hardcodeara podría apuntar a otro endpoint que su card, que es
+  la misma duplicación otra vez.
+
   **Dónde vive el estado (regla, no detalle de una estrategia):** en
   `Files/<Prefijo>/<prefijo>_switch_state.json`, **nunca** dentro del JSON de reglas. El JSON de reglas
   es fuente de verdad y se edita deliberadamente, no en runtime; el archivo de estado es un **override**
@@ -415,8 +425,8 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   ├── rules.ts            # fetchAppConfig() (/App/GaleCore/Rules/Core) + fetchRpfRulesRaw()
   │   ├── strategies.ts       # fetchStrategySwitch(endpoint) / setStrategySwitch(endpoint, enabled) — genéricos por endpoint
   │   ├── analytics.ts        # /App.Analytics/* (GammaExposure, IVRank, ImpliedVolatility)
-  │   ├── gex.ts              # /App/Gex/{Rules,Analysis,Switch}
-  │   ├── rpf.ts              # /App/Rpf/Switch
+  │   ├── gex.ts              # /App/Gex/{Rules,Analysis} + GEX_SWITCH_ENDPOINT
+  │   ├── rpf.ts              # RPF_SWITCH_ENDPOINT (el switch se llama por `strategies.ts`, no acá)
   │   ├── marketdata.ts       # /Data/Tastytrade/MarketData/*
   │   └── account.ts          # /Data/Account/*
   ├── socket/
@@ -427,6 +437,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   ├── useAppConfigStore.ts # Config de la app: universe.tickers, strategies[], monitor. Fuente: /App/GaleCore/Rules/Core
   │   ├── useGexStore.ts      # Estrategia GEX: reglas propias (/App/Gex/Rules) + cache de /App/Gex/Analysis por símbolo + vencimiento seleccionado
   │   ├── useRpfStore.ts      # Estrategia RPF: estados por símbolo + sugerencias (SignalR)
+  │   ├── useStrategySwitchStore.ts # Dueño ÚNICO del estado de los switches, indexado por switch_endpoint
   │   └── useFlowStore.ts     # Snapshots de flow de opciones (ReceiveFlow → FlowPayload)
   ├── components/
   │   ├── layout/

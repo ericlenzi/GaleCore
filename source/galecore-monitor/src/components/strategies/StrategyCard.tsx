@@ -1,10 +1,9 @@
-import React, { useCallback, useState } from 'react';
+import React, { useState } from 'react';
 import { BookOpen } from 'lucide-react';
 import { StrategySwitch } from '../common/StrategySwitch';
 import { ReferencesModal } from '../common/ReferencesModal';
 import { getStrategyReference } from '../strategy/strategyReferences';
 import { StrategyEntry } from '../../types/api';
-import { fetchStrategySwitch, setStrategySwitch } from '../../api/strategies';
 import { tint } from '../../utils/formatters';
 
 interface Props {
@@ -26,20 +25,16 @@ const KIND_COLOR: Record<string, string> = {
  * El estado que reporta es el del switch de la estrategia, que es lo único que la plataforma sabe de
  * una estrategia sin conocer su lógica interna: si sus procesos están prendidos o apagados.
  * El switch escribe en el backend de la propia estrategia (`switch_endpoint` del config), así
- * que apagar desde acá corta lo mismo que apagar desde su pestaña.
+ * que apagar desde acá corta lo mismo que apagar desde su pestaña — y como el estado es compartido
+ * (`useStrategySwitchStore`, indexado por ese mismo endpoint), apagar desde la pestaña se ve acá
+ * en el acto. Antes esta card tenía su propio `useState`, leído una sola vez al montar; como Main
+ * nunca se desmonta, mostraba el estado del arranque hasta recargar la página.
  */
 export function StrategyCard({ strategy, onOpen }: Props) {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
   const [refOpen, setRefOpen] = useState(false);
   const [hover, setHover] = useState(false);
   const accent = KIND_COLOR[strategy.kind ?? ''] ?? 'var(--text-muted)';
   const ref = getStrategyReference(strategy.id);
-
-  const read = useCallback(() => fetchStrategySwitch(strategy.switch_endpoint), [strategy.switch_endpoint]);
-  const write = useCallback(
-    (next: boolean) => setStrategySwitch(strategy.switch_endpoint, next),
-    [strategy.switch_endpoint],
-  );
 
   // Evita que un click en un control interno navegue a la pestaña.
   const stop = (e: React.MouseEvent) => e.stopPropagation();
@@ -113,10 +108,7 @@ export function StrategyCard({ strategy, onOpen }: Props) {
         )}
         <span onClick={stop} style={{ display: 'inline-flex', marginLeft: 'auto' }}>
           <StrategySwitch
-            enabled={enabled}
-            fetchState={read}
-            setState={write}
-            onChange={setEnabled}
+            endpoint={strategy.switch_endpoint}
             title={`Prender / apagar la estrategia ${strategy.label}`}
           />
         </span>

@@ -35,3 +35,13 @@ export const useAppConfigStore = create<AppConfigStore>((set) => ({
   setLoading: (v) => set({ loading: v }),
   setError: (e) => set({ error: e }),
 }));
+
+/**
+ * `switch_endpoint` que declara una estrategia en el config. La pantalla de la estrategia lo
+ * resuelve por acá y no con una constante propia: si la hardcodeara, la card de Main (que sí lee
+ * el config) y su pestaña podrían terminar apuntando a endpoints distintos — o sea, dos switches
+ * en vez de uno, que es justo lo que este store compartido vino a arreglar.
+ * `fallback` cubre el arranque, cuando el config todavía no llegó.
+ */
+export const useSwitchEndpoint = (id: string, fallback: string): string =>
+  useAppConfigStore((s) => s.strategies.find((x) => x.id === id)?.switch_endpoint ?? fallback);

@@ -22,9 +22,8 @@ interface GexStore {
   /** Vencimiento elegido por símbolo. null = todavía no eligió → manda el más cercano (0DTE). */
   selectedExpiry: Record<string, string | null>;
 
-  /** Switch de la estrategia. null = todavía no se leyó del backend. */
-  switchEnabled: boolean | null;
-  setStrategySwitch: (enabled: boolean) => void;
+  // El switch de la estrategia NO vive acá: es el mismo hecho que muestra la card de Main, así que
+  // su dueño en el front es `useStrategySwitchStore`, indexado por switch_endpoint.
 
   loadRules: () => Promise<void>;
   fetchGex: (symbol: string, refresh?: boolean) => Promise<void>;
@@ -42,9 +41,6 @@ export const useGexStore = create<GexStore>((set, get) => ({
   loading: {},
   error: {},
   selectedExpiry: {},
-  switchEnabled: null,
-
-  setStrategySwitch: (enabled) => set({ switchEnabled: enabled }),
 
   loadRules: async () => {
     set({ rulesLoading: true, rulesError: null });

@@ -6,22 +6,21 @@ interface RpfStore {
   states: Record<string, RpfStateUpdate>;
   /** Sugerencia vigente por símbolo (ReceiveTradeSuggestion); null si no hay/expiró. */
   suggestions: Record<string, TradeSuggestion | null>;
-  /** Switch de la estrategia: null mientras no se leyó el estado desde /App/Rpf/Switch. */
-  switchEnabled: boolean | null;
+
+  // El switch de la estrategia NO vive acá: es el mismo hecho que muestra la card de Main, así que
+  // su dueño en el front es `useStrategySwitchStore`, indexado por switch_endpoint.
 
   applyState: (symbol: string, update: RpfStateUpdate) => void;
   applySuggestion: (symbol: string, suggestion: TradeSuggestion) => void;
   clearSuggestion: (symbol: string) => void;
-  /** Estado del switch (fetch inicial o evento ReceiveRpfSwitch). Al apagar vuelve al estado inicial. */
-  setStrategySwitch: (enabled: boolean) => void;
-  reset: () => void;
+  /** Vacía el tablero. Lo llama la pantalla cuando la estrategia pasa a OFF. */
+  clear: () => void;
 }
 
 const EMPTY = { states: {}, suggestions: {} };
 
 export const useRpfStore = create<RpfStore>((set) => ({
   ...EMPTY,
-  switchEnabled: null,
 
   applyState: (symbol, update) =>
     set((s) => {
@@ -41,8 +40,5 @@ export const useRpfStore = create<RpfStore>((set) => ({
 
   // Apagar la estrategia deja el tablero como recién abierto: con el loop inerte nadie actualiza el
   // estado, y dejarlo en pantalla haría pasar datos congelados por vigentes.
-  setStrategySwitch: (enabled) =>
-    set(() => (enabled ? { switchEnabled: true } : { switchEnabled: false, ...EMPTY })),
-
-  reset: () => set({ ...EMPTY, switchEnabled: null }),
+  clear: () => set({ ...EMPTY }),
 }));

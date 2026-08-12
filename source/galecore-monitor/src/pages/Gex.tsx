@@ -10,10 +10,11 @@ import { StrategySwitch } from '../components/common/StrategySwitch';
 import { StrategyOffPanel } from '../components/common/StrategyOffPanel';
 import { ReferencesModal } from '../components/common/ReferencesModal';
 import { getStrategyReference } from '../components/strategy/strategyReferences';
-import { fetchGexSwitch, setGexSwitch } from '../api/gex';
+import { GEX_SWITCH_ENDPOINT } from '../api/gex';
 import { useGexStore } from '../store/useGexStore';
 import { useMarketStore } from '../store/useMarketStore';
-import { useAppConfigStore } from '../store/useAppConfigStore';
+import { useAppConfigStore, useSwitchEndpoint } from '../store/useAppConfigStore';
+import { useSwitchEnabled } from '../store/useStrategySwitchStore';
 import { ConnectionStatus } from '../socket/useMarketSocket';
 import { GexAnalysisResponse, GexChartData, GexExpiryApi } from '../types/gex';
 import { ValidationLayerApiResponse } from '../types/api';
@@ -86,10 +87,13 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
   const {
     tickers, display, rulesLoading, rulesError, loadRules,
     cache, loading, error, selectedExpiry, fetchGex, selectExpiry,
-    switchEnabled, setStrategySwitch,
   } = useGexStore();
 
   const platformTickers = useAppConfigStore((s) => s.tickers);
+
+  // El switch es el mismo que muestra la card de GEX en Main: mismo endpoint, mismo store.
+  const switchEndpoint = useSwitchEndpoint('gex', GEX_SWITCH_ENDPOINT);
+  const switchEnabled = useSwitchEnabled(switchEndpoint);
 
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [refOpen, setRefOpen] = useState(false);
@@ -194,10 +198,7 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
             <BookOpen size={12} /> References
           </button>
           <StrategySwitch
-            enabled={switchEnabled}
-            fetchState={fetchGexSwitch}
-            setState={setGexSwitch}
-            onChange={setStrategySwitch}
+            endpoint={switchEndpoint}
             title="Prender / apagar el barrido de la cadena. En OFF no se toca DXLink."
           />
         </span>
