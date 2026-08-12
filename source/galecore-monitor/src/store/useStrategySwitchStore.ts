@@ -8,8 +8,9 @@ import { fetchStrategySwitch, setStrategySwitch } from '../api/strategies';
  */
 export interface SwitchEntry {
   enabled: boolean | null;
-  /** Quién manda según el backend: el override del operador o el JSON de reglas de la estrategia. */
-  source: 'override' | 'rules' | null;
+  /** Qué nivel decidió el `enabled` según el backend: la preferencia de este usuario, el kill
+   *  switch de plataforma o el JSON de reglas de la estrategia. Ver StrategySwitchState. */
+  source: 'user' | 'platform' | 'rules' | null;
   /** Hay una lectura o una escritura en vuelo contra el backend. */
   busy: boolean;
   /** La última llamada falló: lo que se muestra puede no ser lo vigente. */

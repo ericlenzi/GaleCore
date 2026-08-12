@@ -47,9 +47,16 @@ namespace DataFeed.Api.Infrastructure
             await _hubContext.Clients.Group("rpf").SendAsync("ReceiveTradeSuggestion", symbol, suggestion);
         }
 
-        public async Task BroadcastRpfSwitchAsync(bool enabled)
+        public async Task BroadcastRpfSwitchAsync(bool enabled, string? userId)
         {
-            await _hubContext.Clients.Group("rpf").SendAsync("ReceiveRpfSwitch", enabled);
+            // Clients.User resuelve la identidad con SubUserIdProvider (el claim `sub`). Un uuid que
+            // no tenga conexiones abiertas simplemente no recibe nada, que es lo correcto: el
+            // tablero lo va a ver en su próximo GET.
+            var target = userId == null
+                ? _hubContext.Clients.Group("rpf")
+                : _hubContext.Clients.User(userId);
+
+            await target.SendAsync("ReceiveRpfSwitch", enabled);
         }
     }
 }

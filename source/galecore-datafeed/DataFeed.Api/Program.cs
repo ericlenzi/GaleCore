@@ -185,6 +185,13 @@ namespace DataFeed
             });
 
             // SignalR
+            //
+            // El provider de identidad es propio porque el switch de estrategia tiene un nivel por
+            // usuario: al apagarla, el aviso va a los tableros de ESE usuario y no al grupo entero.
+            // El de fábrica busca ClaimTypes.NameIdentifier, que acá no existe (MapInboundClaims
+            // está en false y el uuid llega en `sub`). Ver SubUserIdProvider.
+            builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, SubUserIdProvider>();
+
             builder.Services.AddSignalR()
                 .AddNewtonsoftJsonProtocol(options =>
                 {
@@ -211,6 +218,12 @@ namespace DataFeed
             // GEX no tiene BackgroundService: su switch corta el barrido de la cadena, que es lo
             // único que esa estrategia corre por su cuenta (y lo que compite por el feed DXLink).
             builder.Services.AddSingleton<GexStrategySwitch>();
+
+            // El nivel por USUARIO de esos switches (tabla user_strategies). Se registra siempre,
+            // incluso sin base: adentro resuelve el DbContext por scope y, si no está registrado,
+            // el nivel de usuario no existe y manda el archivo de plataforma — que es como se
+            // comportaba el switch antes de tener dos niveles.
+            builder.Services.AddSingleton<UserStrategySwitchStore>();
 
             // MCP Server
             builder.Services

@@ -31,9 +31,15 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         Task BroadcastTradeSuggestionAsync(string symbol, object suggestion);
 
         /// <summary>
-        /// Emite ReceiveRpfSwitch al grupo "rpf" cuando el operador toca el switch de la estrategia.
-        /// Al apagar, el tablero vuelve al estado inicial en el acto en vez de esperar el staleness.
+        /// Emite ReceiveRpfSwitch cuando alguien toca el switch de la estrategia. Al apagar, el
+        /// tablero vuelve al estado inicial en el acto en vez de esperar el staleness.
         /// </summary>
-        Task BroadcastRpfSwitchAsync(bool enabled);
+        /// <param name="userId">
+        /// A quién avisarle. Con un uuid, solo a los tableros de ESE usuario: el switch tiene un
+        /// nivel por usuario, y avisarle al resto les mostraría un OFF que no es el de ellos. Con
+        /// null, a todos — es el kill switch de plataforma, que sí apaga la estrategia para todo el
+        /// mundo.
+        /// </param>
+        Task BroadcastRpfSwitchAsync(bool enabled, string? userId);
     }
 }

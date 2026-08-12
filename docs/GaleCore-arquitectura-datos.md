@@ -326,6 +326,25 @@ Costó descubrirlo, así que queda escrito:
 * **El estado NO se migra** (§5). Los `*_switch_state.json` y `skew25_history.json` se quedan como
   archivos.
 
+### Tomadas (2026-08-12) — el switch, precisado
+
+Esta decisión y la de §5.3 ("van a la base … el estado por usuario de cada estrategia") parecían
+contradecirse. No se contradicen: **son dos cosas distintas con el mismo nombre**, y separarlas fue
+el trabajo del switch de dos niveles.
+
+* **El kill switch se queda en el archivo.** Es el de plataforma: corta feed y emisión para todos,
+  y por eso no puede depender de que la base responda (§5). Se toca por
+  `POST <switch_endpoint>/Platform` y **solo lo pueden tocar los admin** (`users.is_admin`) — hasta
+  hoy cualquier usuario autenticado apagaba la estrategia de todos, que era el agujero real.
+* **La preferencia por usuario va a la base** (`user_strategies`), que es lo que §5.3 quería decir:
+  eso es dominio —quién es quién—, no estado de runtime. Es lo que escribe el `POST` del tablero.
+* **El efectivo se resuelve con `StrategyEnablement.Resolve`** (función pura, con test): la
+  plataforma gana cuando apaga; el nivel ausente hereda del de arriba.
+* **Un proceso compartido corre si le sirve a alguien.** El loop de RPF es uno solo, así que tickea
+  mientras la plataforma esté en ON y quede al menos un usuario que no la haya apagado.
+* **Sin base, el nivel de usuario no existe** y el `POST` escribe el de plataforma: la API sigue
+  levantando y sirviendo el feed sin base, que es una propiedad deliberada de `Program.cs`.
+
 ### Pendientes
 
 1. ¿Se adopta la inversión del flujo (§4)? El plan la pone después de la base, porque no es urgente.

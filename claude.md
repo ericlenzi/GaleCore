@@ -234,6 +234,8 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   `strategies[]` del config de la app; cada card monta el mismo `StrategySwitch` apuntando al
   `switch_endpoint` que la estrategia declara. Por eso el contrato tiene que ser uniforme:
   `GET <switch_endpoint>` → `{ enabled, source }` y `POST <switch_endpoint>` con `{ enabled }`.
+  El `GET` agrega `platform` y `user` para diagnóstico (qué dice cada nivel), y el `POST` un `scope`
+  con el nivel que terminó escribiendo; el front consume solo `enabled` y `source`.
 
   **En el front el estado del switch tiene un solo dueño: `useStrategySwitchStore`,** indexado por
   `switch_endpoint`. La card de Main, la pantalla de la estrategia y el evento `ReceiveRpfSwitch`
@@ -245,12 +247,36 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   `strategies[]`: si la pantalla lo hardcodeara podría apuntar a otro endpoint que su card, que es
   la misma duplicación otra vez.
 
-  **Dónde vive el estado (regla, no detalle de una estrategia):** en
-  `Files/<Prefijo>/<prefijo>_switch_state.json`, **nunca** dentro del JSON de reglas. El JSON de reglas
-  es fuente de verdad y se edita deliberadamente, no en runtime; el archivo de estado es un **override**
-  y si no existe manda lo que declara el JSON (por eso `source` vale `"override"` o `"rules"`). Persiste
-  a disco a propósito — un kill switch que vuelve solo a ON después de un restart es un agujero de
-  seguridad. Está gitignoreado: un deploy pisaría el switch del operador.
+  **El switch tiene TRES niveles, no uno** (desde 2026-08-12, multi-usuario). Cada uno pisa al de
+  arriba, y el nivel ausente hereda — nunca prende por su cuenta:
+
+  | Nivel | Dónde vive | Quién lo toca | `source` |
+  |---|---|---|---|
+  | reglas | `galecore_rules_<prefijo>.json` (en git) | se edita y se commitea | `"rules"` |
+  | plataforma | `Files/<Prefijo>/<prefijo>_switch_state.json` | `POST <switch_endpoint>/Platform`, solo admin | `"platform"` |
+  | usuario | tabla `user_strategies` | `POST <switch_endpoint>`, el tablero de cada uno | `"user"` |
+
+  **La plataforma gana cuando apaga.** Es el kill switch: corta el consumo de feed y la emisión para
+  todos, y un usuario no puede prenderla desde su tablero. El nivel de usuario solo decide si la
+  estrategia trabaja **para él**. La tabla de verdad es
+  `App/Shared/StrategyEnablement.Resolve(rules, platform, user)` — función pura, congelada por
+  `StrategyEnablementTests.cs`.
+
+  **Por qué cada nivel está donde está.** El JSON de reglas es fuente de verdad y se edita
+  deliberadamente, no en runtime. El kill switch se queda en un **archivo** y no en la base
+  (`docs/GaleCore-arquitectura-datos.md` §5): persiste a disco a propósito —uno que vuelve solo a ON
+  tras un restart es un agujero— y una base caída no puede volver a prender lo que se apagó a
+  propósito. La preferencia por usuario **sí** va a la base, porque es dominio (quién es quién), no
+  estado de runtime. Los archivos están gitignoreados: un deploy pisaría el switch del operador.
+
+  **Un proceso compartido corre si le sirve a alguien.** El loop de RPF es uno solo para toda la
+  plataforma, así que la pregunta que decide si tickea no es "¿la tiene prendida tal usuario?" sino
+  "¿queda alguno que no la haya apagado?" (`UserStrategySwitchStore.AnyUserEnabledAsync`). Si no la
+  mira nadie, no hay para quién gastar feed.
+
+  **Sin base configurada no existe el nivel de usuario**, y eso no es un error: la API arranca sin
+  base a propósito (`Program.cs`). Ahí el `POST` escribe el nivel de plataforma y todo se comporta
+  como antes de que el switch tuviera niveles.
 
   **En OFF, la estrategia no hace nada Y su pantalla se reduce al encabezado más un cartel.** No
   alcanza con frenar el proceso: hay que limpiar el estado publicado, o un tablero que se conecte

@@ -30,10 +30,15 @@ namespace DataFeed.Api.Infrastructure
         private readonly IMarketDataBroadcaster _broadcaster;
         private readonly RpfStateStore _store;
         private readonly RpfStrategySwitch _strategySwitch;
+        private readonly UserStrategySwitchStore _userSwitches;
         private readonly ILogger<RpfLoopService> _logger;
 
         // Archivos propios de RPF bajo Files/Rpf/ (regla "archivos por estrategia" de CLAUDE.md).
         private const string RulesFile = "Rpf/galecore_rules_rpf.json";
+
+        // En minúscula: es la clave de `strategies.id` y de `user_strategies.strategy_id`.
+        private const string StrategyId = "rpf";
+
         private bool _inertLogged;
 
         public RpfLoopService(
@@ -42,6 +47,7 @@ namespace DataFeed.Api.Infrastructure
             IMarketDataBroadcaster broadcaster,
             RpfStateStore store,
             RpfStrategySwitch strategySwitch,
+            UserStrategySwitchStore userSwitches,
             ILogger<RpfLoopService> logger)
         {
             _scopeFactory = scopeFactory;
@@ -49,6 +55,7 @@ namespace DataFeed.Api.Infrastructure
             _broadcaster = broadcaster;
             _store = store;
             _strategySwitch = strategySwitch;
+            _userSwitches = userSwitches;
             _logger = logger;
         }
 
@@ -66,7 +73,15 @@ namespace DataFeed.Api.Infrastructure
                     var cfg = LoadConfig();
                     tickBSeconds = cfg.TickBSeconds;
 
-                    if (!cfg.Enabled)
+                    // El switch tiene dos niveles y el loop es UNO solo para toda la plataforma, así
+                    // que la pregunta que decide si corre no es "¿la tiene prendida tal usuario?"
+                    // sino "¿le sirve a alguien?": corre mientras la plataforma esté en ON y quede
+                    // al menos un usuario que no la haya apagado. Si no la mira nadie, no hay para
+                    // quién gastar feed. Ver StrategyEnablement.
+                    bool anyUser = cfg.Enabled
+                        && await _userSwitches.AnyUserEnabledAsync(StrategyId, stoppingToken);
+
+                    if (!anyUser)
                     {
                         if (!_inertLogged)
                         {
@@ -74,7 +89,11 @@ namespace DataFeed.Api.Infrastructure
                             // nadie lo actualiza. Cubre también el apagado por fuera del switch (edición
                             // directa del archivo de estado o del JSON de reglas).
                             _store.Clear();
-                            _logger.LogInformation("RpfLoopService INERTE: switch en OFF — no se corre la cascada ni se emite.");
+                            _logger.LogInformation(
+                                "RpfLoopService INERTE: {Motivo} — no se corre la cascada ni se emite.",
+                                cfg.Enabled
+                                    ? "ningún usuario tiene la estrategia prendida"
+                                    : "switch de plataforma en OFF");
                             _inertLogged = true;
                         }
                     }

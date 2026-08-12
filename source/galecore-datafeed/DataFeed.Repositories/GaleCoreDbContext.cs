@@ -11,7 +11,10 @@ namespace DataFeed.Repositories
     ///     siguen en git: se editan deliberadamente, se versionan y se revisan en un PR.
     ///   * El estado de runtime (*_switch_state.json, skew25_history.json) sigue en archivos: son
     ///     ~3 KB, ya sobreviven a un reinicio, y una base le agregaría a un kill switch el modo de
-    ///     falla "¿y si no responde?".
+    ///     falla "¿y si no responde?". OJO con el matiz del switch: el archivo es el nivel de
+    ///     PLATAFORMA (el kill switch, que apaga para todos y por eso no depende de la base); la
+    ///     preferencia POR USUARIO sí vive acá, en <see cref="UserStrategies"/>, porque eso es
+    ///     dominio y no runtime. La resolución entre los dos es StrategyEnablement.Resolve.
     ///   * Los datos de mercado NO se publican por acá. El camino caliente es en memoria.
     /// Ver docs/GaleCore-arquitectura-datos.md §5.
     ///
