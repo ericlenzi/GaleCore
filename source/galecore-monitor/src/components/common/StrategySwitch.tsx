@@ -11,8 +11,10 @@ interface Props {
 
 /**
  * Switch de una estrategia (regla de CLAUDE.md: todo lo que corra solo se tiene que poder cortar en
- * el acto desde el front). El estado vive en el backend y persiste a disco, así que el botón no es
- * el dueño de la verdad: lo lee al montar y lo reescribe al togglear.
+ * el acto desde el front). El estado vive en el backend y persiste, así que el botón no es el dueño
+ * de la verdad: lo lee al montar y lo reescribe al togglear. Lo que escribe es la preferencia DEL
+ * USUARIO logueado (tabla user_strategies); el kill switch que apaga la estrategia para todos es
+ * otro endpoint (`<switch_endpoint>/Platform`, solo admins) y no se toca desde acá.
  *
  * El componente NO guarda estado propio. Hasta 2026-08-11 recibía `enabled`/`onChange` por props, y
  * cada pantalla traía su propia copia: la card de Main y la pestaña de la estrategia mostraban

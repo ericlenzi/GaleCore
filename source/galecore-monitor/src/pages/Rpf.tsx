@@ -604,7 +604,7 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
           estado invitaría a leerlos como vigentes. Cortar acá desmonta también CandidateCard, que
           es quien suscribe los legs del candidato al hub. */}
       {switchOff ? (
-        <StrategyOffPanel detail="El loop no corre, no se suscribe nada al hub y no se emite estado. El backend confirma el corte dentro de un tick y lo persiste a disco, asi que un reinicio no la vuelve a prender sola." />
+        <StrategyOffPanel detail="Apagada para vos: no ves estado ni sugerencias. El backend lo confirma dentro de un tick y lo persiste, asi que un reinicio no la vuelve a prender sola. El loop sigue corriendo si otro operador la tiene prendida; el que la corta para todos es el switch de plataforma." />
       ) : (
       <>
       {/* Motor: nodo raíz del flujo de orquestación */}
