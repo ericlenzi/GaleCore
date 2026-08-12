@@ -37,6 +37,11 @@ namespace DataFeed.Api.Infrastructure
 
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (TastytradeCredential Credential, DateTime At)> _cache = new();
 
+        /// <summary>
+        /// Última fuente+cuenta de sistema que se logueó en Information. Ver <see cref="LogSystemResolved"/>.
+        /// </summary>
+        private string? _lastSystemLogged;
+
         private readonly IServiceProvider _services;
         private readonly IConfiguration _config;
         private readonly ITokenProtector _protector;
@@ -61,8 +66,33 @@ namespace DataFeed.Api.Infrastructure
             var fromDb = await QueryAsync(q => q.Where(a => a.IsSystem), ct);
             var resolved = fromDb ?? FromConfig();
 
+            LogSystemResolved(resolved);
+
             _cache["system"] = (resolved, DateTime.UtcNow);
             return resolved;
+        }
+
+        /// <summary>
+        /// Deja escrito de dónde salió la credencial de sistema. Sin esto, la única forma de saberlo
+        /// era leer el SQL que EF loguea en Development y comprobar que no hubiera warning de
+        /// fallback: que los datos de mercado lleguen NO distingue una fuente de la otra, porque con
+        /// el refresh token de appsettings cargado las dos funcionan igual.
+        ///
+        /// El cache vence cada minuto, así que esto se re-resuelve todo el tiempo: en Information
+        /// sale el primer resultado y cualquier CAMBIO de fuente o de cuenta —que es lo que importa
+        /// mirar— y el resto va a Debug, para no dejar una línea por minuto diciendo siempre lo mismo.
+        /// </summary>
+        private void LogSystemResolved(TastytradeCredential credential)
+        {
+            var key = $"{credential.Source}:{credential.Id}";
+            var changed = Interlocked.Exchange(ref _lastSystemLogged, key) != key;
+
+            _logger.Log(
+                changed ? LogLevel.Information : LogLevel.Debug,
+                "Credencial de sistema resuelta desde {Source} (id {Id}, cuenta {AccountNumber}).",
+                credential.Source,
+                credential.Id,
+                credential.AccountNumber ?? "sin número");
         }
 
         public async Task<TastytradeCredential?> GetForUserAsync(Guid userId, CancellationToken ct = default)
