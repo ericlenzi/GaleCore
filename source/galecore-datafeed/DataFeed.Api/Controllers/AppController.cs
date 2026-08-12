@@ -161,6 +161,33 @@ namespace DataFeed.Controllers
         }
 
         /// <summary>
+        /// Respuesta para los endpoints que necesitan la base cuando la API está corriendo sin ella.
+        ///
+        /// La base es OPCIONAL a propósito (`Program.cs`): sin cadena configurada la API igual
+        /// levanta y sirve mercado, GEX, RPF y el hub, porque nada de eso depende de la base. El
+        /// costo era que estos endpoints estallaban con un 500 y un stack trace de DI —el cliente
+        /// leía "error del servidor" cuando en realidad falta un secreto de configuración—. 503 dice
+        /// la verdad: la función no está disponible en este entorno, y el mensaje dice por qué.
+        ///
+        /// Se resuelve el DbContext por IServiceProvider y no con [FromServices] porque el binder
+        /// pide el servicio como requerido: si no está registrado, tira antes de entrar al método y
+        /// no hay forma de contestar nada.
+        /// </summary>
+        private IActionResult DatabaseNotConfigured()
+        {
+            _logger.LogWarning(
+                "Se pidió un endpoint que necesita la base, pero la API está corriendo sin ella " +
+                "(falta ConnectionStrings:GaleCore).");
+
+            return StatusCode(503, new
+            {
+                error = "Esta API está corriendo sin base de datos configurada, así que no puede " +
+                        "resolver cuentas de bróker por usuario. Falta ConnectionStrings:GaleCore " +
+                        "(user-secrets en local, App Settings en el hosting).",
+            });
+        }
+
+        /// <summary>
         /// La cuenta de bróker vinculada al usuario autenticado. Nunca devuelve el refresh token:
         /// entra a la base cifrado y no vuelve a salir por HTTP.
         /// </summary>
@@ -168,12 +195,15 @@ namespace DataFeed.Controllers
         [Tags("App.GaleCore")]
         [HttpGet("GaleCore/Account")]
         public async Task<IActionResult> GetBrokerAccountAsync(
-            [FromServices] DataFeed.Repositories.GaleCoreDbContext db,
+            [FromServices] IServiceProvider services,
             [FromServices] DataFeed.Infrastructure.Providers.Tastytrade.ICurrentUser currentUser,
             CancellationToken ct)
         {
             var userId = currentUser.UserId;
             if (userId == null) return Unauthorized();
+
+            var db = services.GetService<DataFeed.Repositories.GaleCoreDbContext>();
+            if (db == null) return DatabaseNotConfigured();
 
             var account = await db.Accounts.AsNoTracking()
                 .FirstOrDefaultAsync(a => a.UserId == userId.Value, ct);
@@ -204,13 +234,16 @@ namespace DataFeed.Controllers
         [HttpPost("GaleCore/Account")]
         public async Task<IActionResult> LinkBrokerAccountAsync(
             [FromBody] DataFeed.Api.Controllers.Dtos.LinkBrokerAccountRequest body,
-            [FromServices] DataFeed.Repositories.GaleCoreDbContext db,
+            [FromServices] IServiceProvider services,
             [FromServices] DataFeed.Infrastructure.Providers.Tastytrade.ICurrentUser currentUser,
             [FromServices] DataFeed.Infrastructure.Providers.Tastytrade.ITokenProtector protector,
             CancellationToken ct)
         {
             var userId = currentUser.UserId;
             if (userId == null) return Unauthorized();
+
+            var db = services.GetService<DataFeed.Repositories.GaleCoreDbContext>();
+            if (db == null) return DatabaseNotConfigured();
 
             if (string.IsNullOrWhiteSpace(body.AccountNumber) || string.IsNullOrWhiteSpace(body.RefreshToken))
                 return BadRequest(new { error = "accountNumber y refreshToken son requeridos." });
