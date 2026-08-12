@@ -1,0 +1,226 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import { KeyRound, RefreshCw } from 'lucide-react';
+import { BrokerAccountState, fetchBrokerAccount, linkBrokerAccount } from '../../api/brokerAccount';
+import { tint } from '../../utils/formatters';
+
+const ACCENT = 'var(--blue-gc)';
+
+const inputStyle: React.CSSProperties = {
+  backgroundColor: 'var(--bg-tertiary)',
+  border: '1px solid var(--border-dark)',
+  color: 'var(--text-primary)',
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  color: 'var(--text-muted)',
+  fontFamily: 'JetBrains Mono, monospace',
+};
+
+/**
+ * Vinculación de la cuenta de bróker del operador, en Main.
+ *
+ * Existe porque el refresh token se ROTA: cada vez que se emite uno nuevo en Tastytrade hay que
+ * dejarlo acá, y hasta que se hace, los procesos de fondo siguen intentando con el token viejo y el
+ * feed se queda sin datos. Antes de esta pantalla el endpoint estaba implementado pero no lo llamaba
+ * nadie, así que la única forma era armar un POST a mano con el JWT copiado del navegador.
+ *
+ * El token se manda y se olvida: no se guarda en estado global, ni en localStorage, ni vuelve en el
+ * GET. El input se limpia solo al guardar.
+ */
+export function BrokerAccountCard() {
+  const [state, setState] = useState<BrokerAccountState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [accountNumber, setAccountNumber] = useState('');
+  const [refreshToken, setRefreshToken] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchBrokerAccount();
+      setState(data);
+      // Solo propone el número que ya está vinculado: el que se rota es el token, no la cuenta.
+      if (data.accountNumber) setAccountNumber((prev) => prev || data.accountNumber!);
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'No se pudo leer la cuenta vinculada');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const canSubmit = accountNumber.trim().length > 0 && refreshToken.trim().length > 0 && !saving;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+
+    setSaving(true);
+    setError(null);
+    setOk(null);
+
+    try {
+      await linkBrokerAccount(accountNumber.trim(), refreshToken.trim());
+      setRefreshToken('');
+      setOk('Cuenta vinculada. El cambio tarda hasta un minuto en tomar efecto (la credencial se cachea 60s).');
+      await load();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'No se pudo vincular la cuenta');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        backgroundColor: 'var(--bg-secondary)',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        boxShadow: 'var(--shadow-sm)',
+        padding: '14px 16px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+      }}
+    >
+      {/* Identidad + estado */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <KeyRound size={13} style={{ color: ACCENT }} />
+        <span style={{
+          fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: 14,
+          color: 'var(--text-primary)', letterSpacing: '0.05em',
+        }}>
+          Cuenta de bróker
+        </span>
+
+        {state?.linked && state.broker && (
+          <span style={{
+            fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+            padding: '2px 7px', borderRadius: 4, fontFamily: 'JetBrains Mono, monospace',
+            color: ACCENT, backgroundColor: tint(ACCENT, 13), border: `1px solid ${tint(ACCENT, 30)}`,
+          }}>
+            {state.broker}
+          </span>
+        )}
+
+        {state?.isSystem && (
+          <span
+            title="Es la cuenta con la que los procesos de fondo piden datos de mercado."
+            style={{
+              fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+              padding: '2px 7px', borderRadius: 4, fontFamily: 'JetBrains Mono, monospace',
+              color: '#a78bfa', backgroundColor: tint('#a78bfa', 13), border: `1px solid ${tint('#a78bfa', 30)}`,
+            }}
+          >
+            sistema
+          </span>
+        )}
+
+        <button
+          onClick={load}
+          className="btn"
+          title="Releer el estado"
+          style={{ marginLeft: 'auto' }}
+          disabled={loading}
+        >
+          <RefreshCw size={11} />
+          Releer
+        </button>
+      </div>
+
+      {/* Estado actual */}
+      <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>
+        {loading && 'Leyendo…'}
+        {!loading && state?.linked && (
+          <>
+            {state.accountNumber}
+            {state.updatedAt && (
+              <span style={{ color: 'var(--text-muted)' }}>
+                {' · actualizada '}
+                {new Date(state.updatedAt).toLocaleString()}
+              </span>
+            )}
+          </>
+        )}
+        {!loading && state && !state.linked && (
+          <span style={{ color: 'var(--text-muted)' }}>Sin cuenta vinculada.</span>
+        )}
+      </div>
+
+      <div style={{ fontSize: 10.5, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
+        El refresh token se guarda cifrado y no vuelve a salir por HTTP. Cargalo cada vez que lo
+        rotes en Tastytrade: hasta que lo hagas, la plataforma sigue intentando con el anterior.
+      </div>
+
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div>
+          <label htmlFor="gc-account-number" className="block mb-1" style={labelStyle}>
+            Número de cuenta
+          </label>
+          <input
+            id="gc-account-number"
+            value={accountNumber}
+            onChange={(e) => setAccountNumber(e.target.value)}
+            className="w-full px-3 py-2 rounded text-sm font-mono outline-none"
+            style={inputStyle}
+            placeholder="5WZ50196"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="gc-refresh-token" className="block mb-1" style={labelStyle}>
+            Refresh token
+          </label>
+          <input
+            id="gc-refresh-token"
+            type="password"
+            value={refreshToken}
+            onChange={(e) => setRefreshToken(e.target.value)}
+            className="w-full px-3 py-2 rounded text-sm font-mono outline-none"
+            style={inputStyle}
+            placeholder="pegar el token nuevo"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </div>
+
+        {error && (
+          <div className="text-xs py-2 px-3 rounded" style={{ backgroundColor: 'rgba(239,68,68,0.12)', color: 'var(--red-gc)' }}>
+            {error}
+          </div>
+        )}
+
+        {ok && (
+          <div className="text-xs py-2 px-3 rounded" style={{ backgroundColor: 'var(--green-muted)', color: 'var(--green)' }}>
+            {ok}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="py-2 rounded text-sm font-medium"
+          style={{
+            backgroundColor: canSubmit ? ACCENT : 'var(--bg-tertiary)',
+            color: canSubmit ? '#fff' : 'var(--text-muted)',
+            cursor: canSubmit ? 'pointer' : 'not-allowed',
+            border: 'none',
+          }}
+        >
+          {saving ? 'Guardando…' : state?.linked ? 'Actualizar token' : 'Vincular cuenta'}
+        </button>
+      </form>
+    </div>
+  );
+}

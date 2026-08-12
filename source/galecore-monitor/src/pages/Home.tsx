@@ -1,5 +1,6 @@
 import React from 'react';
 import { StrategyCard } from '../components/strategies/StrategyCard';
+import { BrokerAccountCard } from '../components/account/BrokerAccountCard';
 import { useAppConfigStore } from '../store/useAppConfigStore';
 
 interface Props {
@@ -55,6 +56,25 @@ export function Home({ onNavigate }: Props) {
         {strategies.map((s) => (
           <StrategyCard key={s.id} strategy={s} onOpen={() => onNavigate(s.tab)} />
         ))}
+      </div>
+
+      {/* Plataforma — lo que no es de ninguna estrategia. La cuenta de bróker vive acá y no en una
+          pestaña de estrategia porque es transversal: de ella salen los datos de mercado que todas
+          consumen y los datos de cuenta que muestra el Monitor. */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, margin: '28px 0 16px' }}>
+        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+          Plataforma
+        </span>
+        <span style={{
+          fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase',
+          color: 'var(--text-muted)',
+        }}>
+          credenciales del operador
+        </span>
+      </div>
+
+      <div style={{ maxWidth: 460 }}>
+        <BrokerAccountCard />
       </div>
     </div>
   );
