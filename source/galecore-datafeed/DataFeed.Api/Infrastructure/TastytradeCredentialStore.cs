@@ -21,6 +21,22 @@ namespace DataFeed.Api.Infrastructure
     /// </summary>
     public class TastytradeCredentialStore : ITastytradeCredentialStore
     {
+        /// <summary>
+        /// Cache de credenciales resueltas.
+        ///
+        /// Sin esto, CADA llamada a Tastytrade dispara un SELECT contra Postgres. Medido el
+        /// 2026-08-11 con la base en Supabase (ca-central-1) y la API en local: ~190 ms por consulta,
+        /// y el loop de RPF más cada handler de mercado la pedían por separado. Las credenciales
+        /// cambian cuando alguien vincula una cuenta, o sea casi nunca: pagar una ida y vuelta a otro
+        /// continente por cada request era peaje puro.
+        ///
+        /// El TTL es corto a propósito: si alguien re-vincula su cuenta, el cambio tarda a lo sumo
+        /// este tiempo en tomar efecto y no hace falta invalidar nada a mano.
+        /// </summary>
+        private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
+
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (TastytradeCredential Credential, DateTime At)> _cache = new();
+
         private readonly IServiceProvider _services;
         private readonly IConfiguration _config;
         private readonly ITokenProtector _protector;
@@ -40,14 +56,39 @@ namespace DataFeed.Api.Infrastructure
 
         public async Task<TastytradeCredential> GetSystemAsync(CancellationToken ct = default)
         {
-            var fromDb = await QueryAsync(q => q.Where(a => a.IsSystem), ct);
-            if (fromDb != null) return fromDb;
+            if (TryGetCached("system", out var hit)) return hit!;
 
-            return FromConfig();
+            var fromDb = await QueryAsync(q => q.Where(a => a.IsSystem), ct);
+            var resolved = fromDb ?? FromConfig();
+
+            _cache["system"] = (resolved, DateTime.UtcNow);
+            return resolved;
         }
 
         public async Task<TastytradeCredential?> GetForUserAsync(Guid userId, CancellationToken ct = default)
-            => await QueryAsync(q => q.Where(a => a.UserId == userId), ct);
+        {
+            var key = $"user:{userId}";
+            if (TryGetCached(key, out var hit)) return hit;
+
+            var resolved = await QueryAsync(q => q.Where(a => a.UserId == userId), ct);
+
+            // El "no tiene cuenta vinculada" NO se cachea: es un estado que el usuario está por
+            // cambiar justo cuando aparece (va a vincularla), y cachearlo lo dejaría viendo el error
+            // hasta un minuto después de haberla vinculado.
+            if (resolved != null) _cache[key] = (resolved, DateTime.UtcNow);
+
+            return resolved;
+        }
+
+        private bool TryGetCached(string key, out TastytradeCredential? credential)
+        {
+            credential = null;
+            if (!_cache.TryGetValue(key, out var entry)) return false;
+            if (DateTime.UtcNow - entry.At >= CacheTtl) return false;
+
+            credential = entry.Credential;
+            return true;
+        }
 
         /// <summary>
         /// Consulta la base si está configurada. Cualquier problema —sin base, sin fila, token que no
