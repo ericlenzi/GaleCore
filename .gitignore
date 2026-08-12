@@ -52,12 +52,17 @@ source/galecore-datafeed/DataFeed.Api/Files/**/*_switch_state.json
 # en la máquina del operador y los switches lo leen como fallback para no perder el override.
 source/galecore-datafeed/DataFeed.Api/Files/**/*_workers_state.json
 
-# Configuración local de desarrollo. Estuvo trackeada hasta el 2026-08-11 y publicaba en el repo
-# el refresh token de la cuenta de bróker, el client_secret de la app OAuth de Tastytrade, la API
-# key y la key de FRED. Los secretos se mudaron a user-secrets del proyecto DataFeed.Api; el
-# archivo sigue existiendo en la máquina de cada uno con lo que NO es secreto.
-# Ojo: sacarlo del índice no lo borra del historial — hay que rotar esas credenciales.
+# Configuración por ambiente. Estuvo trackeada hasta el 2026-08-11 y publicaba en el repo el
+# refresh token de la cuenta de bróker, el client_secret de la app OAuth de Tastytrade, la API key
+# y la key de FRED — las mismas cuatro en los dos archivos.
+# Development: los secretos se mudaron a user-secrets del proyecto DataFeed.Api y el archivo quedó
+#   solo con lo que NO es secreto.
+# Production: el archivo NO se toca. Sigue en disco con sus valores y el publish de Visual Studio
+#   lo sube desde el output, así que sacarlo del índice no afecta al deploy. Mudarlo de verdad es
+#   cargar esos valores en Azure App Settings y recién ahí vaciarlo.
+# Ojo: sacarlos del índice no los borra del historial — hay que ROTAR esas credenciales.
 source/galecore-datafeed/DataFeed.Api/appsettings.Development.json
+source/galecore-datafeed/DataFeed.Api/appsettings.Production.json
 
 # Backtesting datasets — se versiona research/data/ (derived/ + vvix) EXCEPTO
 # las carpetas de cadenas crudas, pesadas y re-descargables:
