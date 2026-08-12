@@ -8,8 +8,9 @@
 
   <ItemGroup>
     <PackageReference Include="AutoMapper" Version="16.1.1" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.6" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.8" />
+    <!-- Versiones = lo que NuGet resuelve para la solucion. Ver la nota de DataFeed.Application.csproj. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="Websocket.Client" Version="5.2.0" />
   </ItemGroup>
