@@ -3,6 +3,7 @@ using System;
 using DataFeed.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DataFeed.Repositories.Migrations
 {
     [DbContext(typeof(GaleCoreDbContext))]
-    partial class GaleCoreDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260812204212_DropStrategyTables")]
+    partial class DropStrategyTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

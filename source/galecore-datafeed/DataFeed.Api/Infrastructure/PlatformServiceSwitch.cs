@@ -56,7 +56,7 @@ namespace DataFeed.Api.Infrastructure
             var rules = ReadRulesEnabled(serviceId);
             if (rules == null) return null;
 
-            return StrategyEnablement.Resolve(rules.Value, ReadOverride(serviceId), user: null);
+            return StrategyEnablement.Resolve(rules.Value, ReadOverride(serviceId));
         }
 
         /// <summary>

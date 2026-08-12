@@ -9,12 +9,16 @@ namespace DataFeed.Repositories
     /// ALCANCE — lo que NO va acá:
     ///   * Las REGLAS de cada estrategia (galecore_rules_&lt;prefijo&gt;.json) y pop_calibration.json
     ///     siguen en git: se editan deliberadamente, se versionan y se revisan en un PR.
+    ///   * El CATÁLOGO de estrategias. Su fuente de verdad es `strategies[]` de
+    ///     galecore_rules_core.json, y el prefijo que declara está compilado ([Route("App/Rpf")],
+    ///     Files/Rpf/, el tag de Swagger, el id de pestaña del front) — una tabla no puede ser
+    ///     dueña de eso, solo mentir sobre eso. Hubo tablas `strategies` y `user_strategies` entre
+    ///     el 2026-08-11 y el 2026-08-12: nadie leyó nunca el catálogo desde la base.
+    ///     Ver docs/GaleCore-plan-reorganizacion-2026-08.md.
     ///   * El estado de runtime (*_switch_state.json, skew25_history.json) sigue en archivos: son
     ///     ~3 KB, ya sobreviven a un reinicio, y una base le agregaría a un kill switch el modo de
-    ///     falla "¿y si no responde?". OJO con el matiz del switch: el archivo es el nivel de
-    ///     PLATAFORMA (el kill switch, que apaga para todos y por eso no depende de la base); la
-    ///     preferencia POR USUARIO sí vive acá, en <see cref="UserStrategies"/>, porque eso es
-    ///     dominio y no runtime. La resolución entre los dos es StrategyEnablement.Resolve.
+    ///     falla "¿y si no responde?". El switch de estrategia es GLOBAL y vive entero en el
+    ///     archivo; lo único que sale de acá es el permiso para tocarlo (`users.is_admin`).
     ///   * Los datos de mercado NO se publican por acá. El camino caliente es en memoria.
     /// Ver docs/GaleCore-arquitectura-datos.md §5.
     ///
@@ -28,8 +32,6 @@ namespace DataFeed.Repositories
 
         public DbSet<User> Users => Set<User>();
         public DbSet<Account> Accounts => Set<Account>();
-        public DbSet<Strategy> Strategies => Set<Strategy>();
-        public DbSet<UserStrategy> UserStrategies => Set<UserStrategy>();
 
         protected override void OnModelCreating(ModelBuilder b)
         {
@@ -75,42 +77,6 @@ namespace DataFeed.Repositories
                  .HasDatabaseName("ix_accounts_single_system");
             });
 
-            b.Entity<Strategy>(e =>
-            {
-                e.ToTable("strategies", t => t.HasCheckConstraint(
-                    "ck_strategies_kind", "kind IN ('operativa', 'informativa')"));
-                e.HasKey(x => x.Id);
-                e.Property(x => x.Id).HasMaxLength(20).ValueGeneratedNever();
-                e.Property(x => x.Prefix).HasMaxLength(20).IsRequired();
-                e.Property(x => x.Label).HasMaxLength(60).IsRequired();
-                e.Property(x => x.Name).HasMaxLength(120).IsRequired();
-                e.Property(x => x.Description).IsRequired();
-                e.Property(x => x.Kind).HasMaxLength(20).IsRequired();
-                e.Property(x => x.RulesEndpoint).HasMaxLength(200).IsRequired();
-                e.Property(x => x.SwitchEndpoint).HasMaxLength(200).IsRequired();
-                e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
-                e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
-                e.HasIndex(x => x.Prefix).IsUnique();
-            });
-
-            b.Entity<UserStrategy>(e =>
-            {
-                e.ToTable("user_strategies");
-                e.HasKey(x => new { x.UserId, x.StrategyId });
-                e.Property(x => x.StrategyId).HasMaxLength(20);
-                e.Property(x => x.Enabled).HasDefaultValue(false);
-                e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
-
-                e.HasOne(x => x.User)
-                 .WithMany(u => u.Strategies)
-                 .HasForeignKey(x => x.UserId)
-                 .OnDelete(DeleteBehavior.Cascade);
-
-                e.HasOne(x => x.Strategy)
-                 .WithMany(s => s.Users)
-                 .HasForeignKey(x => x.StrategyId)
-                 .OnDelete(DeleteBehavior.Cascade);
-            });
         }
     }
 }

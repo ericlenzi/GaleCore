@@ -8,9 +8,9 @@ import { fetchStrategySwitch, setStrategySwitch } from '../api/strategies';
  */
 export interface SwitchEntry {
   enabled: boolean | null;
-  /** Qué nivel decidió el `enabled` según el backend: la preferencia de este usuario, el kill
-   *  switch de plataforma o el JSON de reglas de la estrategia. Ver StrategySwitchState. */
-  source: 'user' | 'platform' | 'rules' | null;
+  /** Qué nivel decidió el `enabled` según el backend: el kill switch de plataforma o el JSON de
+   *  reglas de la estrategia. Ver StrategySwitchState. */
+  source: 'platform' | 'rules' | null;
   /** Hay una lectura o una escritura en vuelo contra el backend. */
   busy: boolean;
   /** La última llamada falló: lo que se muestra puede no ser lo vigente. */
@@ -45,6 +45,9 @@ interface StrategySwitchStore {
  * El dueño real del dato es el backend (`GET/POST <switch_endpoint>`, persistido en
  * `Files/<Prefijo>/<prefijo>_switch_state.json`). Este store es la única caché del front, así que
  * todos los que muestran o cambian el switch leen y escriben el mismo lugar.
+ *
+ * El switch es GLOBAL: lo que se lee acá no depende de quién esté logueado. Quién puede ESCRIBIRLO
+ * sí — es admin-only, y eso lo resuelve `useCurrentUserStore.canManagePlatform`.
  */
 export const useStrategySwitchStore = create<StrategySwitchStore>((set, get) => {
   const patch = (endpoint: string, p: Partial<SwitchEntry>) =>

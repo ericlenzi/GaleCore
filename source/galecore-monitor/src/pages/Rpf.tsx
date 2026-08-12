@@ -578,7 +578,7 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
           </button>
           <StrategySwitch
             endpoint={switchEndpoint}
-            title="Prender / apagar la estrategia RPF. En OFF el loop no corre y el tablero se vacía."
+            title="Prender / apagar la estrategia RPF. En OFF el loop no corre y el tablero se vacía, para todos los operadores; solo lo pueden tocar los admin."
           />
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, fontFamily: 'JetBrains Mono, monospace',
             color: loopOnline ? 'var(--green)' : 'var(--text-muted)' }}>
@@ -604,7 +604,7 @@ export function Rpf({ acceptSuggestion, dismissSuggestion, subscribeLeg, unsubsc
           estado invitaría a leerlos como vigentes. Cortar acá desmonta también CandidateCard, que
           es quien suscribe los legs del candidato al hub. */}
       {switchOff ? (
-        <StrategyOffPanel detail="Apagada para vos: no ves estado ni sugerencias. El backend lo confirma dentro de un tick y lo persiste, asi que un reinicio no la vuelve a prender sola. El loop sigue corriendo si otro operador la tiene prendida; el que la corta para todos es el switch de plataforma." />
+        <StrategyOffPanel detail="Apagada para TODA la plataforma: el loop no corre, no se consume feed y nadie ve estado ni sugerencias. El backend lo confirma dentro de un tick y lo persiste, asi que un reinicio no la vuelve a prender sola." />
       ) : (
       <>
       {/* Motor: nodo raíz del flujo de orquestación */}

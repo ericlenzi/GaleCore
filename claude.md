@@ -243,8 +243,8 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   `strategies[]` del config de la app; cada card monta el mismo `StrategySwitch` apuntando al
   `switch_endpoint` que la estrategia declara. Por eso el contrato tiene que ser uniforme:
   `GET <switch_endpoint>` → `{ enabled, source }` y `POST <switch_endpoint>` con `{ enabled }`.
-  El `GET` agrega `platform` y `user` para diagnóstico (qué dice cada nivel), y el `POST` un `scope`
-  con el nivel que terminó escribiendo; el front consume solo `enabled` y `source`.
+  El `GET` agrega `rules` y `platform` para diagnóstico (qué dice cada nivel, sin entrar al disco);
+  el front consume solo `enabled` y `source`.
 
   **En el front el estado del switch tiene un solo dueño: `useStrategySwitchStore`,** indexado por
   `switch_endpoint`. La card de Main, la pantalla de la estrategia y el evento `ReceiveRpfSwitch`
@@ -256,36 +256,40 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   `strategies[]`: si la pantalla lo hardcodeara podría apuntar a otro endpoint que su card, que es
   la misma duplicación otra vez.
 
-  **El switch tiene TRES niveles, no uno** (desde 2026-08-12, multi-usuario). Cada uno pisa al de
-  arriba, y el nivel ausente hereda — nunca prende por su cuenta:
+  **El switch tiene DOS niveles.** Cada uno pisa al de arriba, y el nivel ausente hereda — nunca
+  prende por su cuenta:
 
   | Nivel | Dónde vive | Quién lo toca | `source` |
   |---|---|---|---|
   | reglas | `galecore_rules_<prefijo>.json` (en git) | se edita y se commitea | `"rules"` |
-  | plataforma | `Files/<Prefijo>/<prefijo>_switch_state.json` | `POST <switch_endpoint>/Platform`, solo admin | `"platform"` |
-  | usuario | tabla `user_strategies` | `POST <switch_endpoint>`, el tablero de cada uno | `"user"` |
+  | plataforma | `Files/<Prefijo>/<prefijo>_switch_state.json` | `POST <switch_endpoint>`, solo admin | `"platform"` |
 
-  **La plataforma gana cuando apaga.** Es el kill switch: corta el consumo de feed y la emisión para
-  todos, y un usuario no puede prenderla desde su tablero. El nivel de usuario solo decide si la
-  estrategia trabaja **para él**. La tabla de verdad es
-  `App/Shared/StrategyEnablement.Resolve(rules, platform, user)` — función pura, congelada por
-  `StrategyEnablementTests.cs`.
+  **El switch es GLOBAL: apagar una estrategia la apaga para todos.** Es el kill switch — corta el
+  consumo de feed y la emisión—, y por eso el `POST` está restringido a los admin
+  (`users.is_admin`): un segundo operador logueado no puede apagarle la estrategia al resto. La
+  tabla de verdad es `App/Shared/StrategyEnablement.Resolve(rules, platform)` — función pura,
+  congelada por `StrategyEnablementTests.cs`. Quién puede escribirlo lo resuelve
+  `AppController.CanManagePlatformAsync`, que es la **única** autoridad de esa regla: la consumen el
+  403 del `POST` y el `canManagePlatform` de `GET /App/GaleCore/Me`, que es lo que el front usa para
+  mostrar el switch habilitado o no. Si fueran dos copias, la UI y la API se contradirían.
 
   **Por qué cada nivel está donde está.** El JSON de reglas es fuente de verdad y se edita
   deliberadamente, no en runtime. El kill switch se queda en un **archivo** y no en la base
   (`docs/GaleCore-arquitectura-datos.md` §5): persiste a disco a propósito —uno que vuelve solo a ON
   tras un restart es un agujero— y una base caída no puede volver a prender lo que se apagó a
-  propósito. La preferencia por usuario **sí** va a la base, porque es dominio (quién es quién), no
-  estado de runtime. Los archivos están gitignoreados: un deploy pisaría el switch del operador.
+  propósito. Los archivos están gitignoreados: un deploy pisaría el switch del operador.
 
-  **Un proceso compartido corre si le sirve a alguien.** El loop de RPF es uno solo para toda la
-  plataforma, así que la pregunta que decide si tickea no es "¿la tiene prendida tal usuario?" sino
-  "¿queda alguno que no la haya apagado?" (`UserStrategySwitchStore.AnyUserEnabledAsync`). Si no la
-  mira nadie, no hay para quién gastar feed.
+  **Nada del switch consulta la base**, y eso importa en el camino caliente: `RpfLoopService`
+  resuelve si tickea leyendo solo disco. **Hubo un tercer nivel por usuario** (tabla
+  `user_strategies`, más `strategies` como catálogo) entre el 2026-08-11 y el 2026-08-12. Se
+  eliminó: con dos operadores, poder silenciar una estrategia en el tablero propio no justificaba
+  que el loop consultara la base en cada tick para preguntar si le servía a alguien, ni el catálogo
+  duplicado entre el JSON y una tabla que nadie leía. Ver
+  [`docs/GaleCore-plan-reorganizacion-2026-08.md`](docs/GaleCore-plan-reorganizacion-2026-08.md).
 
-  **Sin base configurada no existe el nivel de usuario**, y eso no es un error: la API arranca sin
-  base a propósito (`Program.cs`). Ahí el `POST` escribe el nivel de plataforma y todo se comporta
-  como antes de que el switch tuviera niveles.
+  **Sin base configurada no hay permisos que consultar**, y eso no es un error: la API arranca sin
+  base a propósito (`Program.cs`). Ahí el `POST` no exige admin y todo se comporta como antes de que
+  la base existiera.
 
   **En OFF, la estrategia no hace nada Y su pantalla se reduce al encabezado más un cartel.** No
   alcanza con frenar el proceso: hay que limpiar el estado publicado, o un tablero que se conecte
@@ -319,9 +323,10 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     convención de estrategias;
   * los endpoints son `GET`/`POST /App/GaleCore/Services/{id}/Switch`, con el mismo contrato
     `{ enabled, source }`;
-  * **son dos niveles, no tres.** Una estrategia trabaja para alguien; un servicio no —el skew
-    escribe un archivo compartido—, así que no hay preferencia por usuario y tocarlos es cosa de
-    admin;
+  * **el modelo del switch es el mismo que el de una estrategia**: dos niveles (reglas +
+    plataforma), global, y tocarlo es cosa de admin. Desde el 2026-08-12 no hay diferencia entre
+    los dos carriles — antes las estrategias tenían un tercer nivel por usuario que un servicio
+    nunca tuvo, porque un servicio no trabaja para nadie en particular;
   * Main los renderiza en la sección **Plataforma** con `ServiceCard`, que monta el mismo
     `StrategySwitch`.
 

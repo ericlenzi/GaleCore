@@ -334,8 +334,12 @@ lo usa, y por eso los privilegios quedaron así:
 
 | Rol | Para qué | Qué tiene |
 |---|---|---|
-| `galecore_ddl` | migraciones, nada más | dueño de las 5 tablas y `CREATE` sobre `public` |
-| `galecore_api` | el runtime de la API | `USAGE` en `public`; `SELECT/INSERT/UPDATE/DELETE` en `users`, `accounts`, `user_strategies`; `SELECT` en `strategies` |
+| `galecore_ddl` | migraciones, nada más | dueño de las tablas y `CREATE` sobre `public` |
+| `galecore_api` | el runtime de la API | `USAGE` en `public`; `SELECT/INSERT/UPDATE/DELETE` en `users` y `accounts` |
+
+*(Al 2026-08-11 eran 5 tablas y el rol tenía además permisos sobre `user_strategies` y `strategies`;
+esas dos se eliminaron el 2026-08-12 — ver la decisión al final de esta sección. Los permisos se
+fueron con las tablas, no hubo que revocarlos.)*
 
 **El problema que resuelve:** hasta hoy `galecore_api` era **dueña** de las tablas, así que la
 credencial que va a App Settings de Azure podía `DROP TABLE` el esquema entero. Ahora no puede crear,
@@ -376,6 +380,32 @@ el trabajo del switch de dos niveles.
   mientras la plataforma esté en ON y quede al menos un usuario que no la haya apagado.
 * **Sin base, el nivel de usuario no existe** y el `POST` escribe el de plataforma: la API sigue
   levantando y sirviendo el feed sin base, que es una propiedad deliberada de `Program.cs`.
+
+### Tomadas (2026-08-12, más tarde) — se revierte la tabla `Strategies` y el nivel por usuario
+
+Revierte la decisión de arriba ("Tabla `Strategies`") y la de "el switch, precisado", el mismo día
+que se implementaron. **El motivo no es que estuvieran mal razonadas: es que al implementarlas se
+vio lo que en el papel no se veía.**
+
+* **La tabla `strategies` nunca tuvo un lector.** No hubo una sola consulta contra `db.Strategies`
+  en todo el backend: el catálogo que la aplicación consume siguió siendo `strategies[]` del JSON.
+  Su único uso real terminó siendo el lado "uno" de la FK de `user_strategies`.
+* **La condición que la decisión original se puso a sí misma no se cumplió.** Decía: si
+  `strategies[]` sale del JSON, hay que reemplazar `RulesJsonTests` por uno que valide las filas de
+  la base contra las rutas compiladas. `strategies[]` nunca salió del JSON, así que quedó el
+  catálogo duplicado en dos lugares con guardián de un solo lado.
+* **El beneficio que la justificaba tampoco llegó.** "Editar nombre y descripción sin tocar código"
+  es imposible con `galecore_api` en `SELECT` y el seed por migración: editar sigue costando una
+  migración, igual que editar el JSON cuesta un commit — pero el JSON además se revisa en un PR.
+* **El costo sí era real**: `RpfLoopService` consultaba la base en cada tick (30 s) para preguntar
+  "¿le sirve a alguien?", con cache, TTL y una rama permisiva ante fallas. Todo eso desapareció.
+
+**Lo que queda:** el switch tiene dos niveles (reglas + plataforma), es **global**, y sigue siendo
+admin-only — el agujero que el gate de `is_admin` tapó (un operador apagándole la estrategia al
+resto) existe igual con el switch global, así que ese chequeo no se toca. `users` y `accounts` se
+quedan: son dominio de verdad y ahora tienen UI planificada.
+
+Plan completo y etapas siguientes: [`GaleCore-plan-reorganizacion-2026-08.md`](GaleCore-plan-reorganizacion-2026-08.md).
 
 ### Pendientes
 

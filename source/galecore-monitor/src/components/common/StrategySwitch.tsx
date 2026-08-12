@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { useStrategySwitchStore, useSwitchEntry } from '../../store/useStrategySwitchStore';
+import { useCanManagePlatform } from '../../store/useCurrentUserStore';
 import { tint } from '../../utils/formatters';
 
 interface Props {
@@ -12,9 +13,12 @@ interface Props {
 /**
  * Switch de una estrategia (regla de CLAUDE.md: todo lo que corra solo se tiene que poder cortar en
  * el acto desde el front). El estado vive en el backend y persiste, así que el botón no es el dueño
- * de la verdad: lo lee al montar y lo reescribe al togglear. Lo que escribe es la preferencia DEL
- * USUARIO logueado (tabla user_strategies); el kill switch que apaga la estrategia para todos es
- * otro endpoint (`<switch_endpoint>/Platform`, solo admins) y no se toca desde acá.
+ * de la verdad: lo lee al montar y lo reescribe al togglear.
+ *
+ * ES GLOBAL: apagar la estrategia la apaga para todos, y por eso el POST es admin-only. A quien no
+ * puede, se le muestra el estado pero deshabilitado — dejarlo clickear para cobrar un 403 sería
+ * mentirle sobre lo que puede hacer. Ojo: esconder el botón NO es la protección; la protección es
+ * el 403 del backend.
  *
  * El componente NO guarda estado propio. Hasta 2026-08-11 recibía `enabled`/`onChange` por props, y
  * cada pantalla traía su propia copia: la card de Main y la pestaña de la estrategia mostraban
@@ -30,11 +34,15 @@ export function StrategySwitch({ endpoint, title }: Props) {
   const { enabled, busy, error } = useSwitchEntry(endpoint);
   const read = useStrategySwitchStore((s) => s.read);
   const toggle = useStrategySwitchStore((s) => s.toggle);
+  const canManage = useCanManagePlatform();
 
   // El store deduplica: que la card de Main y la pestaña monten a la vez no dispara dos GET.
   useEffect(() => { read(endpoint); }, [endpoint, read]);
 
   const unknown = enabled == null;
+  // `canManage` en null es "todavía no sé": no se decide nada hasta saberlo, y mientras tanto el
+  // botón no acepta clicks. Dura lo que tarda un GET al montar el tablero.
+  const locked = canManage !== true;
   const color = error ? 'var(--yellow-gc)'
     : unknown ? 'var(--text-muted)'
     : enabled ? 'var(--green)' : 'var(--red-gc)';
@@ -42,17 +50,19 @@ export function StrategySwitch({ endpoint, title }: Props) {
   return (
     <button
       onClick={() => toggle(endpoint)}
-      disabled={busy}
+      disabled={busy || locked}
       title={error
         ? 'El backend no respondio. El estado que se muestra puede no ser el vigente — clickeá para reintentar.'
-        : (title ?? 'Prender / apagar')}
+        : canManage === false
+          ? 'Prender o apagar una estrategia afecta a toda la plataforma: es solo para admins.'
+          : (title ?? 'Prender / apagar')}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 7,
         padding: '3px 9px', borderRadius: 20,
         backgroundColor: tint(color, 10), border: `1px solid ${tint(color, 30)}`,
-        color, cursor: busy ? 'default' : 'pointer',
+        color, cursor: busy || locked ? 'default' : 'pointer',
         fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
-        fontFamily: 'JetBrains Mono, monospace', opacity: busy ? 0.6 : 1,
+        fontFamily: 'JetBrains Mono, monospace', opacity: busy || locked ? 0.6 : 1,
       }}
     >
       {/* Riel del switch */}

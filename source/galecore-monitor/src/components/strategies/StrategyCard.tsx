@@ -109,7 +109,7 @@ export function StrategyCard({ strategy, onOpen }: Props) {
         <span onClick={stop} style={{ display: 'inline-flex', marginLeft: 'auto' }}>
           <StrategySwitch
             endpoint={strategy.switch_endpoint}
-            title={`Prender / apagar la estrategia ${strategy.label}`}
+            title={`Prender / apagar la estrategia ${strategy.label}. Afecta a todos los operadores y solo lo pueden tocar los admin.`}
           />
         </span>
       </div>

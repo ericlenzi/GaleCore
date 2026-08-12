@@ -12,6 +12,7 @@ import { Gex } from './pages/Gex';
 import { useMarketSocket, ConnectionStatus } from './socket/useMarketSocket';
 import { useAppConfigStore } from './store/useAppConfigStore';
 import { useAccountStore } from './store/useAccountStore';
+import { useCurrentUserStore } from './store/useCurrentUserStore';
 import { fetchAppConfig } from './api/rules';
 import { fetchBalances, fetchPositions } from './api/account';
 
@@ -25,8 +26,13 @@ function Dashboard({ onLogout }: DashboardProps) {
 
   const { setConfig, setLoading: setConfigLoading, setError: setConfigError, tickers } = useAppConfigStore();
   const { setBalances, setPositions, setLoadingBalances, setLoadingPositions, setErrorBalances, lastUpdate } = useAccountStore();
+  const loadCurrentUser = useCurrentUserStore((s) => s.load);
 
   useEffect(() => {
+    // Quién está logueado y qué le deja hacer la plataforma. Va primero porque de acá sale si los
+    // switches se muestran habilitados: sin esto, un no-admin clickearía para cobrar un 403.
+    loadCurrentUser();
+
     // Config de la app (universo, estrategias, monitor)
     setConfigLoading(true);
     fetchAppConfig()

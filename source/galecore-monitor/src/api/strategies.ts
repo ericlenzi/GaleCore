@@ -1,20 +1,19 @@
 import apiClient from './client';
 
 /**
- * Estado del switch de una estrategia PARA EL USUARIO LOGUEADO.
+ * Estado del switch de una estrategia. Es GLOBAL: apagarla la apaga para todos, así que el POST
+ * está restringido a los admin de la plataforma (`users.is_admin`) y responde 403 al resto.
  *
- * `source` dice qué nivel decidió el `enabled`, que se resuelve en el backend entre tres:
- *   - 'user'     — la preferencia de este usuario (tabla user_strategies)
- *   - 'platform' — el kill switch del operador, que apaga la estrategia para todos
- *   - 'rules'    — nadie tocó nada todavía: manda el JSON de reglas de la estrategia
+ * `source` dice qué nivel decidió el `enabled`, que se resuelve en el backend entre dos:
+ *   - 'platform' — el kill switch del operador (`Files/<Prefijo>/<prefijo>_switch_state.json`)
+ *   - 'rules'    — nadie tocó el switch: manda el JSON de reglas de la estrategia
  *
- * El POST de este endpoint escribe SIEMPRE el nivel del usuario; el de plataforma es otro endpoint
- * (`<switch_endpoint>/Platform`, solo admins) y desde el tablero no se toca. Ojo con eso al leer el
- * `enabled` que devuelve: si la plataforma está en OFF, prender el propio no lo cambia a true.
+ * Hubo un tercer nivel por usuario (`'user'`, tabla `user_strategies`) que se eliminó el
+ * 2026-08-12. Ver docs/GaleCore-plan-reorganizacion-2026-08.md, etapa 1.
  */
 export interface StrategySwitchState {
   enabled: boolean;
-  source: 'user' | 'platform' | 'rules';
+  source: 'platform' | 'rules';
 }
 
 /**

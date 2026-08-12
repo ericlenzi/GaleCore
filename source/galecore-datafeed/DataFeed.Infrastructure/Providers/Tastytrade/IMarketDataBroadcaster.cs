@@ -30,13 +30,11 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         /// <summary>
         /// Emite ReceiveRpfSwitch cuando alguien toca el switch de la estrategia. Al apagar, el
         /// tablero vuelve al estado inicial en el acto en vez de esperar el staleness.
+        ///
+        /// Va SIEMPRE a todos los tableros abiertos: el switch es global y lo que cambió vale para
+        /// todos. Tuvo un parámetro `userId` mientras existió el nivel por usuario (2026-08-12),
+        /// para avisarle solo a quien había tocado el suyo.
         /// </summary>
-        /// <param name="userId">
-        /// A quién avisarle. Con un uuid, solo a los tableros de ESE usuario: el switch tiene un
-        /// nivel por usuario, y avisarle al resto les mostraría un OFF que no es el de ellos. Con
-        /// null, a todos — es el kill switch de plataforma, que sí apaga la estrategia para todo el
-        /// mundo.
-        /// </param>
-        Task BroadcastRpfSwitchAsync(bool enabled, string? userId);
+        Task BroadcastRpfSwitchAsync(bool enabled);
     }
 }

@@ -217,11 +217,11 @@ namespace DataFeed
             // único que esa estrategia corre por su cuenta (y lo que compite por el feed DXLink).
             builder.Services.AddSingleton<GexStrategySwitch>();
 
-            // El nivel por USUARIO de esos switches (tabla user_strategies). Se registra siempre,
-            // incluso sin base: adentro resuelve el DbContext por scope y, si no está registrado,
-            // el nivel de usuario no existe y manda el archivo de plataforma — que es como se
-            // comportaba el switch antes de tener dos niveles.
-            builder.Services.AddSingleton<UserStrategySwitchStore>();
+            // Quién es quién (tabla `users`): hoy resuelve si quien llama es admin, que es el
+            // permiso para tocar los kill switch. Se registra siempre, incluso sin base: adentro
+            // resuelve el DbContext por scope y, si no está registrado, no hay permisos que
+            // consultar y la API se comporta como antes de que la base existiera.
+            builder.Services.AddSingleton<UserStore>();
 
             // Switch de los servicios de plataforma (services[] de galecore_rules_core.json): los
             // procesos que corren solos y no son de ninguna estrategia. Va ANTES de los

@@ -221,7 +221,7 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
           lleno de números se lee como vigente aunque diga que no lo está. */}
       {switchEnabled === false ? (
         <div className="px-3">
-          <StrategyOffPanel detail="Apagada para vos: no se barre la cadena, no se toca DXLink ni a pedido, y no se suscribe ningun simbolo propio de la estrategia. El estado se guarda, asi que un reinicio no la vuelve a prender sola. El que la apaga para todos es el switch de plataforma." />
+          <StrategyOffPanel detail="Apagada para TODA la plataforma: no se barre la cadena, no se toca DXLink ni a pedido, y no se suscribe ningun simbolo propio de la estrategia. El estado se guarda, asi que un reinicio no la vuelve a prender sola." />
         </div>
       ) : (
       <>

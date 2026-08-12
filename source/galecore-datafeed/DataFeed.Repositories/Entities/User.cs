@@ -18,9 +18,10 @@ namespace DataFeed.Repositories.Entities
         public string? DisplayName { get; set; }
 
         /// <summary>
-        /// Habilita la administración de usuarios desde la aplicación. Es un permiso de la
-        /// plataforma, no del bróker: un admin administra usuarios, NO ve las cuentas ajenas.
-        /// Las posiciones y balances siguen saliendo de la cuenta de cada uno.
+        /// Habilita la administración de usuarios desde la aplicación y el kill switch de las
+        /// estrategias y servicios, que apaga para todos. Es un permiso de la plataforma, no del
+        /// bróker: un admin administra usuarios, NO ve las cuentas ajenas. Las posiciones y
+        /// balances siguen saliendo de la cuenta de cada uno.
         /// </summary>
         public bool IsAdmin { get; set; }
 
@@ -28,6 +29,5 @@ namespace DataFeed.Repositories.Entities
         public DateTime UpdatedAt { get; set; }
 
         public ICollection<Account> Accounts { get; set; } = new List<Account>();
-        public ICollection<UserStrategy> Strategies { get; set; } = new List<UserStrategy>();
     }
 }

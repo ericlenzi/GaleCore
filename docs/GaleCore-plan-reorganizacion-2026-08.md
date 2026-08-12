@@ -1,0 +1,204 @@
+# Plan de reorganización — switch global, administración y login por usuario
+
+**Estado:** etapa 1 **COMPLETA y verificada en vivo** (2026-08-12) · etapas 2 y 3 pendientes
+**Decidido:** 2026-08-12
+
+Reorganiza tres cosas que quedaron a medio camino tras la incorporación de la base de datos
+(2026-08-11) y el switch de tres niveles (2026-08-12): dónde vive el catálogo de estrategias, quién
+puede apagar una estrategia, y con qué se entra a la plataforma.
+
+---
+
+## 0. El problema que resuelve
+
+Al mudar el catálogo de estrategias a la base quedaron **dos catálogos**: `strategies[]` de
+`galecore_rules_core.json` —que es el que la aplicación realmente consume— y la tabla `strategies`,
+que **no la lee nadie**. El `DbSet<Strategy>` existe pero no hay una sola consulta contra él: su
+único uso real es ser el lado "uno" de la FK de `user_strategies`.
+
+La duplicación además tiene guardián de un solo lado: `RulesJsonTests` valida el JSON contra las
+rutas compiladas y la carpeta de archivos; nada valida las filas de la base. Y el beneficio que
+justificaba la mudanza —editar nombre y descripción sin tocar código— tampoco se cobra: el rol
+`galecore_api` sólo tiene `SELECT` sobre `strategies` y el catálogo se siembra por migración.
+
+**Decisión: el JSON vuelve a ser la única fuente de verdad del catálogo.** La base se queda con lo
+que sí es dominio: usuarios y cuentas de bróker.
+
+---
+
+## Etapa 1 — Switch global + JSON como única fuente de verdad
+
+**Objetivo:** el switch pasa de tres niveles a dos (reglas + plataforma), desaparecen las dos tablas
+de estrategias, y el loop de RPF deja de tocar la base.
+
+### Qué se gana
+
+* **Un solo modelo de switch en toda la plataforma.** Hoy las estrategias tienen tres niveles y los
+  `services[]` tienen dos. Con esto, todo tiene dos.
+* **El loop de RPF deja de depender de la base.** Se va `AnyUserEnabledAsync` con su cache de 30 s,
+  su round-trip por tick y su rama "permisivo si falla": un modo de falla menos en el camino caliente.
+* **Refuerza una propiedad deliberada:** la API levanta y sirve el feed sin base (`Program.cs`).
+  Ahora el switch tampoco la necesita nunca, ni siquiera para el caso degradado.
+
+### Qué se pierde, dicho de frente
+
+Un operador ya no puede silenciar una estrategia en su tablero sin cortársela al otro. Con dos
+operadores es aceptable, y es la decisión — no un efecto colateral. El switch **sigue siendo de
+admin**: el gate `users.is_admin` que se agregó el 2026-08-12 no se toca, porque el agujero que tapó
+(un segundo operador apagándole la estrategia al resto) sigue existiendo igual.
+
+### Cambios
+
+**Lógica pura**
+
+* `App/Shared/StrategyEnablement.cs` — `Resolve(bool rules, bool? platform)`: se va el tercer
+  parámetro y la constante `SourceUser`.
+* `StrategyEnablementTests.cs` — reescrito sobre la tabla de dos niveles.
+
+**Backend**
+
+* `UserStrategySwitchStore` → **`UserStore`**. No se borra: se reduce. Sobreviven
+  `DatabaseConfigured` e `IsAdminAsync`; mueren `ReadUserOverrideAsync`, `SetUserAsync`,
+  `AnyUserEnabledAsync` y el cache.
+* `AppController` `#region Switch` — el `POST <switch_endpoint>` **es** el de plataforma y exige
+  admin. Los `POST <switch_endpoint>/Platform` se eliminan: dos rutas para lo mismo ya no tienen
+  sentido. El `GET` pierde el nodo `user` de diagnóstico.
+* `GET /App/GaleCore/Me` — suma `isAdmin` y `canManagePlatform`. Sin él el front no sabe si mostrar
+  el switch habilitado, y un no-admin vería un botón que siempre responde 403.
+* `RpfLoopService` — pierde la dependencia entera. `activo = cfg.Enabled`.
+* `IMarketDataBroadcaster.BroadcastRpfSwitchAsync(bool enabled)` — se le cae el parámetro `userId`:
+  ahora el aviso siempre vale para todos.
+
+**Base**
+
+* Migración `DropStrategyTables`: `DROP TABLE user_strategies` + `DROP TABLE strategies`.
+* Se borran `Entities/Strategy.cs`, `Entities/UserStrategy.cs`, los dos `DbSet` y la navegación
+  `User.Strategies`. Los grants se van con las tablas.
+
+**Frontend**
+
+* `api/strategies.ts` y `useStrategySwitchStore` — `source: 'platform' | 'rules'`.
+* `StrategySwitch` — deshabilitado con tooltip si el usuario no puede administrar la plataforma.
+* `store/useCurrentUserStore.ts` — nuevo, cachea la respuesta de `/App/GaleCore/Me`.
+
+**Docs**
+
+* `CLAUDE.md`, nodo "switch por estrategia": la tabla de tres niveles pasa a dos.
+* `GaleCore-arquitectura-datos.md` §10: decisión nueva que revierte la del 2026-08-11.
+
+### ⚠️ Antes de desplegar
+
+**Verificar que haya al menos un usuario con `is_admin = true`.** El `POST` del switch exige admin;
+sin ningún admin en la base, el switch no se puede tocar desde ningún tablero y hay que arreglarlo
+con SQL a mano. (Sin base configurada no aplica: ahí no hay permisos que consultar y la API se
+comporta como antes de que existiera la base.)
+
+### Verificación — hecha el 2026-08-12
+
+1. ✅ `dotnet test` 143/143, `tsc --noEmit` limpio.
+2. ✅ Migración aplicada con la credencial `galecore_ddl`. Con `galecore_api` falla en
+   `permission denied for table __EFMigrationsHistory` **antes** de tocar nada — la separación de
+   roles funciona.
+3. ✅ Swagger confirma el build desplegado: los `/Switch/Platform` ya no existen y `/App/GaleCore/Me`
+   sí.
+4. ✅ Un click apaga el switch en Main **y** en la pestaña a la vez, en los dos sentidos.
+5. ✅ Con RPF en OFF la pantalla se reduce a encabezado + References + switch + cartel; al volver a
+   ON el loop repuebla el tablero en el siguiente tick (~30 s).
+6. ✅ El loop tickea con las tablas borradas — ya no las consulta.
+7. ✅ Cero errores en consola del navegador.
+
+**Defecto encontrado y corregido durante la verificación:** los carteles de OFF de RPF y GEX seguían
+diciendo *"apagada para vos"* y *"el loop sigue corriendo si otro operador la tiene prendida"* —
+copy del switch por usuario, que con el switch global pasó a ser falso. Es la misma clase de bug que
+arregló `ff705a1`. **Al cambiar el alcance de un switch hay que revisar los textos que lo explican,
+no solo la lógica**: el compilador no ve una promesa rota en un string.
+
+---
+
+## Etapa 2 — Mi cuenta + Administrator
+
+**Objetivo:** las tablas que quedan (`users`, `accounts`) tienen por fin una UI.
+
+**Dos menús, no uno.** Es el error a evitar: si "cada usuario administra sus cuentas de bróker"
+queda detrás de un `if (isAdmin)`, el operador no-admin no puede vincular su cuenta — y sin cuenta
+vinculada no ve balances ni posiciones, con un tablero vacío y sin forma de arreglarlo.
+
+| Pantalla | Quién entra | Qué hace |
+|---|---|---|
+| **Mi cuenta** | todos | vincular/desvincular *sus* cuentas de bróker |
+| **Administrator** | `is_admin` | ABM de usuarios, rol admin, y la **cuenta de sistema** |
+
+* `GET/POST /App/GaleCore/Account` ya existen; faltan `DELETE` y la pantalla.
+* `GET/POST/PATCH/DELETE /App/GaleCore/Admin/Users`.
+* El alta hace dos escrituras: crear el usuario en Supabase Auth **con la service_role key** y
+  después la fila en `users`. Si la segunda falla, revertir la primera o el usuario queda huérfano
+  en auth.
+* La cuenta de sistema (`accounts.is_system`, con su índice único parcial de máximo una en toda la
+  plataforma) se administra acá, no en "Mi cuenta".
+
+**🔑 La service_role key sólo del lado servidor** — user-secret en local, App Settings en Azure. La
+que está en el bundle es la anon key, y son cosas muy distintas.
+
+**🔒 El gate va en el endpoint, no en el menú.** Ocultar la pantalla no es seguridad.
+
+**Efecto colateral bueno:** con el alta explícita se puede borrar la materialización perezosa de
+`users` en `LinkBrokerAccount` y su relleno `@sin-mail.local`.
+
+---
+
+## Etapa 3 — Login por username
+
+**Objetivo:** entrar con usuario y contraseña. **`email` no se toca**: sigue real, único y requerido.
+
+Se descartó la variante con email sintético (`<username>@galecore.internal`) porque rompe el reset
+de contraseña por mail, obliga a saltear la confirmación, y convierte el cambio de username en una
+escritura en dos sistemas que se pueden desincronizar. Con el email real, nada de eso pasa: la
+identidad de auth no se toca y el username vive en una sola tabla.
+
+### Base
+
+Migración en tres pasos: `username` nullable → backfill de las filas existentes → `NOT NULL` +
+índice único + check de charset (`^[a-z0-9._-]{3,32}$`, normalizado a minúscula al escribir).
+
+### Backend
+
+`POST /App/GaleCore/Auth/Login` `{ username, password }`:
+
+1. resuelve `username → email` en `users`,
+2. llama al `grant_type=password` de Supabase (**alcanza la anon key**; la service_role sólo hace
+   falta para *crear* usuarios),
+3. devuelve la sesión.
+
+**El email nunca sale del servidor.** La alternativa —un endpoint `username → email` y que el front
+le pegue a Supabase directo— deja un endpoint público que devuelve direcciones de mail a quien
+adivine un usuario.
+
+Tres reglas duras: **rate limit** (es el único endpoint sin JWT), **error genérico** para usuario
+inexistente y contraseña mala (si no, el formulario informa quién existe), y **no logear el body**
+ni en debug.
+
+### Frontend
+
+* `auth/supabase.ts` — `signIn(email, password)` → `loginWithUsername(username, password)`, que le
+  pega a la API y hace `supabase.auth.setSession(...)`.
+* `LoginScreen.tsx` — el campo pasa a "Usuario", `type="text"`.
+* **Nada más cambia**: `getAccessToken`, el interceptor de axios, el `accessTokenFactory` del hub y
+  el `onAuthStateChange` de `App.tsx` siguen funcionando porque la sesión sigue siendo la de Supabase.
+
+### En Administrator
+
+El alta pide username + email real y **invita por mail**: la persona elige su contraseña. El admin
+nunca manipula la contraseña de otro.
+
+---
+
+## Orden y riesgo
+
+| Etapa | Tamaño | Riesgo | Por qué en ese orden |
+|---|---|---|---|
+| 1 | mediana, casi todo borrado | bajo | No depende de nada. Es la que más simplifica. |
+| 2 | la más grande (UI nueva) | medio | Necesita `/Me` de la etapa 1. Introduce la service_role. |
+| 3 | chica y acotada | **el más alto** | Toca el login, que fue lo que más costó cerrar (2026-08-11). Va última y sola, para poder aislarla si algo falla. |
+
+Los tres puntos de no retorno: el admin que tiene que existir **antes** de la etapa 1, la
+service_role que nunca puede cruzar al bundle en la 2, y el rate limit del login en la 3.
