@@ -19,6 +19,24 @@ export interface StrategyEntry {
   switch_endpoint: string;
 }
 
+/**
+ * Un servicio de plataforma: un proceso que corre solo y NO es de ninguna estrategia. Es lo que
+ * Main renderiza en la sección Plataforma.
+ *
+ * A diferencia de una estrategia, su switch tiene dos niveles y no tres —no hay preferencia por
+ * usuario, porque no trabajan para nadie en particular— y solo lo pueden tocar los admin.
+ */
+export interface ServiceEntry {
+  id: string;
+  label: string;
+  /** Nombre de la clase en el backend, para poder buscarla en el código y en los logs. */
+  name?: string;
+  description?: string;
+  /** Lo que declara el JSON: el nivel de "reglas" del switch, no su estado actual. */
+  enabled?: boolean;
+  switch_endpoint: string;
+}
+
 export interface AppConfig {
   _meta?: {
     version?: string;
@@ -31,6 +49,8 @@ export interface AppConfig {
     tickers?: string[];
   };
   strategies?: StrategyEntry[];
+  /** Procesos de plataforma con switch propio (SkewSnapshotService, FlowBroadcastService). */
+  services?: ServiceEntry[];
   /** Config de la pestaña Monitor — transversal a las estrategias. */
   monitor?: {
     trade_management?: {

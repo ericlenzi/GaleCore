@@ -225,6 +225,12 @@ namespace DataFeed
             // comportaba el switch antes de tener dos niveles.
             builder.Services.AddSingleton<UserStrategySwitchStore>();
 
+            // Switch de los servicios de plataforma (services[] de galecore_rules_core.json): los
+            // procesos que corren solos y no son de ninguna estrategia. Va ANTES de los
+            // AddHostedService de arriba en el orden de lectura, pero el contenedor no depende del
+            // orden de registro: los servicios lo reciben por constructor igual.
+            builder.Services.AddSingleton<PlatformServiceSwitch>();
+
             // MCP Server
             builder.Services
                 .AddMcpServer()

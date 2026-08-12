@@ -53,6 +53,10 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     `name`, `kind` (`operativa` / `informativa`), `description`, `rules_endpoint`, `switch_endpoint`.
     Es lo que **Main** renderiza como cards. Una estrategia que no figura acá existe en la API pero
     es invisible en el tablero.
+  * `services[]` — los procesos de plataforma que corren solos y no son de ninguna estrategia
+    (`SkewSnapshotService`, `FlowBroadcastService`). Cada entrada: `id`, `label`, `name`,
+    `description`, `enabled` (el nivel de reglas de su switch), `switch_endpoint`. Es lo que **Main**
+    renderiza en la sección Plataforma. Ver "switch por estrategia".
   * `monitor` — config de la pestaña Monitor, que es transversal (monitorea las posiciones de la
     cuenta sin importar quién las abrió): `monitor.trade_management` (take_profit, defensive_roll,
     time_exit, hard_defense, daily_kill_switch) y `monitor.risk_limits` (max_concurrent_positions,
@@ -205,9 +209,10 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
 
   **En la raíz de `Files/` quedan la config de app y lo que no es de ninguna estrategia:**
   `galecore_rules_core.json` (config de la aplicación), `pop_calibration.json` (tabla POP del gate
-  `edge`) y `skew25_history.json` (serie para el RoC de `tail_score`). Los dos últimos hoy los lee
-  solo RPF, pero quien **escribe** `skew25_history.json` es `SkewSnapshotService`, que no es de
-  ninguna estrategia — por eso no se mudan a `Files/Rpf/`.
+  `edge`), `skew25_history.json` (serie para el RoC de `tail_score`) y
+  `platform_services_switch_state.json` (switch de los servicios de plataforma). Los dos del medio
+  hoy los lee solo RPF, pero quien **escribe** `skew25_history.json` es `SkewSnapshotService`, que
+  no es de ninguna estrategia — por eso no se mudan a `Files/Rpf/`.
 
   **Al agregar una subcarpeta hay que revisar el `.csproj`.** `DataFeed.Api.csproj` copia los JSON al
   output con `<Content Update="Files\**\*.json">` — el `**` es lo que hace que las subcarpetas se
@@ -300,8 +305,28 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     el switch es un kill switch de ese barrido. Ver
     [`docs/gex/galecore-estrategia-gex.md`](docs/gex/galecore-estrategia-gex.md).
 
-  **`FlowBroadcastService` y `SkewSnapshotService` no tienen switch todavía** — no son de una
-  estrategia en particular, así que falta decidir dónde vive su estado y en qué pantalla se controlan.
+  **Los servicios de plataforma también tienen switch** (desde 2026-08-12): `SkewSnapshotService` y
+  `FlowBroadcastService` corren solos y no son de ninguna estrategia, así que van por su propio
+  carril y no por el de arriba:
+  * se declaran en **`services[]` de `galecore_rules_core.json`** (`id`, `label`, `name`,
+    `description`, `enabled`, `switch_endpoint`), que es su nivel de reglas;
+  * el estado comparte **un** archivo en la raíz de `Files/`
+    (`platform_services_switch_state.json`), no una carpeta por servicio: `Files/<Prefijo>/` es
+    convención de estrategias;
+  * los endpoints son `GET`/`POST /App/GaleCore/Services/{id}/Switch`, con el mismo contrato
+    `{ enabled, source }`;
+  * **son dos niveles, no tres.** Una estrategia trabaja para alguien; estos no —el flow va a quien
+    se suscribió y el skew escribe un archivo compartido—, así que no hay preferencia por usuario y
+    tocarlos es cosa de admin;
+  * Main los renderiza en la sección **Plataforma** con `ServiceCard`, que monta el mismo
+    `StrategySwitch`.
+
+  **Apagar `skew` no es gratis:** es el que escribe `skew25_history.json`, de donde sale el RoC 5d
+  del gate `tail_score` de RPF. Cada tick apagado es un hueco en la serie. `flow`, en cambio, hoy
+  está inerte de punta a punta: ninguna pantalla llama a `SubscribeFlow`, así que el agregador no
+  trackea nada. Ojo con lo que su switch NO apaga — la suscripción a DXLink la abre `SubscribeFlow`
+  en el hub, no el broadcaster; el día que alguna pantalla lo use, el switch tiene que cortar ahí
+  también.
 
 - Lógica compartida — `App/Shared/`
   Lo que comparten los motores de decisión de las estrategias. Separado en dos: **lógica** en
@@ -474,7 +499,8 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   │   ├── StrategySwitch.tsx   # Switch ON/OFF reusable: recibe fetchState/setState, no conoce la estrategia
   │   │   └── ReferencesModal.tsx # Modal de References por estrategia: solapas Definiciones + Json. Transversal: recibe el panel y fetchJson
   │   ├── strategies/             # Tab Main
-  │   │   └── StrategyCard.tsx    # Card por estrategia: identidad + StrategySwitch a su switch_endpoint + "Abrir"
+  │   │   ├── StrategyCard.tsx    # Card por estrategia: identidad + StrategySwitch a su switch_endpoint + "Abrir"
+  │   │   └── ServiceCard.tsx     # Card por servicio de plataforma (services[]): no navega ni tiene References — solo su switch
   │   ├── ticker/
   │   │   ├── TickerCard.tsx      # Card por ticker: precio, variación, bid/ask/vol
   │   │   ├── TickerGrid.tsx      # Grid de TickerCards. `symbols` es obligatorio: lo pasa la estrategia dueña de la pantalla

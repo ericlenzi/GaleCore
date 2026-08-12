@@ -42,10 +42,12 @@ publish/
 # Estado de runtime del backend (se acumula día a día vía SkewSnapshotService)
 source/galecore-datafeed/DataFeed.Api/Files/skew25_history.json
 
-# Switch de CUALQUIER estrategia — decisión del operador, no configuración.
+# Switch de CUALQUIER estrategia, y también el de los servicios de plataforma
+# (platform_services_switch_state.json) — decisión del operador, no configuración.
 # Versionarlo haría que un deploy pise el switch (una estrategia apagada a propósito volvería a
 # arrancar sola) y que cada toggle ensucie el working tree. El default lo declara el JSON de reglas
-# de cada estrategia (state_machine.enabled en RPF, gex.enabled en GEX).
+# de cada estrategia (state_machine.enabled en RPF, gex.enabled en GEX) y, para los servicios,
+# services[].enabled de galecore_rules_core.json.
 # Glob y no una línea por estrategia: la próxima que sume switch queda cubierta sola.
 source/galecore-datafeed/DataFeed.Api/Files/**/*_switch_state.json
 # Nombre anterior al renombre de 2026-08-10. Se mantiene ignorado: el archivo puede seguir existiendo

@@ -133,6 +133,66 @@ public class RulesJsonTests
         }
     }
 
+    // ── Servicios de plataforma ──
+
+    /// <summary>
+    /// `services[]` declara los procesos que corren solos y NO son de ninguna estrategia. De aca
+    /// salen las cards de la seccion Plataforma de Main y el nivel "reglas" de su switch: un
+    /// servicio que no figura aca no se puede prender ni apagar desde el tablero.
+    /// </summary>
+    [Fact]
+    public void Services_CadaEntradaTieneElContratoCompleto()
+    {
+        var services = AppConfig()["services"]?.AsArray();
+        Assert.NotNull(services);
+        Assert.NotEmpty(services!);
+
+        foreach (var s in services!)
+        {
+            var o = s!.AsObject();
+            foreach (var campo in new[] { "id", "label", "name", "description", "switch_endpoint" })
+                Assert.False(string.IsNullOrWhiteSpace((string?)o[campo]),
+                    $"services[] con '{campo}' vacio o ausente: {o.ToJsonString()}");
+
+            // El default tiene que ser explicito: es el nivel de reglas del switch, y dejarlo
+            // implicito esconde en un default de codigo si el servicio arranca prendido.
+            Assert.True(o["enabled"] is JsonValue,
+                $"services[] '{(string?)o["id"]}' sin 'enabled' booleano.");
+        }
+
+        var ids = services!.Select(s => (string?)s!["id"]).ToList();
+        Assert.Equal(ids.Count, ids.Distinct().Count());
+    }
+
+    /// <summary>
+    /// El endpoint del switch se arma con el id, igual que en las estrategias con el prefijo. Si no
+    /// coinciden, la card de Main apunta a un servicio y muestra el estado de otro.
+    /// </summary>
+    [Fact]
+    public void Services_ElIdCoincideConSuEndpoint()
+    {
+        foreach (var s in AppConfig()["services"]!.AsArray())
+        {
+            var id = (string?)s!["id"]!;
+            Assert.Equal(id, id!.ToLowerInvariant());
+            Assert.Equal($"/App/GaleCore/Services/{id}/Switch", (string?)s["switch_endpoint"]);
+        }
+    }
+
+    /// <summary>
+    /// Los ids que el codigo pregunta en cada tick estan hardcodeados en cada BackgroundService
+    /// (ServiceId). Si alguien renombra el id en el JSON, el servicio deja de encontrar su entrada y
+    /// se comporta como si no tuviera switch — prendido y sin forma de apagarlo desde el tablero.
+    /// </summary>
+    [Fact]
+    public void Services_EstanLosQueElCodigoPregunta()
+    {
+        var ids = AppConfig()["services"]!.AsArray().Select(s => (string?)s!["id"]).ToList();
+
+        Assert.Contains("skew", ids);   // SkewSnapshotService.ServiceId
+        Assert.Contains("flow", ids);   // FlowBroadcastService.ServiceId
+    }
+
     // ── Config de Monitor ──
 
     /// <summary>

@@ -22,6 +22,7 @@ namespace DataFeed.Controllers
         private readonly DataFeed.Application.App.Rpf.RpfStateStore _rpfStore;
         private readonly DataFeed.Infrastructure.Providers.Tastytrade.IMarketDataBroadcaster _broadcaster;
         private readonly DataFeed.Api.Infrastructure.UserStrategySwitchStore _userSwitches;
+        private readonly DataFeed.Api.Infrastructure.PlatformServiceSwitch _serviceSwitch;
         private readonly DataFeed.Infrastructure.Providers.Tastytrade.ICurrentUser _currentUser;
         private readonly ILogger<AppController> _logger;
 
@@ -31,10 +32,12 @@ namespace DataFeed.Controllers
             DataFeed.Application.App.Rpf.RpfStateStore rpfStore,
             DataFeed.Infrastructure.Providers.Tastytrade.IMarketDataBroadcaster broadcaster,
             DataFeed.Api.Infrastructure.UserStrategySwitchStore userSwitches,
+            DataFeed.Api.Infrastructure.PlatformServiceSwitch serviceSwitch,
             DataFeed.Infrastructure.Providers.Tastytrade.ICurrentUser currentUser,
             ILogger<AppController> logger)
             : base(mediator)
         {
+            _serviceSwitch = serviceSwitch;
             _env = env;
             _rpfSwitch = rpfSwitch;
             _gexSwitch = gexSwitch;
@@ -80,6 +83,51 @@ namespace DataFeed.Controllers
         [HttpGet("GaleCore/Rules/Core")]
         public async Task<IActionResult> RulesCoreAsync()
             => await ServeRulesFileAsync("galecore_rules_core.json");
+
+        /// <summary>
+        /// Estado del switch de un servicio de plataforma (`services[]` de la config de la app).
+        /// Dos niveles, no tres: estos procesos no trabajan para nadie en particular, así que no
+        /// tienen preferencia por usuario. `source` vale "platform" o "rules".
+        /// </summary>
+        [Tags("App.GaleCore")]
+        [HttpGet("GaleCore/Services/{serviceId}/Switch")]
+        public IActionResult ServiceSwitchGet(string serviceId)
+        {
+            var resolved = _serviceSwitch.Resolve(serviceId);
+            if (resolved == null)
+                return NotFound(new { error = $"El servicio '{serviceId}' no está declarado en services[] de la config." });
+
+            return Ok(new { enabled = resolved.Value.Enabled, source = resolved.Value.Source });
+        }
+
+        /// <summary>
+        /// Prende o apaga un servicio de plataforma. Es kill switch para todos —no hay otro nivel—
+        /// así que lo tocan solo los admin (users.is_admin).
+        ///
+        /// El servicio lo relee en su próximo tick: el corte de `skew` tarda hasta 6h en notarse
+        /// porque esa es su cadencia, y el de `flow` hasta 30s.
+        /// </summary>
+        [Tags("App.GaleCore")]
+        [HttpPost("GaleCore/Services/{serviceId}/Switch")]
+        public async Task<IActionResult> ServiceSwitchSetAsync(
+            string serviceId, [FromBody] ServiceSwitchRequest body, CancellationToken ct)
+        {
+            if (!_serviceSwitch.IsDeclared(serviceId))
+                return NotFound(new { error = $"El servicio '{serviceId}' no está declarado en services[] de la config." });
+
+            var denied = await DenyIfNotPlatformAdminAsync($"el servicio {serviceId}", ct);
+            if (denied != null) return denied;
+
+            _serviceSwitch.Set(serviceId, body.Enabled);
+
+            var resolved = _serviceSwitch.Resolve(serviceId)!.Value;
+            return Ok(new { enabled = resolved.Enabled, source = resolved.Source, scope = "platform" });
+        }
+
+        public class ServiceSwitchRequest
+        {
+            public bool Enabled { get; set; }
+        }
 
         /// <summary>
         /// Quién es el portador del token. Endpoint de diagnóstico de la autenticación con Supabase:
@@ -309,7 +357,7 @@ namespace DataFeed.Controllers
         /// tablero desde 7af126a y es del operador—. El caso que este chequeo existe para cortar es
         /// el otro: un segundo operador logueado apagándole la estrategia al resto.
         /// </summary>
-        private async Task<IActionResult?> DenyIfNotPlatformAdminAsync(string strategyId, CancellationToken ct)
+        private async Task<IActionResult?> DenyIfNotPlatformAdminAsync(string subject, CancellationToken ct)
         {
             if (!_userSwitches.DatabaseConfigured) return null;
 
@@ -317,21 +365,21 @@ namespace DataFeed.Controllers
             if (userId == null)
             {
                 _logger.LogInformation(
-                    "Kill switch de plataforma de {StrategyId} tocado por una llamada sin usuario (API key).",
-                    strategyId);
+                    "Kill switch de plataforma de {Subject} tocado por una llamada sin usuario (API key).",
+                    subject);
                 return null;
             }
 
             if (await _userSwitches.IsAdminAsync(userId.Value, ct)) return null;
 
             _logger.LogWarning(
-                "El usuario {UserId} intentó tocar el kill switch de plataforma de {StrategyId} sin ser admin.",
-                userId.Value, strategyId);
+                "El usuario {UserId} intentó tocar el kill switch de plataforma de {Subject} sin ser admin.",
+                userId.Value, subject);
 
             return StatusCode(403, new
             {
                 error = "El kill switch de plataforma es solo para admins. " +
-                        "Para prender o apagar la estrategia en tu tablero, usá POST del switch sin /Platform.",
+                        "Para prender o apagar una estrategia en tu tablero, usá POST del switch sin /Platform.",
             });
         }
 

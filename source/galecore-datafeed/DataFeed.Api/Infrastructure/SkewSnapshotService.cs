@@ -15,6 +15,7 @@ namespace DataFeed.Api.Infrastructure
     {
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IWebHostEnvironment _env;
+        private readonly PlatformServiceSwitch _switch;
         private readonly ILogger<SkewSnapshotService> _logger;
         private static readonly object _fileLock = new();
 
@@ -22,10 +23,17 @@ namespace DataFeed.Api.Infrastructure
         private const int CheckIntervalMs = 6 * 60 * 60 * 1000; // 6h
         private const int MaxHistory = 90;
 
-        public SkewSnapshotService(IServiceScopeFactory scopeFactory, IWebHostEnvironment env, ILogger<SkewSnapshotService> logger)
+        // Id declarado en services[] de galecore_rules_core.json.
+        private const string ServiceId = "skew";
+
+        private bool _inertLogged;
+
+        public SkewSnapshotService(IServiceScopeFactory scopeFactory, IWebHostEnvironment env,
+            PlatformServiceSwitch @switch, ILogger<SkewSnapshotService> logger)
         {
             _scopeFactory = scopeFactory;
             _env = env;
+            _switch = @switch;
             _logger = logger;
         }
 
@@ -39,7 +47,26 @@ namespace DataFeed.Api.Infrastructure
             {
                 try
                 {
-                    await SnapshotIfNeededAsync(stoppingToken);
+                    // Se relee en cada tick, como el switch de las estrategias: apagarlo desde el
+                    // front corta el barrido sin reiniciar la API. No hay estado publicado que
+                    // limpiar — lo que este servicio produce es un archivo, y los días ya
+                    // registrados siguen siendo válidos.
+                    if (!_switch.IsEnabled(ServiceId))
+                    {
+                        if (!_inertLogged)
+                        {
+                            _logger.LogInformation(
+                                "SkewSnapshotService INERTE: switch en OFF. Cada tick que pase sin registrar " +
+                                "es un hueco en skew25_history.json, que es de donde sale el RoC 5d del gate " +
+                                "tail_score de RPF.");
+                            _inertLogged = true;
+                        }
+                    }
+                    else
+                    {
+                        _inertLogged = false;
+                        await SnapshotIfNeededAsync(stoppingToken);
+                    }
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
                 catch (Exception ex) { _logger.LogError(ex, "Error en SkewSnapshotService tick"); }

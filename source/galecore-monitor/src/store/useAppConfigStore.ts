@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { AppConfig, StrategyEntry } from '../types/api';
+import { AppConfig, ServiceEntry, StrategyEntry } from '../types/api';
 
 /**
  * Configuración de la aplicación, leída de /App/GaleCore/Rules/Core.
@@ -12,6 +12,8 @@ interface AppConfigStore {
   /** Universo de la plataforma. Alimenta el Subscribe del hub. */
   tickers: string[];
   strategies: StrategyEntry[];
+  /** Procesos de plataforma con switch propio. Vacío hasta que llega el config. */
+  services: ServiceEntry[];
   loading: boolean;
   error: string | null;
   setConfig: (c: AppConfig) => void;
@@ -23,6 +25,7 @@ export const useAppConfigStore = create<AppConfigStore>((set) => ({
   config: null,
   tickers: [],
   strategies: [],
+  services: [],
   loading: true,
   error: null,
 
@@ -30,6 +33,7 @@ export const useAppConfigStore = create<AppConfigStore>((set) => ({
     config: c,
     tickers: c.universe?.tickers ?? [],
     strategies: c.strategies ?? [],
+    services: c.services ?? [],
     error: null,
   }),
   setLoading: (v) => set({ loading: v }),

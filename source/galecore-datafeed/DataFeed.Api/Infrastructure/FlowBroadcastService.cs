@@ -12,17 +12,25 @@ namespace DataFeed.Api.Infrastructure
     {
         private readonly IFlowAggregatorService _flowAggregator;
         private readonly IMarketDataBroadcaster _broadcaster;
+        private readonly PlatformServiceSwitch _switch;
         private readonly ILogger<FlowBroadcastService> _logger;
 
         private const int BroadcastIntervalMs = 30_000; // 30 segundos
 
+        // Id declarado en services[] de galecore_rules_core.json.
+        private const string ServiceId = "flow";
+
+        private bool _inertLogged;
+
         public FlowBroadcastService(
             IFlowAggregatorService flowAggregator,
             IMarketDataBroadcaster broadcaster,
+            PlatformServiceSwitch @switch,
             ILogger<FlowBroadcastService> logger)
         {
             _flowAggregator = flowAggregator;
             _broadcaster = broadcaster;
+            _switch = @switch;
             _logger = logger;
         }
 
@@ -35,6 +43,23 @@ namespace DataFeed.Api.Infrastructure
                 try
                 {
                     await Task.Delay(BroadcastIntervalMs, stoppingToken);
+
+                    // Se relee en cada tick, como el switch de las estrategias. Ojo con lo que este
+                    // switch NO apaga: la suscripcion a DXLink la abre SubscribeFlow en el hub, y
+                    // eso sigue vivo aunque el broadcast este en OFF. Hoy da igual porque ninguna
+                    // pantalla llama a SubscribeFlow; el dia que alguna lo haga, el switch tiene que
+                    // cortar tambien ahi.
+                    if (!_switch.IsEnabled(ServiceId))
+                    {
+                        if (!_inertLogged)
+                        {
+                            _logger.LogInformation("FlowBroadcastService INERTE: switch en OFF — no se emite ReceiveFlow.");
+                            _inertLogged = true;
+                        }
+                        continue;
+                    }
+
+                    _inertLogged = false;
                     await BroadcastAllFlowSnapshotsAsync();
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
