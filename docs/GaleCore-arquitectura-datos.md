@@ -326,6 +326,38 @@ Costó descubrirlo, así que queda escrito:
 * **El estado NO se migra** (§5). Los `*_switch_state.json` y `skew25_history.json` se quedan como
   archivos.
 
+### Tomadas (2026-08-12) — dos roles de base, no uno
+
+La API **nunca migra en runtime** (no hay `Migrate()` en ningún lado: las migraciones se aplican a
+mano con `dotnet ef database update`). Eso es lo que permite separar quién crea el esquema de quién
+lo usa, y por eso los privilegios quedaron así:
+
+| Rol | Para qué | Qué tiene |
+|---|---|---|
+| `galecore_ddl` | migraciones, nada más | dueño de las 5 tablas y `CREATE` sobre `public` |
+| `galecore_api` | el runtime de la API | `USAGE` en `public`; `SELECT/INSERT/UPDATE/DELETE` en `users`, `accounts`, `user_strategies`; `SELECT` en `strategies` |
+
+**El problema que resuelve:** hasta hoy `galecore_api` era **dueña** de las tablas, así que la
+credencial que va a App Settings de Azure podía `DROP TABLE` el esquema entero. Ahora no puede crear,
+borrar, truncar ni alterar nada — solo leer y escribir filas. Tampoco tiene ningún permiso sobre
+`__EFMigrationsHistory`.
+
+Tres cosas que hay que saber para no tropezar:
+
+* **Aplicar migraciones exige la credencial de DDL**: `GALECORE_DB` con `galecore_ddl` antes de
+  `dotnet ef database update`. `GaleCoreDbContextFactory` ya lee esa variable primero, así que no hay
+  que tocar el user-secret de la API. Sin eso, la migración falla con `permission denied`.
+* **`ALTER DEFAULT PRIVILEGES` no es decorativo.** Sin él, la tabla que cree la próxima migración nace
+  sin permisos para la API y el fallo aparece en runtime, lejos del cambio que lo causó.
+* **`strategies` quedó de solo lectura** porque la app solo la lee: el catálogo se siembra por
+  migración. Si algún día se edita desde la aplicación, hay que sumarle `UPDATE`.
+
+*Nota de ejecución:* transferir la propiedad y otorgar los permisos son dos pasos, y **entre uno y
+otro la API se queda sin acceso**. Se hizo con la API corriendo y se vio en los logs: el loop de RPF
+siguió (su consulta es permisiva ante fallas) pero `TastytradeCredentialStore` no pudo resolver la
+credencial de sistema. Duró lo que tardó el segundo paso. En Azure conviene hacerlo con la app
+detenida, o en una sola transacción.
+
 ### Tomadas (2026-08-12) — el switch, precisado
 
 Esta decisión y la de §5.3 ("van a la base … el estado por usuario de cada estrategia") parecían
