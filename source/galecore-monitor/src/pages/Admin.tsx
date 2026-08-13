@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Shield, RefreshCw, User as UserIcon } from 'lucide-react';
 import { AdminUser, fetchAdminUsers, setAdminUserRole } from '../api/admin';
+import { BrokerAccountCard } from '../components/account/BrokerAccountCard';
 import { useCurrentUserStore } from '../store/useCurrentUserStore';
 import { tint } from '../utils/formatters';
 
@@ -30,7 +31,12 @@ const Pill = ({ children, color, title }: { children: React.ReactNode; color: st
 );
 
 /**
- * Administrator — quién es quién en la plataforma. Solo para admins.
+ * Admin — administración: la cuenta de bróker propia y, para los admin, los usuarios.
+ *
+ * LA PANTALLA ES PARA TODOS, la tabla de usuarios no. Es a propósito: la cuenta de bróker es DE
+ * CADA UNO —de ella salen sus balances y posiciones—, así que esconderla detrás del permiso de
+ * admin dejaría al operador no-admin sin poder vincular la suya y con un tablero vacío que no
+ * puede arreglar. Lo que se gatea es lo que administra a OTROS.
  *
  * NO DA DE ALTA USUARIOS, y no es una omisión: la identidad la maneja Supabase Auth y las altas se
  * hacen en su panel. Traerlas acá obligaría a meter la `service_role` key —la llave maestra del
@@ -38,11 +44,10 @@ const Pill = ({ children, color, title }: { children: React.ReactNode; color: st
  * tanto. La fila local de cada usuario nace sola en su primer request autenticado.
  *
  * TAMPOCO MUESTRA LAS CUENTAS DE BRÓKER AJENAS. Un admin administra usuarios, no sus credenciales:
- * de la cuenta de otro solo se ve si existe, nunca el número ni el token. Cada uno administra la
- * suya desde Main.
+ * de la cuenta de otro solo se ve si existe, nunca el número ni el token.
  *
- * El gate real está en el endpoint (403), no en que esta pestaña esté escondida: ocultar una
- * pantalla no es seguridad.
+ * El gate real está en el endpoint (403), no en que la tabla no se renderice: ocultar una pantalla
+ * no es seguridad.
  */
 export function Admin() {
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -51,6 +56,7 @@ export function Admin() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const reloadCurrentUser = useCurrentUserStore((s) => s.reload);
+  const isAdmin = useCurrentUserStore((s) => s.user?.isAdmin ?? false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,7 +72,9 @@ export function Admin() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // Sin permiso no se pide la lista: pedirla para comerse un 403 ensucia los logs del servidor con
+  // intentos que la propia UI ya sabe que no corresponden.
+  useEffect(() => { if (isAdmin) load(); else setLoading(false); }, [isAdmin, load]);
 
   const toggleAdmin = async (u: AdminUser) => {
     setBusyId(u.id);
@@ -89,6 +97,26 @@ export function Admin() {
 
   return (
     <div style={{ padding: '16px 18px 40px', fontFamily: 'Inter, sans-serif' }}>
+      {/* Mi cuenta — para todos. La cuenta de bróker es de cada uno: de ella salen sus balances y
+          posiciones, y es donde se rota el refresh token. */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 16 }}>
+        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Mi cuenta</span>
+        <span style={{
+          fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase',
+          color: 'var(--text-muted)',
+        }}>
+          credenciales del operador
+        </span>
+      </div>
+
+      <div style={{ maxWidth: 460, marginBottom: 32 }}>
+        <BrokerAccountCard />
+      </div>
+
+      {/* Usuarios — solo admin. El gate real es el 403 del endpoint; esto es para no ofrecer algo
+          que la API va a rechazar. */}
+      {!isAdmin ? null : (
+      <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <Shield size={15} style={{ color: ACCENT }} />
         <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Administrator</span>
@@ -108,7 +136,7 @@ export function Admin() {
         Las altas se hacen en el panel de Supabase; acá aparecen solos la primera vez que entran al
         tablero. <strong style={{ color: 'var(--text-secondary)' }}>Admin</strong> habilita prender y
         apagar estrategias y servicios, que afecta a todos los operadores. De las cuentas de bróker
-        ajenas solo se ve si existen: cada uno administra la suya desde Main.
+        ajenas solo se ve si existen, nunca el número ni el token.
       </div>
 
       {error && (
@@ -213,6 +241,8 @@ export function Admin() {
             </table>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

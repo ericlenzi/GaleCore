@@ -9,22 +9,24 @@ interface Props {
   active: Tab;
   onChange: (tab: Tab) => void;
   onLogout?: () => void;
-  /** Muestra la pestaña Administrator. Es cosmético: el gate real es el 403 del endpoint. */
-  showAdmin?: boolean;
 }
 
 // References dejó de ser pestaña: cada estrategia tiene su botón "References" en la cabecera de su
 // pantalla, que abre un modal con Definiciones + JSON de reglas.
-const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }>; adminOnly?: boolean }[] = [
+//
+// Admin la ven TODOS: adentro vive la cuenta de bróker de cada uno, que un no-admin también tiene
+// que poder vincular —sin ella no ve balances ni posiciones—. Lo que se gatea es la tabla de
+// usuarios, dentro de la pantalla.
+const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
   { id: 'inicio',          label: 'Main',              Icon: LayoutDashboard },
   { id: 'monitor',         label: 'Monitor',           Icon: Activity        },
   { id: 'gex',             label: 'GEX',               Icon: BarChart3       },
   { id: 'rpf',             label: 'RPF',               Icon: Zap             },
-  { id: 'admin',           label: 'Admin',             Icon: Shield, adminOnly: true },
+  { id: 'admin',           label: 'Admin',             Icon: Shield          },
 ];
 
-export function TabNav({ active, onChange, onLogout, showAdmin }: Props) {
-  const tabs = TABS.filter((t) => !t.adminOnly || showAdmin);
+export function TabNav({ active, onChange, onLogout }: Props) {
+  const tabs = TABS;
 
   return (
     <nav
