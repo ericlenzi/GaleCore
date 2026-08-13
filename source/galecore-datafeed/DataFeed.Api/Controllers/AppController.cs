@@ -163,6 +163,12 @@ namespace DataFeed.Controllers
             if (userId.HasValue)
                 await _users.EnsureUserAsync(userId.Value, _currentUser.Email, ct);
 
+            // El username y el permiso salen de la MISMA consulta: los dos viven en la fila que se
+            // acaba de asegurar arriba.
+            var (username, isAdmin) = userId.HasValue
+                ? await _users.ReadProfileAsync(userId.Value, ct)
+                : (null, false);
+
             return Ok(new
             {
                 userId = sub,
@@ -170,8 +176,11 @@ namespace DataFeed.Controllers
                 role = User.FindFirst("role")?.Value,
                 issuer = User.Claims.FirstOrDefault(c => c.Type == "iss")?.Value,
 
+                // Con lo que entró: vive en `users`, no en el token — Supabase Auth no lo conoce.
+                username,
+
                 // La verdad cruda de la tabla: false sin base, sin fila o si la consulta falla.
-                isAdmin = userId.HasValue && await _users.IsAdminAsync(userId.Value, ct),
+                isAdmin,
 
                 // El permiso EFECTIVO, que no es lo mismo: sin base no hay permisos que consultar
                 // y la API se comporta como antes de que la base existiera.
@@ -350,11 +359,117 @@ namespace DataFeed.Controllers
 
         #endregion
 
+        #region Autenticación
+
+        /// <summary>
+        /// Entrada a la plataforma con USUARIO y contraseña. Es el único endpoint sin JWT.
+        ///
+        /// Hace dos cosas: resuelve `username → email` contra la tabla `users` y autentica ese mail
+        /// contra Supabase con la anon key. **El mail no sale del servidor**: la alternativa —un
+        /// endpoint que traduzca username a mail y que el navegador le pegue a Supabase directo—
+        /// sería una ruta pública que devuelve direcciones de correo a quien adivine un usuario.
+        ///
+        /// TRES REGLAS DURAS, y las tres son por ser la puerta sin autenticar:
+        ///   * **Rate limit** (política "login" en Program.cs). Sin él, la única defensa contra
+        ///     probar contraseñas en bucle sería la de Supabase, que no conoce nuestros usernames.
+        ///   * **Error genérico**: usuario inexistente y contraseña equivocada contestan lo MISMO.
+        ///     Si se distinguieran, el formulario sería un detector de qué usuarios existen.
+        ///   * **No se loguea el body** — trae la contraseña. Se loguea el username y nada más.
+        ///
+        /// Devuelve solo los dos tokens, que es lo que `supabase.auth.setSession` necesita: de ahí
+        /// en más la sesión la administra supabase-js en el navegador y la renueva sola, igual que
+        /// cuando el login era por mail. Por eso el resto del front no cambió.
+        ///
+        /// Queda un canal lateral conocido y aceptado: un usuario que no existe contesta sin salir
+        /// a la red y uno que sí, después del round-trip a Supabase, así que los tiempos difieren.
+        /// Explotarlo exige medir muchos intentos contra el rate limit, y taparlo obligaría a
+        /// autenticar contra Supabase con un mail inventado en cada intento fallido.
+        /// </summary>
+        [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+        [Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("login")]
+        [Tags("App.GaleCore")]
+        [HttpPost("GaleCore/Auth/Login")]
+        public async Task<IActionResult> LoginAsync(
+            [FromBody] LoginRequest body,
+            [FromServices] IServiceProvider services,
+            [FromServices] DataFeed.Api.Infrastructure.SupabaseAuthClient auth,
+            CancellationToken ct)
+        {
+            if (!auth.Configured)
+                return StatusCode(503, new
+                {
+                    error = "Falta la configuración de Supabase (Supabase:Issuer y Supabase:AnonKey), " +
+                            "así que la API no puede autenticar.",
+                });
+
+            var db = services.GetService<DataFeed.Repositories.GaleCoreDbContext>();
+            if (db == null)
+                return StatusCode(503, new
+                {
+                    error = "Esta API está corriendo sin base de datos configurada, así que no puede " +
+                            "resolver el usuario. Falta ConnectionStrings:GaleCore.",
+                });
+
+            var username = DataFeed.Application.App.Shared.Usernames.Normalize(body.Username);
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(body.Password))
+                return Unauthorized(new { error = CredencialesInvalidas });
+
+            var email = await db.Users.AsNoTracking()
+                .Where(u => u.Username == username)
+                .Select(u => u.Email)
+                .FirstOrDefaultAsync(ct);
+
+            // Mismo 401 que una contraseña mala, a propósito.
+            if (email == null)
+            {
+                _logger.LogInformation("Login fallido: no existe el usuario {Username}.", username);
+                return Unauthorized(new { error = CredencialesInvalidas });
+            }
+
+            var session = await auth.SignInAsync(email, body.Password, ct);
+            if (session == null)
+            {
+                _logger.LogInformation("Login fallido del usuario {Username}.", username);
+                return Unauthorized(new { error = CredencialesInvalidas });
+            }
+
+            _logger.LogInformation("Entró el usuario {Username}.", username);
+
+            return Ok(new
+            {
+                accessToken = session.AccessToken,
+                refreshToken = session.RefreshToken,
+            });
+        }
+
+        /// <summary>
+        /// El MISMO mensaje para "no existe" y para "contraseña equivocada". Si fueran distintos,
+        /// probar usuarios en el formulario diría cuáles existen.
+        /// </summary>
+        private const string CredencialesInvalidas = "Usuario o contraseña incorrectos.";
+
+        public class LoginRequest
+        {
+            public string? Username { get; set; }
+            public string? Password { get; set; }
+        }
+
+        #endregion
+
         #region Administración de usuarios
 
-        // Quién es quién en la plataforma. NO da de alta: la identidad la maneja Supabase Auth y los
-        // usuarios se crean allá — acá se los ve y se les da (o saca) el permiso de admin. La fila
-        // de `users` nace sola en el primer request autenticado de cada uno (UserStore.EnsureUserAsync).
+        // ABM completo de los operadores de la plataforma. Solo admins.
+        //
+        // CADA ALTA Y CADA BAJA ESCRIBEN EN DOS SISTEMAS: la identidad vive en Supabase Auth
+        // (mail y contraseña) y lo que la plataforma deja hacer, en la tabla `users` (`is_admin`,
+        // `username`). Ninguno de los dos alcanza solo — sin fila local el usuario es invisible
+        // para el admin y no tiene con qué entrar; sin usuario en auth no hay contra qué
+        // autenticarse. Por eso las dos escrituras se COMPENSAN: si la segunda falla, se deshace la
+        // primera, o queda un usuario huérfano en auth que nadie ve ni puede borrar desde la app.
+        //
+        // La fila local también puede nacer sola, en el primer request autenticado de quien haya
+        // sido creado directo en el panel de Supabase (UserStore.EnsureUserAsync): el ABM de acá es
+        // el camino normal, no el único.
         //
         // LO QUE UN ADMIN *NO* PUEDE: ver las cuentas de bróker ajenas. Administra usuarios, no sus
         // credenciales — por eso la lista dice si tienen cuenta vinculada, pero no cuál. Las
@@ -381,6 +496,7 @@ namespace DataFeed.Controllers
                 {
                     id = u.Id,
                     email = u.Email,
+                    username = u.Username,
                     displayName = u.DisplayName,
                     isAdmin = u.IsAdmin,
                     createdAt = u.CreatedAt,
@@ -395,21 +511,123 @@ namespace DataFeed.Controllers
         }
 
         /// <summary>
-        /// Prende o apaga el permiso de admin de un usuario. Solo admins.
+        /// Da de alta un operador: lo crea en Supabase Auth y le arma su fila en `users`. Solo admins.
+        ///
+        /// DOS ESCRITURAS, CON COMPENSACIÓN. Primero la identidad (Supabase devuelve el uuid) y
+        /// después la fila local, que necesita ese uuid como clave. Si la segunda falla, se BORRA el
+        /// usuario recién creado en auth: sin fila local no aparece en esta lista, no tiene username
+        /// con qué entrar y nadie lo puede borrar desde la app — un huérfano que solo se limpia
+        /// entrando al panel de Supabase.
+        ///
+        /// La contraseña es INICIAL: el operador la cambia después desde su propia pantalla
+        /// (supabase.auth.updateUser, que no necesita la service_role). El admin no vuelve a tocarla.
+        /// </summary>
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        [Tags("App.GaleCore")]
+        [HttpPost("GaleCore/Admin/Users")]
+        public async Task<IActionResult> AdminCreateUserAsync(
+            [FromBody] AdminCreateUserRequest body,
+            [FromServices] IServiceProvider services,
+            [FromServices] DataFeed.Api.Infrastructure.SupabaseAdminClient supabase,
+            CancellationToken ct)
+        {
+            var denied = await DenyIfNotAdminAsync("el alta de un usuario", ct);
+            if (denied != null) return denied;
+
+            var db = services.GetService<DataFeed.Repositories.GaleCoreDbContext>();
+            if (db == null) return DatabaseNotConfigured();
+
+            if (!supabase.Configured)
+                return StatusCode(503, new { error = SupabaseNoConfigurado });
+
+            var username = DataFeed.Application.App.Shared.Usernames.Normalize(body.Username);
+            var email = (body.Email ?? string.Empty).Trim();
+            var password = body.Password ?? string.Empty;
+
+            var invalido = ValidarUsername(username) ?? ValidarEmail(email);
+            if (invalido != null) return BadRequest(new { error = invalido });
+
+            if (string.IsNullOrWhiteSpace(password))
+                return BadRequest(new { error = "Hay que darle una contraseña inicial; el operador la cambia después." });
+
+            // Se chequea contra la tabla ANTES de crear la identidad: los índices únicos rechazarían
+            // igual, pero recién después de haber creado el usuario en auth — o sea que un username
+            // repetido costaría un alta y su compensación en vez de un mensaje.
+            if (await db.Users.AnyAsync(u => u.Username == username, ct))
+                return BadRequest(new { error = $"El usuario '{username}' ya está tomado." });
+            if (await db.Users.AnyAsync(u => u.Email == email, ct))
+                return BadRequest(new { error = $"Ya hay un operador con el mail {email}." });
+
+            var creado = await supabase.CreateUserAsync(email, password, ct);
+            if (!creado.Ok || creado.UserId == null)
+                return BadRequest(new { error = creado.Message ?? "Supabase Auth rechazó el alta." });
+
+            var userId = creado.UserId.Value;
+
+            try
+            {
+                db.Users.Add(new DataFeed.Repositories.Entities.User
+                {
+                    Id = userId,
+                    Email = email,
+                    Username = username,
+                    DisplayName = string.IsNullOrWhiteSpace(body.DisplayName) ? null : body.DisplayName!.Trim(),
+                    IsAdmin = body.IsAdmin,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                });
+
+                await db.SaveChangesAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Falló la fila de `users` del alta de {Username}: se revierte el usuario {UserId} en Supabase Auth.",
+                    username, userId);
+
+                var revertido = await supabase.DeleteUserAsync(userId, ct);
+
+                return StatusCode(500, new
+                {
+                    error = revertido.Ok
+                        ? "No se pudo guardar el usuario en la base, así que se deshizo el alta. Probá de nuevo."
+                        : $"No se pudo guardar el usuario en la base Y TAMPOCO deshacer el alta en " +
+                          $"Supabase: quedó el usuario {email} (uuid {userId}) creado en auth pero sin " +
+                          $"fila en la plataforma. Hay que borrarlo desde el panel de Supabase.",
+                });
+            }
+
+            _logger.LogInformation("Alta del operador {Username} ({UserId}), la hizo {ActorId}.",
+                username, userId, _currentUser.UserId);
+
+            return Ok(new { id = userId, username, email, isAdmin = body.IsAdmin });
+        }
+
+        /// <summary>
+        /// Edita un usuario: su permiso de admin, su username, su nombre visible, su mail o su
+        /// contraseña. Solo admins. Los campos que vienen en null no se tocan.
         ///
         /// NO SE PUEDE DEJAR LA PLATAFORMA SIN NINGÚN ADMIN. Sin admins, el kill switch de las
         /// estrategias y de los servicios no se puede tocar desde ningún tablero y hay que arreglarlo
         /// con SQL a mano contra Postgres. El chequeo va en el servidor y no en la UI porque es un
         /// invariante, no una comodidad.
+        ///
+        /// EL ORDEN IMPORTA: primero la fila local y después la identidad. Si el UPDATE local falla
+        /// —un username tomado, por ejemplo— no se tocó nada de auth todavía; y si es el cambio en
+        /// auth el que falla, se revierte el mail local, porque los dos tienen que decir lo mismo:
+        /// el login resuelve username → mail contra esta tabla y después autentica con ESE mail
+        /// contra Supabase. Desincronizados, el usuario no entra más.
         /// </summary>
         [Microsoft.AspNetCore.Authorization.Authorize]
         [Tags("App.GaleCore")]
         [HttpPatch("GaleCore/Admin/Users/{id:guid}")]
-        public async Task<IActionResult> AdminSetUserRoleAsync(
-            Guid id, [FromBody] AdminUserRoleRequest body,
-            [FromServices] IServiceProvider services, CancellationToken ct)
+        public async Task<IActionResult> AdminUpdateUserAsync(
+            Guid id, [FromBody] AdminUpdateUserRequest body,
+            [FromServices] IServiceProvider services,
+            [FromServices] DataFeed.Api.Infrastructure.SupabaseAdminClient supabase,
+            CancellationToken ct)
         {
-            var denied = await DenyIfNotAdminAsync($"el rol del usuario {id}", ct);
+            var denied = await DenyIfNotAdminAsync($"la edición del usuario {id}", ct);
             if (denied != null) return denied;
 
             var db = services.GetService<DataFeed.Repositories.GaleCoreDbContext>();
@@ -418,7 +636,9 @@ namespace DataFeed.Controllers
             var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
             if (user == null) return NotFound(new { error = "No existe ese usuario." });
 
-            if (user.IsAdmin && !body.IsAdmin)
+            var mailAnterior = user.Email;
+
+            if (body.IsAdmin.HasValue && user.IsAdmin && !body.IsAdmin.Value)
             {
                 var otrosAdmins = await db.Users.CountAsync(u => u.IsAdmin && u.Id != id, ct);
                 if (otrosAdmins == 0)
@@ -430,19 +650,224 @@ namespace DataFeed.Controllers
                     });
             }
 
-            user.IsAdmin = body.IsAdmin;
+            if (body.Username != null)
+            {
+                var username = DataFeed.Application.App.Shared.Usernames.Normalize(body.Username);
+                var invalido = ValidarUsername(username);
+                if (invalido != null) return BadRequest(new { error = invalido });
+
+                if (username != user.Username
+                    && await db.Users.AnyAsync(u => u.Username == username && u.Id != id, ct))
+                    return BadRequest(new { error = $"El usuario '{username}' ya está tomado." });
+
+                user.Username = username;
+            }
+
+            if (body.Email != null)
+            {
+                var email = body.Email.Trim();
+                var invalido = ValidarEmail(email);
+                if (invalido != null) return BadRequest(new { error = invalido });
+
+                if (email != user.Email && await db.Users.AnyAsync(u => u.Email == email && u.Id != id, ct))
+                    return BadRequest(new { error = $"Ya hay un operador con el mail {email}." });
+
+                user.Email = email;
+            }
+
+            if (body.DisplayName != null)
+                user.DisplayName = string.IsNullOrWhiteSpace(body.DisplayName) ? null : body.DisplayName.Trim();
+
+            if (body.IsAdmin.HasValue) user.IsAdmin = body.IsAdmin.Value;
+
             user.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
 
-            _logger.LogInformation("El usuario {TargetId} {Accion} admin (lo cambió {ActorId}).",
-                id, body.IsAdmin ? "pasó a ser" : "dejó de ser", _currentUser.UserId);
+            // Lo que vive en Supabase Auth: el mail (solo si cambió) y la contraseña.
+            var cambiaMail = user.Email != mailAnterior;
+            var cambiaPassword = !string.IsNullOrWhiteSpace(body.Password);
 
-            return Ok(new { id, isAdmin = user.IsAdmin });
+            if (cambiaMail || cambiaPassword)
+            {
+                if (!supabase.Configured)
+                {
+                    // Se deshace el cambio local: dejarlo aplicado dejaría la tabla diciendo un mail
+                    // que auth no conoce, y ese usuario no podría volver a entrar.
+                    user.Email = mailAnterior;
+                    await db.SaveChangesAsync(ct);
+                    return StatusCode(503, new { error = SupabaseNoConfigurado });
+                }
+
+                var actualizado = await supabase.UpdateUserAsync(
+                    id,
+                    cambiaMail ? user.Email : null,
+                    cambiaPassword ? body.Password : null,
+                    ct);
+
+                if (!actualizado.Ok)
+                {
+                    if (cambiaMail)
+                    {
+                        user.Email = mailAnterior;
+                        await db.SaveChangesAsync(ct);
+                    }
+
+                    return BadRequest(new
+                    {
+                        error = actualizado.Message ?? "Supabase Auth rechazó el cambio.",
+                    });
+                }
+            }
+
+            _logger.LogInformation("Se editó el usuario {TargetId} (lo cambió {ActorId}). Admin: {EsAdmin}.",
+                id, _currentUser.UserId, user.IsAdmin);
+
+            return Ok(new
+            {
+                id,
+                username = user.Username,
+                email = user.Email,
+                displayName = user.DisplayName,
+                isAdmin = user.IsAdmin,
+            });
         }
 
-        public class AdminUserRoleRequest
+        /// <summary>
+        /// Elimina un operador: lo borra de Supabase Auth y de la tabla `users`. Solo admins.
+        ///
+        /// IRREVERSIBLE, y se lleva puestas sus cuentas de bróker por la FK en cascada — o sea el
+        /// refresh token cifrado que tenía guardado. Si esa cuenta era la de SISTEMA, los procesos
+        /// de fondo se quedan sin credencial para pedir datos de mercado: se avisa en la respuesta y
+        /// se loguea como warning, igual que al desvincular.
+        ///
+        /// DOS GUARDAS: no se puede borrar a sí mismo (el error clásico de quedarse afuera de la
+        /// plataforma con un click) ni al último admin.
+        ///
+        /// EL ORDEN ES AL REVÉS QUE EN EL ALTA: primero auth y después la fila local. Lo que
+        /// importa de una baja es que la persona deje de poder entrar, y eso lo da el borrado en
+        /// auth; si después falla el borrado local, reintentar converge —el segundo intento se come
+        /// un 404 de auth, que se toma como éxito, y termina el trabajo—. Al revés, un fallo dejaría
+        /// una identidad viva sin fila local, que es justo el huérfano que el alta se cuida de no crear.
+        /// </summary>
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        [Tags("App.GaleCore")]
+        [HttpDelete("GaleCore/Admin/Users/{id:guid}")]
+        public async Task<IActionResult> AdminDeleteUserAsync(
+            Guid id,
+            [FromServices] IServiceProvider services,
+            [FromServices] DataFeed.Api.Infrastructure.SupabaseAdminClient supabase,
+            CancellationToken ct)
         {
+            var denied = await DenyIfNotAdminAsync($"la baja del usuario {id}", ct);
+            if (denied != null) return denied;
+
+            var db = services.GetService<DataFeed.Repositories.GaleCoreDbContext>();
+            if (db == null) return DatabaseNotConfigured();
+
+            if (id == _currentUser.UserId)
+                return BadRequest(new
+                {
+                    error = "No te podés borrar a vos mismo. Si querés irte de la plataforma, que " +
+                            "otro admin te dé la baja.",
+                });
+
+            var user = await db.Users
+                .Include(u => u.Accounts)
+                .FirstOrDefaultAsync(u => u.Id == id, ct);
+
+            if (user == null) return NotFound(new { error = "No existe ese usuario." });
+
+            if (user.IsAdmin)
+            {
+                var otrosAdmins = await db.Users.CountAsync(u => u.IsAdmin && u.Id != id, ct);
+                if (otrosAdmins == 0)
+                    return BadRequest(new
+                    {
+                        error = "Es el único admin que queda. Si se lo borra, nadie puede prender ni " +
+                                "apagar estrategias desde el tablero y hay que arreglarlo con SQL. " +
+                                "Dale admin a otro usuario primero.",
+                    });
+            }
+
+            if (!supabase.Configured)
+                return StatusCode(503, new { error = SupabaseNoConfigurado });
+
+            var teniaCuentaDeSistema = user.Accounts.Any(a => a.IsSystem);
+            var username = user.Username;
+
+            var borrado = await supabase.DeleteUserAsync(id, ct);
+            if (!borrado.Ok)
+                return BadRequest(new { error = borrado.Message ?? "Supabase Auth rechazó la baja." });
+
+            db.Users.Remove(user);
+            await db.SaveChangesAsync(ct);
+
+            if (teniaCuentaDeSistema)
+                _logger.LogWarning(
+                    "Se borró al operador {Username} ({UserId}), que tenía la cuenta de SISTEMA. Los " +
+                    "procesos de fondo se quedan sin credencial para datos de mercado hasta que se " +
+                    "marque otra.", username, id);
+            else
+                _logger.LogInformation("Se borró al operador {Username} ({UserId}), lo hizo {ActorId}.",
+                    username, id, _currentUser.UserId);
+
+            return Ok(new { id, deleted = true, wasSystem = teniaCuentaDeSistema });
+        }
+
+        private const string SupabaseNoConfigurado =
+            "Falta la service_role key de Supabase (Supabase:ServiceRoleKey), así que la aplicación " +
+            "no puede administrar la identidad. Va en user-secrets (local) o en App Settings (Azure), " +
+            "nunca en appsettings.json.";
+
+        /// <summary>
+        /// El mensaje de por qué un username no sirve, o null si sirve. Explica la regla en vez de
+        /// devolver "inválido": el charset es angosto a propósito y quien lo tipea no lo sabe.
+        /// </summary>
+        private static string? ValidarUsername(string username)
+            => DataFeed.Application.App.Shared.Usernames.IsValid(username)
+                ? null
+                : "El usuario va en minúscula, entre 3 y 32 caracteres, y solo admite letras, " +
+                  "números, punto, guion y guion bajo.";
+
+        /// <summary>
+        /// Validación deliberadamente mínima: la de verdad la hace Supabase Auth, que es dueño de la
+        /// identidad. Duplicar acá un criterio más estricto que el suyo solo rechazaría mails que
+        /// después él aceptaría.
+        /// </summary>
+        private static string? ValidarEmail(string email)
+        {
+            if (string.IsNullOrWhiteSpace(email)) return "El mail es requerido.";
+            if (email.Length > 320) return "El mail es demasiado largo.";
+
+            var at = email.IndexOf('@');
+            return at > 0 && at < email.Length - 1 && !email.Contains(' ')
+                ? null
+                : "Eso no parece un mail.";
+        }
+
+        public class AdminCreateUserRequest
+        {
+            public string? Username { get; set; }
+            public string? Email { get; set; }
+            /// <summary>Inicial: el operador la cambia después desde su propia pantalla.</summary>
+            public string? Password { get; set; }
+            public string? DisplayName { get; set; }
             public bool IsAdmin { get; set; }
+        }
+
+        /// <summary>
+        /// Todo opcional: lo que viene en null no se toca. Es lo que permite que la pantalla mande
+        /// solo el campo que cambió —`{ isAdmin }` desde el toggle, por ejemplo— sin tener que
+        /// reenviar el usuario entero y arriesgarse a pisar con datos viejos lo que otro editó.
+        /// </summary>
+        public class AdminUpdateUserRequest
+        {
+            public bool? IsAdmin { get; set; }
+            public string? Username { get; set; }
+            public string? Email { get; set; }
+            public string? DisplayName { get; set; }
+            /// <summary>Contraseña nueva. Vacío o null = no se toca.</summary>
+            public string? Password { get; set; }
         }
 
         /// <summary>

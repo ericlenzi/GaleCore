@@ -1,6 +1,7 @@
 # Plan de reorganización — switch global, administración y login por usuario
 
-**Estado:** etapas 1 y 2 **COMPLETAS y verificadas en vivo** (2026-08-12) · etapa 3 pendiente
+**Estado:** etapas 1 y 2 **COMPLETAS y verificadas en vivo** (2026-08-12) · etapa 3 **escrita entera
+el 2026-08-13 (3a ABM + 3b login), SIN VERIFICAR EN VIVO todavía**
 **Decidido:** 2026-08-12
 
 Reorganiza tres cosas que quedaron a medio camino tras la incorporación de la base de datos
@@ -127,6 +128,17 @@ motivo es que el alta desde la app exige la **service_role key** —la llave mae
 dentro de la aplicación, más manejar el caso de que la fila local falle y el usuario quede huérfano
 en auth, todo para una operación que con dos operadores pasa una vez cada tanto.
 
+> **⚠️ REVERTIDO el 2026-08-13, al arrancar la etapa 3.** El ABM completo (alta, edición y baja)
+> se hace desde Administrator. Lo que forzó la vuelta atrás no fue el costo sino un callejón sin
+> salida: con el login por username, el username vive en `users`, y esa fila nace recién en el
+> primer request autenticado — o sea que un usuario creado en el panel de Supabase **no tendría con
+> qué entrar para que su fila naciera**. El alta desde la app es lo que rompe el círculo, porque
+> crea la identidad y la fila juntas. Los dos riesgos que este párrafo señalaba siguen siendo
+> reales y se manejan explícitamente: la service_role vive solo del lado servidor
+> (`Supabase:ServiceRoleKey`, user-secrets o App Settings) y el alta **compensa** — si la fila local
+> falla, borra el usuario recién creado en auth. La materialización perezosa se queda igual, como
+> red para quien haya sido creado en el panel de Supabase: le deriva el username del mail.
+
 **Consecuencia que invierte una decisión del plan original:** la materialización perezosa de la fila
 de `users` **se queda**, y encima se movió a `/Me`. El plan decía borrarla cuando existiera el alta
 desde la app; como el alta se hace en Supabase, esa fila no la crea nadie más — sacarla habría dejado
@@ -189,10 +201,72 @@ que está en el bundle es la anon key, y son cosas muy distintas.
 
 **Objetivo:** entrar con usuario y contraseña. **`email` no se toca**: sigue real, único y requerido.
 
+### 3a — ABM de usuarios desde Administrator — HECHA el 2026-08-13
+
+Va **antes** que el login, y no es un rodeo: sin ella el login por username es un callejón sin
+salida. El username vive en `users` y esa fila nace en el primer request autenticado, así que un
+usuario creado en el panel de Supabase no tendría username con qué entrar para que su fila naciera.
+El alta desde la app rompe el círculo creando la identidad y la fila juntas. Revierte la decisión
+de la etapa 2 (ver el recuadro de arriba).
+
+* **Base** — migración `AddUsername`, en los tres pasos que pedía el plan: `username` nullable →
+  backfill derivado del mail → `NOT NULL` + único + `ck_users_username`. El `AddColumn` que genera
+  EF por defecto (`nullable: false, defaultValue: ""`) no sirve: le pone la cadena vacía a las filas
+  que ya existen y el check —que exige 3 caracteres— revienta en la misma transacción.
+* **Lógica pura** — `App/Shared/Usernames.cs` (charset, derivación del mail, deduplicación),
+  congelada por `UsernamesTests.cs`. Un test verifica que la regex de C# y la del check de Postgres
+  aceptan lo mismo: si se separan, el alta falla con un 500 de constraint en vez de con un mensaje.
+* **Backend** — `SupabaseAdminClient` contra la admin API de GoTrue (`{Issuer}/admin/users`), y
+  `POST` / `PATCH` / `DELETE` de `/App/GaleCore/Admin/Users`. El `PATCH` pasó de `{ isAdmin }` a
+  todo-opcional: lo que viene en null no se toca.
+* **Frontend** — alta, edición y baja en Administrator, y `MyPasswordCard` para que cada uno cambie
+  su contraseña.
+
+**Las dos escrituras se compensan, y el orden es distinto en cada punta.** En el **alta** va primero
+auth (devuelve el uuid, que la fila local necesita como clave) y si la fila falla se borra el usuario
+recién creado: un usuario en auth sin fila local es invisible desde la app y solo se limpia entrando
+al panel de Supabase. En la **baja** es al revés —primero auth— porque lo que importa de una baja es
+que la persona deje de poder entrar; si después falla el borrado local, reintentar converge (el
+segundo intento se come un 404 de auth, que se toma como éxito).
+
+**La contraseña del alta es INICIAL y el operador la cambia desde su pantalla.** Se eligió sobre la
+invitación por mail porque no depende de que el proyecto tenga un SMTP propio: con el servicio de
+mail por defecto de Supabase (unos pocos envíos por hora) una invitación puede no llegar nunca, y el
+alta quedaría a mitad de camino sin que el admin se entere. El cambio propio le pega directo a
+Supabase con la sesión vigente —`supabase.auth.updateUser`—, que no necesita la service_role.
+
+**🔑 `Supabase:ServiceRoleKey` solo del lado servidor**: user-secrets en local, App Settings en
+Azure, nunca en `appsettings.json`. Sin ella la API arranca igual y todo anda; lo único que contesta
+503, explicando qué falta, es el ABM.
+
 Se descartó la variante con email sintético (`<username>@galecore.internal`) porque rompe el reset
 de contraseña por mail, obliga a saltear la confirmación, y convierte el cambio de username en una
 escritura en dos sistemas que se pueden desincronizar. Con el email real, nada de eso pasa: la
 identidad de auth no se toca y el username vive en una sola tabla.
+
+### 3b — El login — ESCRITA el 2026-08-13
+
+Salió como estaba planeada, con dos precisiones que el plan no decía:
+
+* **El login tiene que saltear `ApiKeyMiddleware`**, que corre antes de la autorización y bloquea
+  todo lo que no traiga JWT ni API key. Sin la exención, entrar exigiría la credencial que el login
+  vino a reemplazar — el tablero volvería a necesitar una API key en su bundle, o sea pública, solo
+  para mostrar la pantalla de entrada. La exención es por comparación EXACTA de path: con
+  `StartsWith`, cualquier ruta futura que empiece igual heredaría el permiso sin que nadie lo note.
+* **`Supabase:AnonKey` va en `appsettings.json`**, y no contradice la nota de la service_role: la
+  anon key es pública por diseño, ya viaja en el bundle y ya estaba commiteada en el `.env` del
+  monitor. No autoriza nada por sí sola — lo que autoriza en el `grant_type=password` es la
+  contraseña.
+
+**Rate limit**: política `login` con ventana fija por IP, 10 intentos cada 5 minutos, sin cola.
+Particiona por `X-Forwarded-For` y cae a la IP remota; sin ninguna de las dos, todos comparten
+partición, que es el lado seguro (limita de más, no de menos). El front distingue el 429 del 401:
+decirle "usuario o contraseña incorrectos" a quien chocó con el límite lo manda a dudar de una
+contraseña que estaba bien.
+
+**Canal lateral conocido y aceptado:** un usuario inexistente contesta sin salir a la red y uno que
+existe, después del round-trip a Supabase, así que los tiempos difieren. Explotarlo exige muchos
+intentos contra el rate limit; taparlo obligaría a autenticar con un mail inventado en cada fallo.
 
 ### Base
 
@@ -226,8 +300,10 @@ ni en debug.
 
 ### En Administrator
 
-El alta pide username + email real y **invita por mail**: la persona elige su contraseña. El admin
-nunca manipula la contraseña de otro.
+Ya está hecho en 3a: el alta pide username + email real + **contraseña inicial**, y la persona la
+cambia desde "Mi contraseña". Se descartó invitar por mail porque depende de un SMTP propio (ver
+3a). El admin puede resetear la contraseña de otro desde el formulario de edición — es la única
+forma de rescatar a quien perdió el acceso mientras no haya reset por mail.
 
 ---
 

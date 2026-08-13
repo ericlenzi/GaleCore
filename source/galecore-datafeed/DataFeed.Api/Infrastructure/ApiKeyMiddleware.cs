@@ -20,6 +20,20 @@
                 return;
             }
 
+            // El login es la PUERTA: quien todavía no entró no tiene JWT, y exigirle además la API
+            // key sería pedirle la credencial que el login vino a reemplazar — el tablero volvería
+            // a necesitarla en su bundle, o sea pública, solo para poder mostrar la pantalla de
+            // entrada. Que quede sin ninguna de las dos capas es a propósito y por eso es el único
+            // endpoint con rate limit (política "login" en Program.cs).
+            //
+            // Comparación exacta y no StartsWith: con el prefijo, cualquier ruta futura que empiece
+            // igual (/App/GaleCore/Auth/Loginentero) heredaría la exención sin que nadie lo note.
+            if (string.Equals(path, "/App/GaleCore/Auth/Login", StringComparison.OrdinalIgnoreCase))
+            {
+                await _next(context);
+                return;
+            }
+
             // Un JWT válido ya identifica a una persona, que es MÁS de lo que prueba una clave
             // compartida: la clave dice "alguien que la tiene", el token dice quién. Aceptarlo es lo
             // que permite que el tablero deje de cargar una API key en su bundle.

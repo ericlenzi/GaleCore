@@ -223,6 +223,45 @@ namespace DataFeed
             // consultar y la API se comporta como antes de que la base existiera.
             builder.Services.AddSingleton<UserStore>();
 
+            // ABM de operadores desde Administrator: crea, edita y borra usuarios en Supabase Auth.
+            // Se registra siempre; adentro comprueba si tiene la service_role key y, si no, los
+            // endpoints contestan 503 con el motivo. Que falte un secreto no puede tumbar el feed.
+            builder.Services.AddSingleton<DataFeed.Api.Infrastructure.SupabaseAdminClient>();
+
+            // Login por username: resuelve username → mail contra `users` y autentica ese mail
+            // contra Supabase con la ANON key (la service_role hace falta para crear usuarios, no
+            // para loguearlos).
+            builder.Services.AddSingleton<DataFeed.Api.Infrastructure.SupabaseAuthClient>();
+
+            // Rate limit del login, que es el ÚNICO endpoint sin JWT. Sin esto, la única defensa
+            // contra probar contraseñas en bucle sería la de Supabase, que no conoce nuestros
+            // usernames — y cada intento nuestro le cuesta a la base una consulta antes de llegar
+            // hasta allá.
+            //
+            // Ventana fija por IP: 10 intentos cada 5 minutos, sin cola (el 11 se rechaza en el
+            // acto en vez de esperar turno, que para un login es lo correcto: quien se equivocó
+            // quiere saber ya). Es holgado para alguien que tipea mal su contraseña y ridículo para
+            // una fuerza bruta.
+            builder.Services.AddRateLimiter(options =>
+            {
+                options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+                options.AddPolicy("login", http =>
+                    System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+                        // Detrás de un proxy la IP remota es la del proxy: X-Forwarded-For es lo que
+                        // distingue a los clientes de verdad. Sin ninguna de las dos, todos caen en
+                        // la misma partición, que es el lado seguro (limita de más, no de menos).
+                        partitionKey: http.Request.Headers["X-Forwarded-For"].FirstOrDefault()
+                                      ?? http.Connection.RemoteIpAddress?.ToString()
+                                      ?? "sin-ip",
+                        factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+                        {
+                            PermitLimit = 10,
+                            Window = TimeSpan.FromMinutes(5),
+                            QueueLimit = 0,
+                        }));
+            });
+
             // Switch de los servicios de plataforma (services[] de galecore_rules_core.json): los
             // procesos que corren solos y no son de ninguna estrategia. Va ANTES de los
             // AddHostedService de arriba en el orden de lectura, pero el contenedor no depende del
@@ -285,6 +324,10 @@ namespace DataFeed
             // La política del hub se evalúa aunque no haya autenticación configurada (en ese caso
             // deja pasar, ver arriba).
             app.UseAuthorization();
+
+            // Después de la autorización: solo tiene efecto sobre las rutas que declaran una
+            // política ([EnableRateLimiting]), o sea hoy el login y nada más.
+            app.UseRateLimiter();
 
             //app.MapGet("/health", () => "DataFeed OK");
             app.MapControllers();

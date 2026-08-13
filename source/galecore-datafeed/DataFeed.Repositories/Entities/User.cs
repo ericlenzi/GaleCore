@@ -13,7 +13,21 @@ namespace DataFeed.Repositories.Entities
         /// <summary>uuid de Supabase Auth (auth.users.id). No se genera acá.</summary>
         public Guid Id { get; set; }
 
+        /// <summary>
+        /// Identidad en Supabase Auth: es la que recibe el reset de contraseña. Sigue siendo real,
+        /// única y requerida aunque el login sea por <see cref="Username"/>.
+        /// </summary>
         public string Email { get; set; } = "";
+
+        /// <summary>
+        /// Con lo que se entra al tablero. Único y en minúscula (`ck_users_username`, el mismo
+        /// charset que <c>Usernames.Pattern</c>).
+        ///
+        /// Vive SOLO acá: la identidad de auth no lo conoce. Por eso cambiarlo es un UPDATE en una
+        /// tabla y no una escritura en dos sistemas que se puedan desincronizar — que fue la razón
+        /// de descartar la variante del mail sintético `usuario@galecore.internal`.
+        /// </summary>
+        public string Username { get; set; } = "";
 
         public string? DisplayName { get; set; }
 

@@ -12,6 +12,11 @@ import apiClient from './client';
 export interface CurrentUser {
   userId: string | null;
   email: string | null;
+  /**
+   * Con lo que entró al tablero. Sale de la tabla `users`, NO del token: Supabase Auth no conoce
+   * el username — solo el mail. Es null sin base configurada.
+   */
+  username: string | null;
   /** La verdad cruda de la tabla `users`: false sin base, sin fila o si la consulta falla. */
   isAdmin: boolean;
   /** El permiso EFECTIVO para tocar los kill switch de estrategias y servicios. */

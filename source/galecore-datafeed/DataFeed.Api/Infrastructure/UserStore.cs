@@ -42,14 +42,17 @@ namespace DataFeed.Api.Infrastructure
         /// <summary>
         /// Materializa la fila de `users` si no existe, y devuelve true si la creó.
         ///
-        /// LA IDENTIDAD LA MANEJA SUPABASE AUTH: los usuarios se dan de alta allá y esta tabla solo
-        /// les cuelga las FK y el permiso de la aplicación. Por eso la fila nace en el primer
-        /// request autenticado de cada uno y no hay endpoint de alta.
+        /// ES LA RED, NO EL CAMINO NORMAL. Desde la etapa 3 el alta se hace desde Administrator, que
+        /// crea la identidad y la fila local juntas. Esto queda para quien haya sido creado directo
+        /// en el panel de Supabase: sin fila local no aparece en la lista del admin y nadie le puede
+        /// dar permisos, así que la primera vez que aparece con un token válido se lo materializa.
         ///
-        /// Se llama desde `/Me`, o sea en el primer request que hace el tablero al entrar. Eso
-        /// importa para la pantalla de administración: si la fila naciera recién al vincular una
-        /// cuenta de bróker, un usuario recién creado en Supabase sería INVISIBLE para el admin
-        /// —y no habría forma de darle permisos— hasta que vinculara una cuenta.
+        /// Se llama desde `/Me`, o sea en el primer request que hace el tablero al entrar, y no al
+        /// vincular una cuenta de bróker: si esperara a eso, un usuario nuevo sería invisible para
+        /// el admin hasta que vinculara una.
+        ///
+        /// EL USERNAME SE DERIVA DEL MAIL, porque la columna es requerida y este camino no tiene a
+        /// nadie a quien preguntarle. Es editable después desde Administrator.
         ///
         /// El uuid y el mail salen del token, nunca del body de un request.
         /// </summary>
@@ -63,10 +66,21 @@ namespace DataFeed.Api.Infrastructure
             {
                 if (await db.Users.AnyAsync(u => u.Id == userId, ct)) return false;
 
+                var mail = email ?? $"{userId}@sin-mail.local";
+
+                // La lista de tomados se lee una sola vez: son un puñado de operadores, y consultar
+                // por cada candidato haría un round-trip por intento para resolver un choque que
+                // casi nunca pasa. El índice único sigue siendo el que decide de verdad.
+                var tomados = await db.Users.AsNoTracking().Select(u => u.Username).ToListAsync(ct);
+                var username = DataFeed.Application.App.Shared.Usernames.Deduplicate(
+                    DataFeed.Application.App.Shared.Usernames.FromEmail(mail),
+                    tomados.Contains);
+
                 db.Users.Add(new User
                 {
                     Id = userId,
-                    Email = email ?? $"{userId}@sin-mail.local",
+                    Email = mail,
+                    Username = username,
                     CreatedAt = DateTime.UtcNow,
                     UpdatedAt = DateTime.UtcNow,
                 });
@@ -89,6 +103,36 @@ namespace DataFeed.Api.Infrastructure
                 // el usuario todavía no figure en la lista del admin.
                 _logger.LogWarning(ex, "No se pudo materializar el usuario {UserId}.", userId);
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// El username y el permiso de un usuario, en una sola consulta. Lo usa `/Me`, que necesita
+        /// los dos: el username para mostrar quién está adentro, el permiso para decidir qué
+        /// habilita la UI.
+        ///
+        /// Devuelve `(null, false)` sin base, sin fila o si la consulta falla — la misma postura
+        /// fail-closed de <see cref="IsAdminAsync"/> para el permiso.
+        /// </summary>
+        public async Task<(string? Username, bool IsAdmin)> ReadProfileAsync(Guid userId, CancellationToken ct)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetService<GaleCoreDbContext>();
+            if (db == null) return (null, false);
+
+            try
+            {
+                var fila = await db.Users.AsNoTracking()
+                    .Where(u => u.Id == userId)
+                    .Select(u => new { u.Username, u.IsAdmin })
+                    .FirstOrDefaultAsync(ct);
+
+                return fila == null ? (null, false) : (fila.Username, fila.IsAdmin);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo leer el perfil del usuario {UserId}.", userId);
+                return (null, false);
             }
         }
 

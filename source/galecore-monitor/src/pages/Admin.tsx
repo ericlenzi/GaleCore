@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { RefreshCw, User as UserIcon } from 'lucide-react';
-import { AdminUser, fetchAdminUsers, setAdminUserRole } from '../api/admin';
+import { Pencil, Plus, RefreshCw, Trash2, User as UserIcon } from 'lucide-react';
+import { AdminUser, deleteAdminUser, fetchAdminUsers, setAdminUserRole } from '../api/admin';
 import { BrokerAccountCard } from '../components/account/BrokerAccountCard';
+import { MyPasswordCard } from '../components/account/MyPasswordCard';
+import { UserForm } from '../components/admin/UserForm';
 import { SectionTitle } from '../components/common/SectionTitle';
 import { useCurrentUserStore } from '../store/useCurrentUserStore';
 import { tint } from '../utils/formatters';
@@ -32,17 +34,17 @@ const Pill = ({ children, color, title }: { children: React.ReactNode; color: st
 );
 
 /**
- * Admin — administración: la cuenta de bróker propia y, para los admin, los usuarios.
+ * Admin — administración: lo propio de cada operador y, para los admin, el ABM de usuarios.
  *
  * LA PANTALLA ES PARA TODOS, la tabla de usuarios no. Es a propósito: la cuenta de bróker es DE
  * CADA UNO —de ella salen sus balances y posiciones—, así que esconderla detrás del permiso de
  * admin dejaría al operador no-admin sin poder vincular la suya y con un tablero vacío que no
- * puede arreglar. Lo que se gatea es lo que administra a OTROS.
+ * puede arreglar. Lo mismo la contraseña propia. Lo que se gatea es lo que administra a OTROS.
  *
- * NO DA DE ALTA USUARIOS, y no es una omisión: la identidad la maneja Supabase Auth y las altas se
- * hacen en su panel. Traerlas acá obligaría a meter la `service_role` key —la llave maestra del
- * proyecto— dentro de la aplicación, para una operación que con dos operadores pasa una vez cada
- * tanto. La fila local de cada usuario nace sola en su primer request autenticado.
+ * DA DE ALTA, EDITA Y BORRA USUARIOS desde la etapa 3. Cada operación escribe en dos sistemas —la
+ * identidad en Supabase Auth y la fila de `users`— y el backend las compensa; acá solo se muestra
+ * el motivo cuando algo falla. La contraseña del alta es INICIAL: la persona la cambia desde "Mi
+ * contraseña" apenas entra.
  *
  * TAMPOCO MUESTRA LAS CUENTAS DE BRÓKER AJENAS. Un admin administra usuarios, no sus credenciales:
  * de la cuenta de otro solo se ve si existe, nunca el número ni el token.
@@ -55,7 +57,13 @@ export function Admin() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // null = el formulario está cerrado. 'nuevo' = alta. Un id = edición de ese usuario.
+  const [editando, setEditando] = useState<string | null>(null);
+  // Borrar se lleva puestas las cuentas de bróker por la FK en cascada y no se puede deshacer, así
+  // que pide confirmación explícita en la fila en vez de irse de un click.
+  const [confirmandoBaja, setConfirmandoBaja] = useState<string | null>(null);
   const reloadCurrentUser = useCurrentUserStore((s) => s.reload);
   const isAdmin = useCurrentUserStore((s) => s.user?.isAdmin ?? false);
 
@@ -96,6 +104,36 @@ export function Admin() {
     }
   };
 
+  const borrar = async (u: AdminUser) => {
+    setBusyId(u.id);
+    setError(null);
+    setAviso(null);
+    try {
+      const res = await deleteAdminUser(u.id);
+      setConfirmandoBaja(null);
+      setAviso(res.wasSystem
+        ? `Se borró a ${u.username}. TENÍA LA CUENTA DE SISTEMA: hasta que se vincule otra y se la marque, los procesos de fondo se quedan sin credencial para pedir datos de mercado.`
+        : `Se borró a ${u.username}, con sus cuentas de bróker.`);
+      await load();
+    } catch (err: any) {
+      // Las guardas del backend (el último admin, borrarse a uno mismo) explican el motivo: se
+      // muestra tal cual.
+      setError(err?.response?.data?.error || err?.message || 'No se pudo borrar el usuario');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const cerrarFormulario = () => setEditando(null);
+  const alGuardar = async () => {
+    setEditando(null);
+    setAviso(null);
+    await load();
+    // El username propio se muestra en "Mi contraseña": si me edité a mí mismo, tiene que cambiar
+    // sin recargar la página.
+    await reloadCurrentUser();
+  };
+
   return (
     <div style={{ padding: '16px 18px 40px', fontFamily: 'Inter, sans-serif' }}>
       {/* Mi cuenta — para todos. La cuenta de bróker es de cada uno: de ella salen sus balances y
@@ -106,8 +144,12 @@ export function Admin() {
         style={{ marginBottom: 16 }}
       />
 
-      <div style={{ maxWidth: 460, marginBottom: 32 }}>
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 460px))',
+        gap: 16, marginBottom: 32, alignItems: 'start',
+      }}>
         <BrokerAccountCard />
+        <MyPasswordCard />
       </div>
 
       {/* Usuarios — solo admin. El gate real es el 403 del endpoint; esto es para no ofrecer algo
@@ -119,6 +161,14 @@ export function Admin() {
         badge="usuarios · permisos"
         style={{ marginBottom: 16 }}
       >
+        <button
+          onClick={() => setEditando(editando === 'nuevo' ? null : 'nuevo')}
+          className="btn"
+          title="Dar de alta un operador"
+        >
+          <Plus size={11} />
+          Nuevo operador
+        </button>
         <button onClick={load} className="btn" title="Releer la lista" disabled={loading}>
           <RefreshCw size={11} />
           Releer
@@ -126,15 +176,30 @@ export function Admin() {
       </SectionTitle>
 
       <div style={{ fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 16, maxWidth: 760 }}>
-        Las altas se hacen en el panel de Supabase; acá aparecen solos la primera vez que entran al
-        tablero. <strong style={{ color: 'var(--text-secondary)' }}>Admin</strong> habilita prender y
-        apagar estrategias y servicios, que afecta a todos los operadores. De las cuentas de bróker
-        ajenas solo se ve si existen, nunca el número ni el token.
+        El alta crea la identidad en Supabase y la fila de la plataforma juntas, con una contraseña
+        inicial que el operador cambia desde su pantalla apenas entra.{' '}
+        <strong style={{ color: 'var(--text-secondary)' }}>Admin</strong> habilita prender y apagar
+        estrategias y servicios, que afecta a todos los operadores. De las cuentas de bróker ajenas
+        solo se ve si existen, nunca el número ni el token.
       </div>
+
+      {editando && (
+        <UserForm
+          user={editando === 'nuevo' ? null : users.find((u) => u.id === editando) ?? null}
+          onSaved={alGuardar}
+          onCancel={cerrarFormulario}
+        />
+      )}
 
       {error && (
         <div className="text-xs py-2 px-3 rounded" style={{ backgroundColor: 'rgba(239,68,68,0.12)', color: 'var(--red-gc)', marginBottom: 14, maxWidth: 760 }}>
           {error}
+        </div>
+      )}
+
+      {aviso && (
+        <div className="text-xs py-2 px-3 rounded" style={{ backgroundColor: 'rgba(34,197,94,0.12)', color: 'var(--green)', marginBottom: 14, maxWidth: 760 }}>
+          {aviso}
         </div>
       )}
 
@@ -159,6 +224,7 @@ export function Admin() {
                   <th style={thStyle}>Cuenta de bróker</th>
                   <th style={thStyle}>Desde</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Admin</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -170,11 +236,15 @@ export function Admin() {
                       <td style={tdStyle}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                           <UserIcon size={12} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                          <span style={{ color: 'var(--text-primary)' }}>{u.email}</span>
+                          {/* El username manda: es con lo que entra. El mail queda de dato. */}
+                          <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{u.username}</span>
                           {soyYo && <Pill color="var(--blue-gc)">vos</Pill>}
                           {u.displayName && (
                             <span style={{ color: 'var(--text-muted)', fontSize: 10.5 }}>{u.displayName}</span>
                           )}
+                        </div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: 10.5, marginTop: 3, marginLeft: 20 }}>
+                          {u.email}
                         </div>
                       </td>
                       <td style={tdStyle}>
@@ -226,6 +296,50 @@ export function Admin() {
                           </span>
                           {u.isAdmin ? 'SÍ' : 'NO'}
                         </button>
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {confirmandoBaja === u.id ? (
+                          <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                            <span style={{ fontSize: 10, color: 'var(--red-gc)', fontFamily: 'Inter, sans-serif' }}>
+                              {u.hasBrokerAccount ? '¿Borrar? Se va con su cuenta de bróker.' : '¿Borrar?'}
+                            </span>
+                            <button
+                              onClick={() => borrar(u)}
+                              className="btn"
+                              disabled={busy}
+                              style={{ color: 'var(--red-gc)', borderColor: tint('#ef4444', 40) }}
+                            >
+                              {busy ? '…' : 'Sí, borrar'}
+                            </button>
+                            <button onClick={() => setConfirmandoBaja(null)} className="btn" disabled={busy}>
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'inline-flex', gap: 6 }}>
+                            <button
+                              onClick={() => { setEditando(u.id); setAviso(null); }}
+                              className="btn"
+                              title="Editar usuario, mail, nombre o contraseña"
+                              disabled={busy}
+                            >
+                              <Pencil size={11} />
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => { setConfirmandoBaja(u.id); setAviso(null); }}
+                              className="btn"
+                              title={soyYo
+                                ? 'No te podés borrar a vos mismo: que te dé la baja otro admin'
+                                : 'Eliminar el operador de la plataforma y de Supabase Auth'}
+                              disabled={busy || soyYo}
+                              style={{ opacity: soyYo ? 0.4 : 1 }}
+                            >
+                              <Trash2 size={11} />
+                              Borrar
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );

@@ -42,10 +42,68 @@ export async function getSession(): Promise<Session | null> {
   return data.session;
 }
 
-export async function signIn(email: string, password: string) {
-  return supabase.auth.signInWithPassword({ email, password });
+/**
+ * Entrada con USUARIO y contraseña.
+ *
+ * Le pega a NUESTRA API y no a Supabase directo, porque el front no conoce el mail: solo el
+ * username. La API lo resuelve contra la tabla `users` y autentica ese mail contra Supabase. Un
+ * endpoint público que tradujera username → mail para que el navegador siguiera solo sería una
+ * ruta sin autenticar que devuelve direcciones de correo a quien adivine un usuario.
+ *
+ * DESPUÉS DEL LOGIN NADA CAMBIA: `setSession` deja los dos tokens en manos de supabase-js, que los
+ * guarda y los renueva sola antes de que venzan. Por eso `getAccessToken`, el interceptor de axios,
+ * el `accessTokenFactory` del hub y el `onAuthStateChange` de App.tsx siguen funcionando sin
+ * enterarse de que la puerta de entrada cambió.
+ *
+ * Se usa fetch y no el cliente de axios a propósito: ese interceptor adjunta el token de la sesión,
+ * y acá justamente todavía no hay ninguna.
+ */
+export async function loginWithUsername(username: string, password: string) {
+  const base = process.env.REACT_APP_API_BASE_URL || '';
+
+  const res = await fetch(`${base}/App/GaleCore/Auth/Login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+
+  if (!res.ok) {
+    // El backend contesta lo MISMO para usuario inexistente y contraseña equivocada: si fueran
+    // mensajes distintos, probar nombres en el formulario diría cuáles existen. El 429 sí se
+    // distingue, porque decirle "usuario o contraseña incorrectos" a quien en realidad chocó con el
+    // rate limit lo manda a dudar de una contraseña que estaba bien.
+    if (res.status === 429) {
+      throw new Error('Demasiados intentos. Esperá unos minutos antes de volver a probar.');
+    }
+
+    const data = await res.json().catch(() => null);
+    throw new Error(data?.error || 'Usuario o contraseña incorrectos.');
+  }
+
+  const { accessToken, refreshToken } = await res.json();
+
+  const { error } = await supabase.auth.setSession({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  });
+
+  if (error) throw new Error(error.message);
 }
 
 export async function signOut() {
   await supabase.auth.signOut();
+}
+
+/**
+ * Cambia la contraseña del usuario logueado.
+ *
+ * Va DIRECTO a Supabase con la sesión que ya tiene, sin pasar por la API: cambiar la propia
+ * contraseña no necesita la service_role —esa hace falta para tocar la de OTRO— y mandarla a
+ * nuestro backend sería hacerla viajar por un servidor de más sin ninguna ganancia.
+ *
+ * Es la contracara del alta: el admin crea al operador con una contraseña inicial y desde acá esa
+ * persona la reemplaza por una suya, sin que el admin vuelva a tocarla.
+ */
+export async function updateOwnPassword(password: string) {
+  return supabase.auth.updateUser({ password });
 }

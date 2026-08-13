@@ -37,16 +37,24 @@ namespace DataFeed.Repositories
         {
             b.Entity<User>(e =>
             {
-                e.ToTable("users");
+                // El MISMO charset que Usernames.Pattern, congelado por UsernamesTests. Está en la
+                // base además de en C# porque el UPDATE a mano contra Postgres no pasa por la app.
+                e.ToTable("users", t => t.HasCheckConstraint("ck_users_username", "username ~ '^[a-z0-9._-]{3,32}$'"));
                 e.HasKey(x => x.Id);
                 // El uuid lo trae Supabase Auth: EF no debe generarlo ni pedirle uno a Postgres.
                 e.Property(x => x.Id).ValueGeneratedNever();
                 e.Property(x => x.Email).HasMaxLength(320).IsRequired();
+                e.Property(x => x.Username).HasMaxLength(32).IsRequired();
                 e.Property(x => x.DisplayName).HasMaxLength(120);
                 e.Property(x => x.IsAdmin).HasDefaultValue(false);
                 e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
                 e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");
                 e.HasIndex(x => x.Email).IsUnique();
+
+                // El username es con lo que se entra: si hubiera dos iguales, el login no podría
+                // resolver a qué mail corresponde. El único lo garantiza la base y no la aplicación
+                // porque dos altas simultáneas ganarían las dos el chequeo previo.
+                e.HasIndex(x => x.Username).IsUnique();
             });
 
             b.Entity<Account>(e =>

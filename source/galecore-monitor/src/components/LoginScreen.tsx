@@ -1,27 +1,31 @@
 import React, { useState } from 'react';
-import { signIn, supabaseConfigured } from '../auth/supabase';
+import { loginWithUsername, supabaseConfigured } from '../auth/supabase';
 
 interface Props {
   onAuthenticated: () => void;
 }
 
 /**
- * Entrada al tablero, con usuario y contraseña de Supabase.
+ * Entrada al tablero, con USUARIO y contraseña.
  *
  * Reemplaza a la pantalla de Access Key, que tenía dos problemas de fondo: la clave era COMPARTIDA
  * (no identificaba a nadie, así que la API no podía saber de quién era la cuenta de bróker que
  * estaba sirviendo) y no servía para autenticar el hub, porque en el upgrade a WebSocket el
  * navegador no deja mandar headers propios.
  *
+ * EL CAMPO ES EL USERNAME, NO EL MAIL (desde 2026-08-13). El mail sigue existiendo —es la identidad
+ * en Supabase, la que recibe el reset de contraseña— pero el front no lo conoce ni lo necesita: la
+ * API resuelve username → mail contra su tabla. Ver `loginWithUsername`.
+ *
  * La sesión la administra supabase-js: la guarda y renueva el access token sola antes de que venza.
  */
 export function LoginScreen({ onAuthenticated }: Props) {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmit = email.trim().length > 0 && password.length > 0 && supabaseConfigured;
+  const canSubmit = username.trim().length > 0 && password.length > 0 && supabaseConfigured;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,19 +35,9 @@ export function LoginScreen({ onAuthenticated }: Props) {
     setError(null);
 
     try {
-      const { error: authError } = await signIn(email.trim(), password);
-
-      if (authError) {
-        // Supabase distingue credenciales inválidas de problemas de red. Mostrar el motivo real
-        // evita que el operador pruebe la contraseña diez veces cuando el problema es la conexión.
-        setError(
-          authError.message === 'Invalid login credentials'
-            ? 'Usuario o contraseña incorrectos'
-            : authError.message
-        );
-        return;
-      }
-
+      // El mensaje ya viene resuelto: el backend contesta lo mismo para usuario inexistente y para
+      // contraseña equivocada, y `loginWithUsername` distingue aparte el rate limit y la red.
+      await loginWithUsername(username.trim().toLowerCase(), password);
       onAuthenticated();
     } catch (err: any) {
       setError(err?.message || 'No se pudo conectar con el servicio de autenticación');
@@ -88,26 +82,27 @@ export function LoginScreen({ onAuthenticated }: Props) {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label
-              htmlFor="email"
+              htmlFor="username"
               className="block text-xs tracking-wider mb-1"
               style={{ color: 'var(--text-muted)' }}
             >
-              Email
+              Usuario
             </label>
             <input
-              id="email"
-              type="email"
+              id="username"
+              type="text"
               autoComplete="username"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               autoFocus
+              spellCheck={false}
               className="w-full px-3 py-2 rounded text-sm font-mono outline-none"
               style={{
                 backgroundColor: 'var(--bg-tertiary)',
                 border: '1px solid var(--border-dark)',
                 color: 'var(--text-primary)',
               }}
-              placeholder="operador@ejemplo.com"
+              placeholder="usuario"
             />
           </div>
 
