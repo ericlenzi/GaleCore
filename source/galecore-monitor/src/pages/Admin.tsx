@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Shield, RefreshCw, User as UserIcon } from 'lucide-react';
+import { RefreshCw, User as UserIcon } from 'lucide-react';
 import { AdminUser, fetchAdminUsers, setAdminUserRole } from '../api/admin';
 import { BrokerAccountCard } from '../components/account/BrokerAccountCard';
+import { SectionTitle } from '../components/common/SectionTitle';
 import { useCurrentUserStore } from '../store/useCurrentUserStore';
 import { tint } from '../utils/formatters';
 
@@ -99,15 +100,11 @@ export function Admin() {
     <div style={{ padding: '16px 18px 40px', fontFamily: 'Inter, sans-serif' }}>
       {/* Mi cuenta — para todos. La cuenta de bróker es de cada uno: de ella salen sus balances y
           posiciones, y es donde se rota el refresh token. */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 16 }}>
-        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Mi cuenta</span>
-        <span style={{
-          fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase',
-          color: 'var(--text-muted)',
-        }}>
-          credenciales del operador
-        </span>
-      </div>
+      <SectionTitle
+        title="GaleCore Account"
+        badge="credenciales del operador"
+        style={{ marginBottom: 16 }}
+      />
 
       <div style={{ maxWidth: 460, marginBottom: 32 }}>
         <BrokerAccountCard />
@@ -117,20 +114,16 @@ export function Admin() {
           que la API va a rechazar. */}
       {!isAdmin ? null : (
       <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <Shield size={15} style={{ color: ACCENT }} />
-        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>Administrator</span>
-        <span style={{
-          fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase',
-          color: 'var(--text-muted)',
-        }}>
-          usuarios · permisos
-        </span>
-        <button onClick={load} className="btn" title="Releer la lista" style={{ marginLeft: 'auto' }} disabled={loading}>
+      <SectionTitle
+        title="GaleCore Administrator"
+        badge="usuarios · permisos"
+        style={{ marginBottom: 16 }}
+      >
+        <button onClick={load} className="btn" title="Releer la lista" disabled={loading}>
           <RefreshCw size={11} />
           Releer
         </button>
-      </div>
+      </SectionTitle>
 
       <div style={{ fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 16, maxWidth: 760 }}>
         Las altas se hacen en el panel de Supabase; acá aparecen solos la primera vez que entran al

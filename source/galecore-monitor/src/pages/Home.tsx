@@ -1,6 +1,7 @@
 import React from 'react';
 import { StrategyCard } from '../components/strategies/StrategyCard';
 import { ServiceCard } from '../components/strategies/ServiceCard';
+import { SectionTitle } from '../components/common/SectionTitle';
 import { useAppConfigStore } from '../store/useAppConfigStore';
 
 interface Props {
@@ -21,17 +22,7 @@ export function Home({ onNavigate }: Props) {
 
   return (
     <div style={{ padding: '16px 18px 40px', fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 16 }}>
-        <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
-          GaleCore Strategies
-        </span>
-        <span style={{
-          fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase',
-          color: 'var(--text-muted)',
-        }}>
-          switches de estrategia
-        </span>
-      </div>
+      <SectionTitle title="GaleCore Strategies" badge="switches de estrategia" style={{ marginBottom: 16 }} />
 
       {loading && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Cargando configuración…</div>
@@ -65,17 +56,7 @@ export function Home({ onNavigate }: Props) {
           que corra. */}
       {services.length > 0 && (
         <>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, margin: '28px 0 16px' }}>
-            <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
-              GaleCore Services
-            </span>
-            <span style={{
-              fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase',
-              color: 'var(--text-muted)',
-            }}>
-              switches de servicio
-            </span>
-          </div>
+          <SectionTitle title="GaleCore Services" badge="switches de servicio" style={{ margin: '28px 0 16px' }} />
 
           <div
             className="grid gap-3"
