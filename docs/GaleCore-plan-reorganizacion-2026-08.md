@@ -268,6 +268,35 @@ contraseña que estaba bien.
 existe, después del round-trip a Supabase, así que los tiempos difieren. Explotarlo exige muchos
 intentos contra el rate limit; taparlo obligaría a autenticar con un mail inventado en cada fallo.
 
+### Verificación — parcial, 2026-08-13
+
+1. ✅ `dotnet test` 168/168 · `tsc --noEmit` limpio.
+2. ✅ La migración está aplicada: el tablero carga (`/Me` consulta `username`) y el login contesta
+   401 en vez de 500 al resolver `username → mail`.
+3. ✅ `POST /App/GaleCore/Auth/Login` responde **sin API key y sin token**, con el error genérico y
+   no con "API Key header is missing": la exención de `ApiKeyMiddleware` funciona.
+4. ✅ Administrator renderiza el ABM (alta, editar, borrar), "Mi contraseña", y el botón de borrarse
+   a uno mismo sale deshabilitado.
+5. ✅ Cero errores de API en la consola del navegador; todas las llamadas 200.
+6. ⬜ **Sin probar: entrar por el formulario con usuario y contraseña**, el alta de un segundo
+   operador, el 429 del rate limit (gastarlo dejaría a la IP sin login por 5 minutos) y el 403 al
+   no-admin, que sigue sin poder probarse con un solo usuario.
+
+**Defecto encontrado y corregido durante la verificación — `rpad` en el backfill.** En Postgres
+`rpad` no solo rellena: **también trunca** si la cadena ya es más larga que el largo pedido. El
+`rpad(nombre, 3, 'u')` que escribí para cubrir la parte local de uno o dos caracteres le cortó el
+username a TRES letras a todas las filas: `ericlenzi@gmail.com` quedó como `eri`. El `Up` ya está
+corregido (el relleno va detrás de un `CASE WHEN length(nombre) < 3`), pero la migración **ya
+corrió**, así que en la base viva el arreglo no se aplica solo: el username se corrige desde
+Administrator.
+
+**La lección es sobre dónde estaba el hueco, no sobre `rpad`.** La misma regla existe dos veces —en
+C# y en SQL— y el test solo cubre la de C#: `Usernames.FromEmail` rellena con un `if` explícito y
+está bien. `UsernamesTests` congela la equivalencia entre la regex de C# y la del check de Postgres
+justamente porque es una regla duplicada, pero la derivación del mail quedó duplicada sin ese
+guardián. Una regla escrita dos veces necesita un test que las compare, o la segunda copia se
+desvía en silencio.
+
 ### Base
 
 Migración en tres pasos: `username` nullable → backfill de las filas existentes → `NOT NULL` +

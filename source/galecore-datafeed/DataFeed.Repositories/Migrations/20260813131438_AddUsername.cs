@@ -35,17 +35,28 @@ namespace DataFeed.Repositories.Migrations
                 maxLength: 32,
                 nullable: true);
 
-            // 2) Backfill. `rpad(..., 3, 'u')` cubre la parte local de uno o dos caracteres, y el
-            //    COALESCE el mail sin parte local; el left(..., 32) el mail larguísimo. El
-            //    row_number() desempata dos candidatos iguales antes de que exista el único.
+            // 2) Backfill. El COALESCE cubre el mail sin parte local, el CASE la parte local de uno
+            //    o dos caracteres, y el left(..., 32) el mail larguísimo. El row_number() desempata
+            //    dos candidatos iguales antes de que exista el índice único.
+            //
+            //    OJO CON rpad: en Postgres NO solo rellena, también TRUNCA si la cadena ya es más
+            //    larga que el largo pedido. Un `rpad(nombre, 3, 'u')` suelto —que es lo natural de
+            //    escribir para "rellenar hasta 3"— le corta el username a TRES letras a todo el
+            //    mundo: `ericlenzi` sale `eri`. Por eso el relleno va detrás de un CASE que lo
+            //    aplica solo cuando hace falta. Se descubrió después de aplicarla (2026-08-13); el
+            //    Up corregido es lo que corre en un entorno nuevo.
             migrationBuilder.Sql(@"
                 WITH base AS (
                     SELECT id,
                            regexp_replace(lower(split_part(email, '@', 1)), '[^a-z0-9._-]', '-', 'g') AS raw
                     FROM users
-                ), candidato AS (
-                    SELECT id, left(rpad(COALESCE(NULLIF(raw, ''), 'user'), 3, 'u'), 32) AS nombre
+                ), relleno AS (
+                    SELECT id, COALESCE(NULLIF(raw, ''), 'user') AS nombre
                     FROM base
+                ), candidato AS (
+                    SELECT id,
+                           left(CASE WHEN length(nombre) < 3 THEN rpad(nombre, 3, 'u') ELSE nombre END, 32) AS nombre
+                    FROM relleno
                 ), numerado AS (
                     SELECT id, nombre,
                            row_number() OVER (PARTITION BY nombre ORDER BY id) AS n
