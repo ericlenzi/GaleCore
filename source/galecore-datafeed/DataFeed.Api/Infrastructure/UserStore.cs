@@ -1,11 +1,12 @@
 using DataFeed.Repositories;
+using DataFeed.Repositories.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace DataFeed.Api.Infrastructure
 {
     /// <summary>
-    /// Lo que la API necesita saber de la tabla `users`: hoy, si quien llama es admin de la
-    /// plataforma.
+    /// Lo que la API necesita saber de la tabla `users`: si quien llama es admin de la plataforma, y
+    /// materializar su fila la primera vez que aparece.
     ///
     /// SIN BASE CONFIGURADA NO HAY USUARIOS QUE CONSULTAR, y eso no es un error: `Program.cs`
     /// registra el DbContext solo si hay cadena, a propósito, para que la API levante y sirva el
@@ -35,6 +36,59 @@ namespace DataFeed.Api.Infrastructure
             {
                 using var scope = _scopeFactory.CreateScope();
                 return scope.ServiceProvider.GetService<GaleCoreDbContext>() != null;
+            }
+        }
+
+        /// <summary>
+        /// Materializa la fila de `users` si no existe, y devuelve true si la creó.
+        ///
+        /// LA IDENTIDAD LA MANEJA SUPABASE AUTH: los usuarios se dan de alta allá y esta tabla solo
+        /// les cuelga las FK y el permiso de la aplicación. Por eso la fila nace en el primer
+        /// request autenticado de cada uno y no hay endpoint de alta.
+        ///
+        /// Se llama desde `/Me`, o sea en el primer request que hace el tablero al entrar. Eso
+        /// importa para la pantalla de administración: si la fila naciera recién al vincular una
+        /// cuenta de bróker, un usuario recién creado en Supabase sería INVISIBLE para el admin
+        /// —y no habría forma de darle permisos— hasta que vinculara una cuenta.
+        ///
+        /// El uuid y el mail salen del token, nunca del body de un request.
+        /// </summary>
+        public async Task<bool> EnsureUserAsync(Guid userId, string? email, CancellationToken ct)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetService<GaleCoreDbContext>();
+            if (db == null) return false;
+
+            try
+            {
+                if (await db.Users.AnyAsync(u => u.Id == userId, ct)) return false;
+
+                db.Users.Add(new User
+                {
+                    Id = userId,
+                    Email = email ?? $"{userId}@sin-mail.local",
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                });
+
+                await db.SaveChangesAsync(ct);
+                _logger.LogInformation("Usuario {UserId} materializado en `users` (primer request autenticado).", userId);
+                return true;
+            }
+            catch (DbUpdateException ex)
+            {
+                // Dos requests del mismo usuario recién creado pueden entrar a la vez (el tablero
+                // dispara varias llamadas al montar). La PK resuelve el empate; el perdedor no tiene
+                // nada que hacer y no es un error.
+                _logger.LogDebug(ex, "Carrera al materializar el usuario {UserId}: ya existía.", userId);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                // Que no se pueda materializar no puede tumbar el request: lo peor que pasa es que
+                // el usuario todavía no figure en la lista del admin.
+                _logger.LogWarning(ex, "No se pudo materializar el usuario {UserId}.", userId);
+                return false;
             }
         }
 

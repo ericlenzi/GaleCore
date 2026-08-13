@@ -34,3 +34,17 @@ export async function linkBrokerAccount(
   const { data } = await apiClient.post('/App/GaleCore/Account', { accountNumber, refreshToken });
   return data;
 }
+
+/**
+ * Desvincula la cuenta propia. Borra la fila, o sea también el refresh token cifrado — no hay
+ * "desvincular pero guardar por las dudas": una credencial que nadie sabe que sigue ahí es
+ * justamente lo que no se quiere.
+ *
+ * `wasSystem` avisa que la que se borró era la cuenta de sistema, con la que los procesos de fondo
+ * piden datos de mercado. No se bloquea (a veces desvincular una credencial comprometida es
+ * exactamente lo que hay que hacer), pero la pantalla tiene que decirlo fuerte.
+ */
+export async function unlinkBrokerAccount(): Promise<{ linked: false; wasSystem?: boolean }> {
+  const { data } = await apiClient.delete('/App/GaleCore/Account');
+  return data;
+}

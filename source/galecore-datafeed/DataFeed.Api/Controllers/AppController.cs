@@ -157,6 +157,12 @@ namespace DataFeed.Controllers
 
             var userId = _currentUser.UserId;
 
+            // Primer request autenticado del tablero: es acá donde nace la fila de `users`. Ver
+            // UserStore.EnsureUserAsync — sin esto, un usuario recién creado en Supabase no aparece
+            // en la pantalla de administración y nadie le puede dar permisos.
+            if (userId.HasValue)
+                await _users.EnsureUserAsync(userId.Value, _currentUser.Email, ct);
+
             return Ok(new
             {
                 userId = sub,
@@ -264,19 +270,10 @@ namespace DataFeed.Controllers
             if (string.IsNullOrWhiteSpace(body.AccountNumber) || string.IsNullOrWhiteSpace(body.RefreshToken))
                 return BadRequest(new { error = "accountNumber y refreshToken son requeridos." });
 
-            var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId.Value, ct);
-
-            if (user == null)
-            {
-                user = new DataFeed.Repositories.Entities.User
-                {
-                    Id = userId.Value,
-                    Email = currentUser.Email ?? $"{userId.Value}@sin-mail.local",
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow,
-                };
-                db.Users.Add(user);
-            }
+            // Normalmente la fila ya existe (la crea /Me al entrar al tablero). Se reintenta acá
+            // para el caso de una llamada que no pasó por /Me — una integración con el token, por
+            // ejemplo: sin la fila de `users`, el INSERT en `accounts` viola la FK.
+            await _users.EnsureUserAsync(userId.Value, currentUser.Email, ct);
 
             var account = await db.Accounts
                 .FirstOrDefaultAsync(a => a.UserId == userId.Value && a.Broker == "tastytrade", ct);
@@ -302,6 +299,169 @@ namespace DataFeed.Controllers
             _logger.LogInformation("Cuenta de bróker vinculada para el usuario {UserId}", userId.Value);
 
             return Ok(new { linked = true, accountNumber = account.AccountNumber });
+        }
+
+        /// <summary>
+        /// Desvincula la cuenta de bróker del usuario autenticado. Borra la fila, o sea también el
+        /// refresh token cifrado: no hay "desvincular pero guardar por las dudas", porque una
+        /// credencial que nadie sabe que sigue ahí es exactamente lo que no queremos.
+        ///
+        /// Solo la PROPIA: el uuid sale del token. Un admin no desvincula la cuenta de otro — puede
+        /// administrar usuarios, no sus credenciales de bróker.
+        ///
+        /// OJO CON LA CUENTA DE SISTEMA: si la que se borra es la `is_system`, los procesos de fondo
+        /// se quedan sin credencial para pedir datos de mercado. Se avisa en la respuesta y se
+        /// loguea como warning; no se bloquea, porque a veces desvincular es justo lo que se quiere
+        /// (una credencial comprometida, por ejemplo).
+        /// </summary>
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        [Tags("App.GaleCore")]
+        [HttpDelete("GaleCore/Account")]
+        public async Task<IActionResult> UnlinkBrokerAccountAsync(
+            [FromServices] IServiceProvider services,
+            [FromServices] DataFeed.Infrastructure.Providers.Tastytrade.ICurrentUser currentUser,
+            CancellationToken ct)
+        {
+            var userId = currentUser.UserId;
+            if (userId == null) return Unauthorized();
+
+            var db = services.GetService<DataFeed.Repositories.GaleCoreDbContext>();
+            if (db == null) return DatabaseNotConfigured();
+
+            var account = await db.Accounts
+                .FirstOrDefaultAsync(a => a.UserId == userId.Value && a.Broker == "tastytrade", ct);
+
+            if (account == null) return Ok(new { linked = false, alreadyUnlinked = true });
+
+            var eraSistema = account.IsSystem;
+
+            db.Accounts.Remove(account);
+            await db.SaveChangesAsync(ct);
+
+            if (eraSistema)
+                _logger.LogWarning(
+                    "Se desvinculó la cuenta de SISTEMA (usuario {UserId}). Los procesos de fondo se " +
+                    "quedan sin credencial para datos de mercado hasta que se marque otra.", userId.Value);
+            else
+                _logger.LogInformation("Cuenta de bróker desvinculada del usuario {UserId}", userId.Value);
+
+            return Ok(new { linked = false, wasSystem = eraSistema });
+        }
+
+        #endregion
+
+        #region Administración de usuarios
+
+        // Quién es quién en la plataforma. NO da de alta: la identidad la maneja Supabase Auth y los
+        // usuarios se crean allá — acá se los ve y se les da (o saca) el permiso de admin. La fila
+        // de `users` nace sola en el primer request autenticado de cada uno (UserStore.EnsureUserAsync).
+        //
+        // LO QUE UN ADMIN *NO* PUEDE: ver las cuentas de bróker ajenas. Administra usuarios, no sus
+        // credenciales — por eso la lista dice si tienen cuenta vinculada, pero no cuál. Las
+        // posiciones y balances siguen saliendo de la cuenta de cada uno.
+
+        /// <summary>
+        /// Los usuarios de la plataforma. Solo admins.
+        /// </summary>
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        [Tags("App.GaleCore")]
+        [HttpGet("GaleCore/Admin/Users")]
+        public async Task<IActionResult> AdminListUsersAsync(
+            [FromServices] IServiceProvider services, CancellationToken ct)
+        {
+            var denied = await DenyIfNotAdminAsync("la lista de usuarios", ct);
+            if (denied != null) return denied;
+
+            var db = services.GetService<DataFeed.Repositories.GaleCoreDbContext>();
+            if (db == null) return DatabaseNotConfigured();
+
+            var users = await db.Users.AsNoTracking()
+                .OrderBy(u => u.Email)
+                .Select(u => new
+                {
+                    id = u.Id,
+                    email = u.Email,
+                    displayName = u.DisplayName,
+                    isAdmin = u.IsAdmin,
+                    createdAt = u.CreatedAt,
+                    // Metadato administrativo, no la cuenta: si tiene bróker vinculado y si es la
+                    // de sistema. Nunca el número de cuenta ni, por supuesto, el token.
+                    hasBrokerAccount = u.Accounts.Any(),
+                    hasSystemAccount = u.Accounts.Any(a => a.IsSystem),
+                })
+                .ToListAsync(ct);
+
+            return Ok(new { users, currentUserId = _currentUser.UserId });
+        }
+
+        /// <summary>
+        /// Prende o apaga el permiso de admin de un usuario. Solo admins.
+        ///
+        /// NO SE PUEDE DEJAR LA PLATAFORMA SIN NINGÚN ADMIN. Sin admins, el kill switch de las
+        /// estrategias y de los servicios no se puede tocar desde ningún tablero y hay que arreglarlo
+        /// con SQL a mano contra Postgres. El chequeo va en el servidor y no en la UI porque es un
+        /// invariante, no una comodidad.
+        /// </summary>
+        [Microsoft.AspNetCore.Authorization.Authorize]
+        [Tags("App.GaleCore")]
+        [HttpPatch("GaleCore/Admin/Users/{id:guid}")]
+        public async Task<IActionResult> AdminSetUserRoleAsync(
+            Guid id, [FromBody] AdminUserRoleRequest body,
+            [FromServices] IServiceProvider services, CancellationToken ct)
+        {
+            var denied = await DenyIfNotAdminAsync($"el rol del usuario {id}", ct);
+            if (denied != null) return denied;
+
+            var db = services.GetService<DataFeed.Repositories.GaleCoreDbContext>();
+            if (db == null) return DatabaseNotConfigured();
+
+            var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
+            if (user == null) return NotFound(new { error = "No existe ese usuario." });
+
+            if (user.IsAdmin && !body.IsAdmin)
+            {
+                var otrosAdmins = await db.Users.CountAsync(u => u.IsAdmin && u.Id != id, ct);
+                if (otrosAdmins == 0)
+                    return BadRequest(new
+                    {
+                        error = "Es el único admin que queda. Si se le saca el permiso, nadie puede " +
+                                "prender ni apagar estrategias desde el tablero y hay que arreglarlo " +
+                                "con SQL. Dale admin a otro usuario primero.",
+                    });
+            }
+
+            user.IsAdmin = body.IsAdmin;
+            user.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+
+            _logger.LogInformation("El usuario {TargetId} {Accion} admin (lo cambió {ActorId}).",
+                id, body.IsAdmin ? "pasó a ser" : "dejó de ser", _currentUser.UserId);
+
+            return Ok(new { id, isAdmin = user.IsAdmin });
+        }
+
+        public class AdminUserRoleRequest
+        {
+            public bool IsAdmin { get; set; }
+        }
+
+        /// <summary>
+        /// Corta con 403 si quien llama no es admin. Es MÁS ESTRICTO que
+        /// <see cref="DenyIfNotPlatformAdminAsync"/>: aquel deja pasar la llamada con API key sin
+        /// usuario (la credencial de máquina del operador), porque el kill switch tiene que poder
+        /// tocarse desde un script. Administrar usuarios no: sin usuario autenticado no hay a quién
+        /// atribuirle el cambio de permisos de otro.
+        /// </summary>
+        private async Task<IActionResult?> DenyIfNotAdminAsync(string subject, CancellationToken ct)
+        {
+            var userId = _currentUser.UserId;
+            if (userId == null) return Unauthorized();
+
+            if (await _users.IsAdminAsync(userId.Value, ct)) return null;
+
+            _logger.LogWarning("El usuario {UserId} intentó acceder a {Subject} sin ser admin.", userId.Value, subject);
+
+            return StatusCode(403, new { error = "Solo los admin de la plataforma pueden administrar usuarios." });
         }
 
         #endregion

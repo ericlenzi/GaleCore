@@ -15,15 +15,14 @@ interface CurrentUserStore {
   user: CurrentUser | null;
   /** null = todavía no se sabe. No es lo mismo que "no puede": mientras carga no se decide nada. */
   loaded: boolean;
+  /** Lee una sola vez. Idempotente: las pantallas la pueden llamar sin coordinarse. */
   load: () => Promise<void>;
+  /** Vuelve a preguntar. Para cuando el permiso pudo haber cambiado en esta misma sesión. */
+  reload: () => Promise<void>;
 }
 
-export const useCurrentUserStore = create<CurrentUserStore>((set, get) => ({
-  user: null,
-  loaded: false,
-
-  load: async () => {
-    if (get().loaded) return;
+export const useCurrentUserStore = create<CurrentUserStore>((set, get) => {
+  const fetch = async () => {
     try {
       set({ user: await fetchCurrentUser(), loaded: true });
     } catch {
@@ -31,8 +30,20 @@ export const useCurrentUserStore = create<CurrentUserStore>((set, get) => ({
       // que decide. Fallar hacia "no puede" es lo correcto para un permiso.
       set({ user: null, loaded: true });
     }
-  },
-}));
+  };
+
+  return {
+    user: null,
+    loaded: false,
+
+    load: async () => {
+      if (get().loaded) return;
+      await fetch();
+    },
+
+    reload: fetch,
+  };
+});
 
 /**
  * ¿Puede tocar los kill switch? `null` mientras no se sepa, para que la UI pueda distinguir

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { KeyRound, RefreshCw } from 'lucide-react';
-import { BrokerAccountState, fetchBrokerAccount, linkBrokerAccount } from '../../api/brokerAccount';
+import { KeyRound, RefreshCw, Unlink } from 'lucide-react';
+import { BrokerAccountState, fetchBrokerAccount, linkBrokerAccount, unlinkBrokerAccount } from '../../api/brokerAccount';
 import { tint } from '../../utils/formatters';
 
 const ACCENT = 'var(--blue-gc)';
@@ -39,6 +39,9 @@ export function BrokerAccountCard() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  // Desvincular borra el refresh token cifrado y no se puede deshacer sin volver a pegarlo, así que
+  // pide una confirmación explícita en vez de borrar de un click.
+  const [confirmandoUnlink, setConfirmandoUnlink] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,6 +77,25 @@ export function BrokerAccountCard() {
       await load();
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'No se pudo vincular la cuenta');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUnlink = async () => {
+    setSaving(true);
+    setError(null);
+    setOk(null);
+    try {
+      const res = await unlinkBrokerAccount();
+      setConfirmandoUnlink(false);
+      setRefreshToken('');
+      setOk(res.wasSystem
+        ? 'Cuenta desvinculada. ERA LA CUENTA DE SISTEMA: hasta que se vincule otra y se la marque, los procesos de fondo se quedan sin credencial para pedir datos de mercado.'
+        : 'Cuenta desvinculada. El refresh token cifrado se borró de la base.');
+      await load();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'No se pudo desvincular la cuenta');
     } finally {
       setSaving(false);
     }
@@ -221,6 +243,53 @@ export function BrokerAccountCard() {
           {saving ? 'Guardando…' : state?.linked ? 'Actualizar token' : 'Vincular cuenta'}
         </button>
       </form>
+
+      {/* Desvincular: solo tiene sentido si hay algo vinculado. Va fuera del <form> para que un
+          Enter en los inputs no lo dispare nunca. */}
+      {state?.linked && (
+        <div style={{ borderTop: '1px solid var(--border-dark)', paddingTop: 10 }}>
+          {!confirmandoUnlink ? (
+            <button
+              onClick={() => setConfirmandoUnlink(true)}
+              className="btn"
+              title="Borrar la cuenta vinculada y su refresh token cifrado"
+              disabled={saving}
+            >
+              <Unlink size={11} />
+              Desvincular
+            </button>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
+                Se borra la cuenta <strong>{state.accountNumber}</strong> y su refresh token cifrado.
+                Para volver atrás hay que pegar un token nuevo de Tastytrade.
+                {state.isSystem && (
+                  <span style={{ color: 'var(--yellow-gc)', display: 'block', marginTop: 4 }}>
+                    ⚠ Es la cuenta de sistema: los procesos de fondo se quedan sin credencial para
+                    pedir datos de mercado.
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={handleUnlink}
+                  disabled={saving}
+                  className="py-1.5 px-3 rounded text-xs font-medium"
+                  style={{
+                    backgroundColor: 'var(--red-gc)', color: '#fff', border: 'none',
+                    cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.6 : 1,
+                  }}
+                >
+                  {saving ? 'Desvinculando…' : 'Sí, desvincular'}
+                </button>
+                <button onClick={() => setConfirmandoUnlink(false)} className="btn" disabled={saving}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

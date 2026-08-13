@@ -1,6 +1,6 @@
 # Plan de reorganización — switch global, administración y login por usuario
 
-**Estado:** etapa 1 **COMPLETA y verificada en vivo** (2026-08-12) · etapas 2 y 3 pendientes
+**Estado:** etapas 1 y 2 **COMPLETAS y verificadas en vivo** (2026-08-12) · etapa 3 pendiente
 **Decidido:** 2026-08-12
 
 Reorganiza tres cosas que quedaron a medio camino tras la incorporación de la base de datos
@@ -115,9 +115,48 @@ no solo la lógica**: el compilador no ve una promesa rota en un string.
 
 ---
 
-## Etapa 2 — Mi cuenta + Administrator
+## Etapa 2 — Mi cuenta + Administrator — HECHA el 2026-08-12
 
 **Objetivo:** las tablas que quedan (`users`, `accounts`) tienen por fin una UI.
+
+### Cómo terminó, y en qué se apartó del plan
+
+**Las altas de usuario NO se hacen desde la app.** Se evaluaron las dos opciones y ganó la barata:
+el admin crea el usuario en el panel de Supabase y la pantalla Administrator solo administra. El
+motivo es que el alta desde la app exige la **service_role key** —la llave maestra del proyecto—
+dentro de la aplicación, más manejar el caso de que la fila local falle y el usuario quede huérfano
+en auth, todo para una operación que con dos operadores pasa una vez cada tanto.
+
+**Consecuencia que invierte una decisión del plan original:** la materialización perezosa de la fila
+de `users` **se queda**, y encima se movió a `/Me`. El plan decía borrarla cuando existiera el alta
+desde la app; como el alta se hace en Supabase, esa fila no la crea nadie más — sacarla habría dejado
+a todo usuario nuevo fuera de la tabla. Y va en `/Me` (el primer request del tablero) y no en
+`LinkBrokerAccount` para que un usuario recién creado **aparezca en la lista del admin antes de
+vincular una cuenta**: si no, sería invisible y no habría forma de darle permisos.
+
+**No se hizo una pantalla "Mi cuenta" separada.** `BrokerAccountCard` ya cumplía esa función en la
+sección Plataforma de Main, la ve cualquier usuario y anda; se le agregó lo que le faltaba
+(desvincular, con confirmación y aviso explícito si es la cuenta de sistema). Partirla en una
+pestaña propia era churn visual sin ganancia.
+
+**El admin no ve las cuentas de bróker ajenas**, respetando el invariante que ya estaba escrito en
+la entidad `User`. La lista dice si hay cuenta vinculada y si es la de sistema — nunca el número ni
+el token.
+
+### Verificación — hecha el 2026-08-12
+
+1. ✅ Swagger confirma `/App/GaleCore/Admin/Users`, `/Admin/Users/{id}` y `/Account`.
+2. ✅ La pestaña Admin aparece solo con `isAdmin`; con la API caída no aparece (falla hacia "no
+   puede", que es lo correcto para un permiso).
+3. ✅ La lista trae el usuario con "vos", su cuenta vinculada y el pill de sistema.
+4. ✅ **El guard aguanta:** sacarse el admin siendo el único devuelve 400 con el motivo, el toggle no
+   se mueve y la pestaña sigue.
+5. ✅ La confirmación de desvincular avisa que es la cuenta de sistema. **No se ejecutó a propósito**:
+   borrarla dejaba al feed sin credencial.
+6. ✅ Sin errores de consola nuevos.
+
+**Sin probar: el 403 al no-admin**, porque hay un solo usuario en la base. Es lo que queda para
+cuando exista el segundo operador.
 
 **Dos menús, no uno.** Es el error a evitar: si "cada usuario administra sus cuentas de bróker"
 queda detrás de un `if (isAdmin)`, el operador no-admin no puede vincular su cuenta — y sin cuenta

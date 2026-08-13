@@ -6,6 +6,7 @@ import { StatusBar } from './components/layout/StatusBar';
 import { Sidebar } from './components/layout/Sidebar';
 import { TabNav, Tab } from './components/layout/TabNav';
 import { Home } from './pages/Home';
+import { Admin } from './pages/Admin';
 import { Monitor } from './pages/Monitor';
 import { Rpf } from './pages/Rpf';
 import { Gex } from './pages/Gex';
@@ -27,6 +28,7 @@ function Dashboard({ onLogout }: DashboardProps) {
   const { setConfig, setLoading: setConfigLoading, setError: setConfigError, tickers } = useAppConfigStore();
   const { setBalances, setPositions, setLoadingBalances, setLoadingPositions, setErrorBalances, lastUpdate } = useAccountStore();
   const loadCurrentUser = useCurrentUserStore((s) => s.load);
+  const isAdmin = useCurrentUserStore((s) => s.user?.isAdmin ?? false);
 
   useEffect(() => {
     // Quién está logueado y qué le deja hacer la plataforma. Va primero porque de acá sale si los
@@ -63,7 +65,7 @@ function Dashboard({ onLogout }: DashboardProps) {
       <Sidebar onLogoClick={() => setTab('inicio')} />
       <div className="flex flex-col flex-1 min-w-0">
         <StatusBar connectionStatus={socketStatus} lastUpdate={lastUpdate} />
-        <TabNav active={tab} onChange={setTab} onLogout={onLogout} />
+        <TabNav active={tab} onChange={setTab} onLogout={onLogout} showAdmin={isAdmin} />
         <main className="flex-1 overflow-auto" style={{ position: 'relative' }}>
           <div style={{ display: tab === 'inicio' ? 'block' : 'none', height: '100%', overflow: 'auto' }}>
             <Home onNavigate={(t) => setTab(t as Tab)} />
@@ -76,6 +78,9 @@ function Dashboard({ onLogout }: DashboardProps) {
             <Rpf acceptSuggestion={acceptSuggestion} dismissSuggestion={dismissSuggestion}
               subscribeLeg={subscribeLeg} unsubscribeLeg={unsubscribeLeg} socketStatus={socketStatus} />
           </div>
+          {/* Admin se monta recién al entrar: pide la lista de usuarios y no tiene sentido
+              traerla en cada arranque del tablero. */}
+          {tab === 'admin' && isAdmin && <Admin />}
           {/* GEX se monta recién al entrar: el barrido de la cadena completa es caro y no tiene
               sentido dispararlo si el operador nunca abre la pestaña. */}
           {tab === 'gex' && <Gex subscribeSymbol={subscribeSymbol} unsubscribeSymbol={unsubscribeSymbol} socketStatus={socketStatus} />}
