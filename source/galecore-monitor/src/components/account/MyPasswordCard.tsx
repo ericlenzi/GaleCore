@@ -20,8 +20,16 @@ const labelStyle: React.CSSProperties = {
   fontFamily: 'JetBrains Mono, monospace',
 };
 
+interface Props {
+  /**
+   * Le saca el chrome de card (borde, fondo y la fila del título) para montarlo adentro de un
+   * modal, que ya pone los suyos. Sin esto se ve una card dentro de otra y el título repetido.
+   */
+  embedded?: boolean;
+}
+
 /**
- * Cambio de la contraseña propia, en la sección GaleCore Account.
+ * Cambio de la contraseña propia, en el menú Mi Cuenta.
  *
  * ES LA CONTRACARA DEL ALTA. El admin crea al operador con una contraseña INICIAL —es lo que
  * permite dar de alta sin depender de que Supabase tenga un SMTP propio configurado— y acá esa
@@ -31,7 +39,7 @@ const labelStyle: React.CSSProperties = {
  * Le pega DIRECTO a Supabase con la sesión vigente, sin pasar por la API: cambiar la propia
  * contraseña no necesita la service_role. Por eso también funciona aunque la API esté caída.
  */
-export function MyPasswordCard() {
+export function MyPasswordCard({ embedded = false }: Props = {}) {
   const [password, setPassword] = useState('');
   const [repetida, setRepetida] = useState('');
   const [saving, setSaving] = useState(false);
@@ -76,25 +84,27 @@ export function MyPasswordCard() {
   return (
     <div
       style={{
-        backgroundColor: 'var(--bg-secondary)',
-        border: '1px solid var(--border)',
-        borderRadius: 10,
-        boxShadow: 'var(--shadow-sm)',
-        padding: '14px 16px',
+        backgroundColor: embedded ? 'transparent' : 'var(--bg-secondary)',
+        border: embedded ? 'none' : '1px solid var(--border)',
+        borderRadius: embedded ? 0 : 10,
+        boxShadow: embedded ? 'none' : 'var(--shadow-sm)',
+        padding: embedded ? 0 : '14px 16px',
         display: 'flex',
         flexDirection: 'column',
         gap: 12,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <Lock size={13} style={{ color: ACCENT }} />
-        <span style={{
-          fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: 14,
-          color: 'var(--text-primary)', letterSpacing: '0.05em',
-        }}>
-          Mi contraseña
-        </span>
-      </div>
+      {!embedded && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Lock size={13} style={{ color: ACCENT }} />
+          <span style={{
+            fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: 14,
+            color: 'var(--text-primary)', letterSpacing: '0.05em',
+          }}>
+            Mi contraseña
+          </span>
+        </div>
+      )}
 
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>
         {username || '—'}

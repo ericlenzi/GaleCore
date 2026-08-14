@@ -1,9 +1,13 @@
 import React from 'react';
-import { LayoutDashboard, Activity, Zap, BarChart3, LogOut, Shield } from 'lucide-react';
+import { LayoutDashboard, Activity, Zap, BarChart3, Shield } from 'lucide-react';
+import { AccountMenu } from './AccountMenu';
+import { useCurrentUserStore } from '../../store/useCurrentUserStore';
 
 // Los ids de las pestañas de estrategia ('rpf', 'gex') son los que declara `tab` en strategies[]
 // del config de la app: las cards de Main navegan por ese valor.
-export type Tab = 'inicio' | 'monitor' | 'rpf' | 'gex' | 'admin';
+//
+// 'cuenta' es una pestaña sin botón en la barra: se llega desde el menú Mi Cuenta.
+export type Tab = 'inicio' | 'monitor' | 'rpf' | 'gex' | 'admin' | 'cuenta';
 
 interface Props {
   active: Tab;
@@ -14,19 +18,50 @@ interface Props {
 // References dejó de ser pestaña: cada estrategia tiene su botón "References" en la cabecera de su
 // pantalla, que abre un modal con Definiciones + JSON de reglas.
 //
-// Admin la ven TODOS: adentro vive la cuenta de bróker de cada uno, que un no-admin también tiene
-// que poder vincular —sin ella no ve balances ni posiciones—. Lo que se gatea es la tabla de
-// usuarios, dentro de la pantalla.
+// Las pestañas del tablero, de izquierda a derecha.
 const TABS: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }[] = [
   { id: 'inicio',          label: 'Main',              Icon: LayoutDashboard },
   { id: 'monitor',         label: 'Monitor',           Icon: Activity        },
   { id: 'gex',             label: 'GEX',               Icon: BarChart3       },
   { id: 'rpf',             label: 'RPF',               Icon: Zap             },
-  { id: 'admin',           label: 'Admin',             Icon: Shield          },
 ];
 
+// Admin va a la DERECHA, pegada a Mi Cuenta, y no con las del tablero: no es una pantalla de
+// trabajo —no se mira mientras se opera— sino administración, del mismo lado que lo demás que no
+// es mercado.
+//
+// Es SOLO PARA ADMIN. Se le mostraba a todos mientras adentro vivía la cuenta de bróker de cada
+// uno; con esa card mudada al menú Mi Cuenta, lo único que queda ahí es la tabla de usuarios, que
+// administra a OTROS. Mientras no se sepa el rol no se muestra: fallar hacia "no puede" es lo
+// correcto para un permiso. El gate real sigue siendo el 403 del endpoint.
+const ADMIN_TAB = { id: 'admin' as Tab, label: 'Admin', Icon: Shield };
+
 export function TabNav({ active, onChange, onLogout }: Props) {
-  const tabs = TABS;
+  const isAdmin = useCurrentUserStore((s) => s.user?.isAdmin ?? false);
+
+  const renderTab = ({ id, label, Icon }: { id: Tab; label: string; Icon: React.ComponentType<{ size?: number }> }) => {
+    const isActive = id === active;
+    return (
+      <button
+        key={id}
+        onClick={() => onChange(id)}
+        className="flex items-center gap-1.5 px-4 h-full text-xs uppercase tracking-wider transition-colors relative"
+        style={{
+          color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          fontFamily: 'Inter, sans-serif',
+          fontWeight: isActive ? 600 : 400,
+          borderBottom: isActive ? '2px solid var(--blue-gc)' : '2px solid transparent',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        <Icon size={12} />
+        {label}
+      </button>
+    );
+  };
 
   return (
     <nav
@@ -39,49 +74,17 @@ export function TabNav({ active, onChange, onLogout }: Props) {
         height: 36,
       }}
     >
-      {tabs.map(({ id, label, Icon }) => {
-        const isActive = id === active;
-        return (
-          <button
-            key={id}
-            onClick={() => onChange(id)}
-            className="flex items-center gap-1.5 px-4 h-full text-xs uppercase tracking-wider transition-colors relative"
-            style={{
-              color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontFamily: 'Inter, sans-serif',
-              fontWeight: isActive ? 600 : 400,
-              borderBottom: isActive ? '2px solid var(--blue-gc)' : '2px solid transparent',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <Icon size={12} />
-            {label}
-          </button>
-        );
-      })}
-      {onLogout && (
-        <button
-          onClick={onLogout}
-          className="flex items-center gap-1.5 ml-auto text-xs uppercase tracking-wider"
-          style={{
-            background: 'none',
-            border: 'none',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-            fontFamily: 'Inter, sans-serif',
-            fontWeight: 400,
-            whiteSpace: 'nowrap',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
-          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
-        >
-          <LogOut size={12} />
-          LOGOUT
-        </button>
-      )}
+      {TABS.map(renderTab)}
+
+      {/* Grupo de la derecha: administración y lo de cada operador. */}
+      <div className="flex items-center" style={{ marginLeft: 'auto', height: '100%' }}>
+        {isAdmin && renderTab(ADMIN_TAB)}
+        <AccountMenu
+          onOpenBrokerAccount={() => onChange('cuenta')}
+          onLogout={onLogout}
+          active={active === 'cuenta'}
+        />
+      </div>
     </nav>
   );
 }

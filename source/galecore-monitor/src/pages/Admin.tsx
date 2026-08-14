@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pencil, Plus, RefreshCw, Trash2, User as UserIcon } from 'lucide-react';
 import { AdminUser, deleteAdminUser, fetchAdminUsers, setAdminUserRole } from '../api/admin';
-import { BrokerAccountCard } from '../components/account/BrokerAccountCard';
-import { MyPasswordCard } from '../components/account/MyPasswordCard';
 import { UserForm } from '../components/admin/UserForm';
 import { SectionTitle } from '../components/common/SectionTitle';
 import { useCurrentUserStore } from '../store/useCurrentUserStore';
@@ -34,12 +32,13 @@ const Pill = ({ children, color, title }: { children: React.ReactNode; color: st
 );
 
 /**
- * Admin — administración: lo propio de cada operador y, para los admin, el ABM de usuarios.
+ * Admin — el ABM de usuarios de la plataforma. SOLO PARA ADMIN.
  *
- * LA PANTALLA ES PARA TODOS, la tabla de usuarios no. Es a propósito: la cuenta de bróker es DE
- * CADA UNO —de ella salen sus balances y posiciones—, así que esconderla detrás del permiso de
- * admin dejaría al operador no-admin sin poder vincular la suya y con un tablero vacío que no
- * puede arreglar. Lo mismo la contraseña propia. Lo que se gatea es lo que administra a OTROS.
+ * ACÁ SOLO VIVE LO QUE ADMINISTRA A OTROS. Lo de cada operador —su cuenta de bróker y su
+ * contraseña— se mudó al menú Mi Cuenta: era lo único que obligaba a mostrarle esta pestaña a
+ * cualquiera, porque un no-admin también tiene que poder vincular la suya (sin ella no ve balances
+ * ni posiciones). Con eso afuera, la pestaña volvió a ser de admin y `TabNav` no se la muestra al
+ * resto.
  *
  * DA DE ALTA, EDITA Y BORRA USUARIOS desde la etapa 3. Cada operación escribe en dos sistemas —la
  * identidad en Supabase Auth y la fila de `users`— y el backend las compensa; acá solo se muestra
@@ -136,25 +135,14 @@ export function Admin() {
 
   return (
     <div style={{ padding: '16px 18px 40px', fontFamily: 'Inter, sans-serif' }}>
-      {/* Mi cuenta — para todos. La cuenta de bróker es de cada uno: de ella salen sus balances y
-          posiciones, y es donde se rota el refresh token. */}
-      <SectionTitle
-        title="GaleCore Account"
-        badge="credenciales del operador"
-        style={{ marginBottom: 16 }}
-      />
-
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 460px))',
-        gap: 16, marginBottom: 32, alignItems: 'start',
-      }}>
-        <BrokerAccountCard />
-        <MyPasswordCard />
-      </div>
-
-      {/* Usuarios — solo admin. El gate real es el 403 del endpoint; esto es para no ofrecer algo
-          que la API va a rechazar. */}
-      {!isAdmin ? null : (
+      {/* Sin permiso no se renderiza la tabla. La pestaña ya no se le ofrece a un no-admin, pero
+          el rol puede cambiar con la pantalla abierta —un admin sacándose el permiso a sí mismo—,
+          así que el guard se queda. El gate real es el 403 del endpoint. */}
+      {!isAdmin ? (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+          Esta pantalla es para administradores.
+        </div>
+      ) : (
       <>
       <SectionTitle
         title="GaleCore Administrator"
