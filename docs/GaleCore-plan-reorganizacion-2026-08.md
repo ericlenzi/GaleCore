@@ -151,6 +151,15 @@ sección Plataforma de Main, la ve cualquier usuario y anda; se le agregó lo qu
 (desvincular, con confirmación y aviso explícito si es la cuenta de sistema). Partirla en una
 pestaña propia era churn visual sin ganancia.
 
+> **⚠️ REVERTIDO el 2026-08-14.** Existe el menú **Mi Cuenta**, en el lugar donde estaba el botón
+> LOGOUT: *Cuenta de bróker* (pestaña propia, sin botón en la barra), *Mi contraseña* (modal) y
+> *Salir*. La card no había quedado en Main sino dentro de **Admin**, junto con la contraseña
+> propia, y eso obligaba a mostrarle la pestaña Admin a cualquiera — o sea, la tabla de abajo ("dos
+> menús, no uno") se cumplía metiendo lo de todos adentro de la pantalla de los admin. Sacándolo,
+> Admin volvió a ser lo que dice ser y **solo la ve `isAdmin`**. Lo que el párrafo original decía
+> —que no valía la pena una pestaña— sigue siendo cierto para una pestaña *visible*: por eso
+> `cuenta` no ocupa lugar en la barra y se llega solo desde el menú.
+
 **El admin no ve las cuentas de bróker ajenas**, respetando el invariante que ya estaba escrito en
 la entidad `User`. La lista dice si hay cuenta vinculada y si es la de sistema — nunca el número ni
 el token.
@@ -169,6 +178,13 @@ el token.
 
 **Sin probar: el 403 al no-admin**, porque hay un solo usuario en la base. Es lo que queda para
 cuando exista el segundo operador.
+
+> **Al día 2026-08-14.** Ya hay un segundo operador (`operador`, sin admin) y se verificó en vivo lo
+> que se veía desde su sesión: `/App/GaleCore/Me` devuelve `isAdmin:false` y `canManagePlatform:
+> false`, la pestaña Admin no aparece, los cuatro switches se muestran deshabilitados con el
+> tooltip de admin-only, y el menú Mi Cuenta está completo. **El 403 del `POST` sigue sin ejecutarse
+> contra la API**: la UI no lo deja disparar, y forzarlo a mano habría sido apagarle una estrategia
+> a la plataforma entera para probar un rechazo.
 
 **Dos menús, no uno.** Es el error a evitar: si "cada usuario administra sus cuentas de bróker"
 queda detrás de un `if (isAdmin)`, el operador no-admin no puede vincular su cuenta — y sin cuenta

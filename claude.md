@@ -162,7 +162,14 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   * `Data.Api` — datos REST de la cuenta: `Tastytrade/MarketData/ByType`, `Tastytrade/OptionChains`,
     `Tastytrade/Market-metrics/VolatilityData`.
   * `Data.Stream` — datos vía socket/streaming: `Tastytrade/MarketData/{Candle,Trade,Quote,Greeks,TradeQuoteGreeks}`.
-  * `Data.Account` — cuenta: `Tastytrade/Account/{Balances,Positions}`.
+  * `Data.Account` — cuenta: `Tastytrade/Account/{Balances,Positions}`. Van con la credencial DEL
+    usuario que pregunta (ver `docs/GaleCore-arquitectura-datos.md` §5.4), así que tienen un estado
+    que los de mercado no: **el operador todavía no vinculó su cuenta**. Eso es
+    `409 Conflict` con `{ error, code: "broker_account_not_linked" }` —
+    `BrokerAccountNotLinkedException`, mapeada en `DataFeedControllerBase.Handle` — y **no** un 500:
+    es el estado normal de alguien recién dado de alta, y el tablero lo distingue por el `code` para
+    decirle que vincule su cuenta en vez de mostrarle un error de servidor. El `code` es contrato:
+    renombrarlo rompe el mensaje del front.
   Hoy el proveedor (`Tastytrade`) vive en la **ruta**, no en el tag: los tags son planos (`Data.Api`),
   no `Data.Api.<Cuenta>`. El sub-prefijo por cuenta recién hace falta cuando se sume un segundo bróker.
 
@@ -437,6 +444,14 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   estrategia) y **Json** (su `galecore_rules_<prefijo>.json` tal cual lo sirve la API). El componente
   `ReferencesModal` es transversal; cada estrategia le pasa su panel y su `fetchJson`.
 
+  A la **derecha** de la barra van las dos cosas que no son de mercado: **Admin** (ABM de usuarios;
+  solo la ve quien tiene `isAdmin`) y el menú **Mi Cuenta**, que es de cada operador sin importar su
+  rol — *Cuenta de bróker* (abre la pestaña `cuenta`, sin botón propio en la barra), *Mi contraseña*
+  (modal) y *Salir*. La cuenta de bróker y la contraseña vivían dentro de Admin hasta 2026-08-14, y
+  eran lo único que obligaba a mostrarle esa pestaña a cualquiera: un no-admin tiene que poder
+  vincular la suya o se queda sin balances ni posiciones. Con eso mudado, Admin quedó con lo que
+  administra a OTROS.
+
 - Tecnología:
   | Elemento          | Tecnología                                            |
   |-------------------|-------------------------------------------------------|
@@ -484,7 +499,9 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   └── useMarketSocket.ts  # Hook SignalR: connect, subscribe/unsubscribe (subscribeLeg usa includeGreeks=true), handlers ReceiveTrade/Quote/Greeks + los de RPF
   ├── store/
   │   ├── useMarketStore.ts   # Estado en tiempo real (Zustand): precio/bid/ask + Greeks por símbolo (updateGreeks: delta/gamma/theta/vega/iv) + ivRank
-  │   ├── useAccountStore.ts  # Balances y posiciones
+  │   ├── useAccountStore.ts  # Balances y posiciones. ES DE LA PERSONA: un error PISA los datos (`brokerAccountMissing` marca el caso esperado)
+  │   ├── useCurrentUserStore.ts # Quién está logueado y qué puede (/App/GaleCore/Me): username, isAdmin, canManagePlatform
+  │   ├── resetUserScoped.ts  # Limpia lo que es de la persona (usuario + cuenta). Único lugar que sabe qué es de quién
   │   ├── useAppConfigStore.ts # Config de la app: universe.tickers, strategies[], monitor. Fuente: /App/GaleCore/Rules/Core
   │   ├── useGexStore.ts      # Estrategia GEX: reglas propias (/App/Gex/Rules) + cache de /App/Gex/Analysis por símbolo + vencimiento seleccionado
   │   ├── useRpfStore.ts      # Estrategia RPF: estados por símbolo + sugerencias (SignalR)
@@ -493,10 +510,14 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   ├── layout/
   │   │   ├── Sidebar.tsx         # Barra lateral con AccountSummary
   │   │   ├── StatusBar.tsx       # Barra superior: estado sistema, estado mercado, hora
-  │   │   └── TabNav.tsx          # Tabs: Main / Monitor / GEX / RPF
+  │   │   ├── TabNav.tsx          # Tabs: Main / Monitor / GEX / RPF · a la derecha Admin (solo isAdmin) + AccountMenu
+  │   │   └── AccountMenu.tsx     # Menú Mi Cuenta: cuenta de bróker (pestaña), contraseña (modal), separador, salir. Para todos
   │   ├── common/
   │   │   ├── StrategySwitch.tsx   # Switch ON/OFF reusable: recibe fetchState/setState, no conoce la estrategia
-  │   │   └── ReferencesModal.tsx # Modal de References por estrategia: solapas Definiciones + Json. Transversal: recibe el panel y fetchJson
+  │   │   ├── ReferencesModal.tsx # Modal de References por estrategia: solapas Definiciones + Json. Transversal: recibe el panel y fetchJson
+  │   │   ├── Modal.tsx           # Modal genérico (overlay + header + Escape). El hermano chico de ReferencesModal, que tiene sus solapas cableadas
+  │   │   ├── NoticePanel.tsx     # El cartel que reemplaza a una pantalla sin nada válido que mostrar. Formato compartido, no mensaje
+  │   │   └── StrategyOffPanel.tsx # NoticePanel en rojo con el texto de estrategia apagada
   │   ├── strategies/             # Tab Main
   │   │   ├── StrategyCard.tsx    # Card por estrategia: identidad + StrategySwitch a su switch_endpoint + "Abrir"
   │   │   └── ServiceCard.tsx     # Card por servicio de plataforma (services[]): no navega ni tiene References — solo su switch
@@ -508,7 +529,9 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   │   ├── GexChart.tsx        # Gráfico LW-Charts: precio + GEX barras + muros + std dev
   │   │   └── GexBarsPanel.tsx    # Panel de barras de gamma por strike
   │   ├── account/
-  │   │   └── AccountSummary.tsx  # Net Liq, Buying Power, Cash
+  │   │   ├── AccountSummary.tsx  # Net Liq, Buying Power, Cash
+  │   │   ├── BrokerAccountCard.tsx # Vincular/desvincular la cuenta de bróker propia y rotar el refresh token
+  │   │   └── MyPasswordCard.tsx  # Cambio de la contraseña propia (le pega directo a Supabase). `embedded` le saca el chrome para el modal
   │   ├── positions/
   │   │   └── PositionMonitor.tsx # Tab Monitor: posiciones abiertas de la cuenta (transversal a estrategias)
   │   ├── rpf/                    # Tab RPF
@@ -529,7 +552,9 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │       └── StrategyReference.tsx # Panel de Definiciones de RPF (solapa del modal References): reglas, umbrales, protocolo (lee /App/Rpf/Rules). `embedded` le saca el chrome de página
   ├── pages/
   │   ├── Home.tsx            # Tab Main: índice de estrategias implementadas (cards desde strategies[]) + estado de los switches
-  │   ├── Monitor.tsx         # Tab Monitor: wrapper de PositionMonitor
+  │   ├── Monitor.tsx         # Tab Monitor: wrapper de PositionMonitor. Sin cuenta vinculada se reduce al encabezado + NoticePanel
+  │   ├── MyAccount.tsx       # Pestaña `cuenta`: la cuenta de bróker propia. Se llega solo desde el menú Mi Cuenta
+  │   ├── Admin.tsx           # Tab Admin: ABM de usuarios y permisos. Solo admin — lo propio del operador se fue a Mi Cuenta
   │   ├── Rpf.tsx             # Tab RPF: tablero de orquestación (motor→ejes→estados→candidato→sugerencia) por SignalR
   │   └── Gex.tsx             # Tab GEX: universo + Details (checks + diagnóstico, GEX global) +
   │                           #   Graph (Options Chain + Expiry Engine + velas 1h×100 + barras del vencimiento).
@@ -546,6 +571,28 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   ├── spreadBuilder.ts    # Arma spreads live desde las posiciones de la cuenta
   │   └── streamerSymbol.ts   # Símbolos DXLink y crédito neto actual
   └── App.tsx
+
+- Regla — el estado de la persona se limpia Y se vuelve a pedir al cambiar de sesión
+  Los stores de Zustand son **de módulo**: sobreviven al logout, que solo desmonta el tablero. Lo
+  que es de la persona (`useCurrentUserStore`, `useAccountStore`) tiene que morir con su sesión, y
+  lo que es de la plataforma (precios, config, switches) no — es igual para todos.
+
+  El 2026-08-14 esto costó dos bugs seguidos, y las dos mitades de la regla salen de ahí:
+  * **Limpiar.** Un `load()` idempotente veía `loaded` en true y no volvía a preguntar quién era el
+    nuevo, así que un no-admin entrando después de un admin veía la pestaña Admin y los switches
+    habilitados. Peor: `useAccountStore` mostraba el número de cuenta y las posiciones del anterior,
+    porque `Balances` fallaba y el error se pintaba **al lado** de los datos viejos en vez de
+    pisarlos. Era fuga de estado en el cliente, no de permisos — la API rechazaba bien.
+  * **Volver a pedir.** Limpiar sin refrescar dejó la pestaña muerta: la sesión de Supabase es **por
+    origen**, entrar con otra cuenta en otra ventana pisa la de la primera, y ahí el tablero se
+    quedaba sin `canManagePlatform` para siempre — los switches deshabilitados y sin decir por qué.
+
+  Cómo queda: `resetUserScopedStores()` es el único lugar que sabe qué es de quién, y el id del
+  usuario de la sesión es la **`key` del `Dashboard`** — si cambia la persona, el tablero se remonta
+  y vuelve a preguntar todo. Cuando aparezca otro store con datos de la persona, se agrega ahí.
+
+  Corolario: **un error nunca deja el dato viejo a la vista.** Es la misma regla que la de una
+  estrategia en OFF — números plausibles que nadie confronta se leen como vigentes.
 
 - Manejo del tiempo real
   * Conexión SignalR

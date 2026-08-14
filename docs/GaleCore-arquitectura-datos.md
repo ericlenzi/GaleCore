@@ -407,6 +407,30 @@ quedan: son dominio de verdad y ahora tienen UI planificada.
 
 Plan completo y etapas siguientes: [`GaleCore-plan-reorganizacion-2026-08.md`](GaleCore-plan-reorganizacion-2026-08.md).
 
+### Tomadas (2026-08-14) — la división de §5.4 también rige en el cliente
+
+§5.4 reparte las credenciales en el servidor: mercado con la de sistema, cuenta con la del usuario.
+Con el segundo operador se vio que ese reparto tiene una mitad en el navegador que nadie había
+escrito, y costó dos bugs el mismo día.
+
+* **Los stores de Zustand son de módulo y sobreviven al logout**, que solo desmonta el tablero.
+  Entrando con otra cuenta sin recargar la página, el segundo operador se quedaba con el usuario,
+  los permisos, el número de cuenta y las posiciones del primero. **No es una falla de permisos** —
+  la API rechazaba correctamente cada pedido; es que la pantalla mostraba como propio lo que se
+  había traído con el token del anterior, que para operar es igual de malo.
+* **Un error no puede dejar el dato viejo a la vista.** `Balances` fallaba y el cartel rojo se
+  pintaba al lado de los números, no encima. Es la misma regla que ya estaba escrita para una
+  estrategia en OFF, aplicada a otro caso.
+* **Limpiar no alcanza: hay que volver a pedir.** La sesión de Supabase es por origen, así que
+  entrar con otra cuenta en otra ventana pisa la de la primera; limpiar ahí sin refrescar dejó la
+  pestaña sin `canManagePlatform` para siempre, con los switches deshabilitados y sin decir por qué.
+  El id del usuario de la sesión pasó a ser la `key` del tablero: si cambia la persona, se remonta.
+
+**Lo que queda:** `resetUserScopedStores()` es el único lugar que declara qué es de la persona
+(usuario + cuenta) y qué es de la plataforma (precios, config, switches). Y "el operador no vinculó
+su cuenta" dejó de ser una excepción con 500: es `409` con `code: "broker_account_not_linked"`, que
+es lo que le permite al tablero mandarlo a vincularla en vez de mostrarle un error de servidor.
+
 ### Pendientes
 
 1. ¿Se adopta la inversión del flujo (§4)? El plan la pone después de la base, porque no es urgente.
