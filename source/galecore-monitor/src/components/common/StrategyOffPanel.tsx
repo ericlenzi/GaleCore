@@ -1,6 +1,6 @@
 import React from 'react';
 import { Ban } from 'lucide-react';
-import { tint } from '../../utils/formatters';
+import { NoticePanel } from './NoticePanel';
 
 interface Props {
   /** Qué deja de correr, en concreto. Genérico no sirve: el operador tiene que poder confirmar
@@ -18,27 +18,18 @@ interface Props {
  *
  * Cortar el árbol acá también apaga actividad real, no solo píxeles: los efectos que suscriben al
  * hub viven dentro de los componentes que dejan de montarse.
+ *
+ * El formato lo pone `NoticePanel`, que comparte con el cartel del Monitor sin cuenta vinculada:
+ * son el mismo "acá no hay nada y este es el motivo" por dos causas distintas.
  */
 export function StrategyOffPanel({ detail }: Props) {
-  const color = 'var(--red-gc)';
   return (
-    <div style={{
-      display: 'flex', alignItems: 'flex-start', gap: 12,
-      margin: '16px 0', padding: '18px 20px', borderRadius: 10,
-      backgroundColor: tint(color, 6), border: `1px dashed ${tint(color, 30)}`,
-    }}>
-      <Ban size={20} style={{ color, flexShrink: 0, marginTop: 1 }} />
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 700, color, marginBottom: 4, fontFamily: 'Inter, sans-serif' }}>
-          Estrategia apagada
-        </div>
-        <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.5, fontFamily: 'Inter, sans-serif' }}>
-          {detail}
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, fontFamily: 'Inter, sans-serif' }}>
-          Prendé el switch de arriba para volver a levantarla.
-        </div>
-      </div>
-    </div>
+    <NoticePanel
+      color="var(--red-gc)"
+      icon={<Ban size={20} />}
+      title="Estrategia apagada"
+      detail={detail}
+      hint="Prendé el switch de arriba para volver a levantarla."
+    />
   );
 }
