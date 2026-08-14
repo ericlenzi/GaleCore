@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './index.css';
 import { LoginScreen } from './components/LoginScreen';
 import { supabase, getSession, signOut } from './auth/supabase';
@@ -104,12 +104,26 @@ function App() {
   // así que hay un instante inicial sin respuesta. Sin este tercer estado, ese instante se
   // renderizaría como "no autenticado" y mostraría el login por un parpadeo a quien YA tiene sesión.
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  // De quién es la sesión. Es la `key` del tablero: cambiar de persona lo REMONTA, y con eso vuelve
+  // a correr su efecto de arranque (quién soy, config, balances, posiciones). Sin remontar no basta
+  // con limpiar los stores — quedan vacíos y nadie los vuelve a llenar, que es peor que el arrastre
+  // que se quería evitar: sin `canManagePlatform` los switches quedan deshabilitados para siempre y
+  // clickearlos no hace nada.
+  const [sessionUserId, setSessionUserId] = useState<string | null>(null);
+  const sessionUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     let alive = true;
 
+    const aplicar = (id: string | null) => {
+      sessionUserIdRef.current = id;
+      setSessionUserId(id);
+    };
+
     getSession().then((session) => {
-      if (alive) setAuthenticated(!!session);
+      if (!alive) return;
+      aplicar(session?.user.id ?? null);
+      setAuthenticated(!!session);
     });
 
     // Mantiene el tablero en sincronía con la sesión real: cierre desde otra pestaña, token que no
@@ -119,11 +133,13 @@ function App() {
       if (!alive) return;
 
       // La sesión se puede ir o CAMBIAR DE PERSONA sin pasar por el botón: cierre desde otra
-      // pestaña, token vencido, o alguien que entra con otra cuenta en la pestaña de al lado. En
+      // pestaña, token vencido, o alguien que entra con otra cuenta en otra ventana del mismo
+      // navegador —la sesión de Supabase es por origen, así que ese login se ve acá también—. En
       // los dos casos hay que olvidar al anterior, o el siguiente hereda sus permisos y sus datos.
-      const anterior = useCurrentUserStore.getState().user?.userId ?? null;
-      if (!session || (anterior && session.user.id !== anterior)) resetUserScopedStores();
+      const nuevo = session?.user.id ?? null;
+      if (nuevo !== sessionUserIdRef.current) resetUserScopedStores();
 
+      aplicar(nuevo);
       setAuthenticated(!!session);
     });
 
@@ -158,7 +174,10 @@ function App() {
     return <LoginScreen onAuthenticated={() => setAuthenticated(true)} />;
   }
 
-  return <Dashboard onLogout={handleLogout} />;
+  // La `key` es la persona: si cambia, el tablero se remonta entero y se vuelve a preguntar todo
+  // con la sesión nueva. No es una optimización — es lo que garantiza que nada del anterior quede
+  // en pantalla y que lo del nuevo llegue.
+  return <Dashboard key={sessionUserId ?? 'anon'} onLogout={handleLogout} />;
 }
 
 export default App;
