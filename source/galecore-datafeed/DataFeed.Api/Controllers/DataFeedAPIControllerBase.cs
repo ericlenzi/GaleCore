@@ -1,4 +1,5 @@
-﻿using MediatR;
+﻿using DataFeed.Infrastructure.Providers.Tastytrade;
+using MediatR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 //using Strateps.Application.Autenticacion;
@@ -22,7 +23,19 @@ namespace DataFeed.Controllers
 
         public async Task<IActionResult> Handle<TResponse>(IRequest<TResponse> request)
         {
-            var response = await this.mediator.Send(request);
+            TResponse response;
+
+            try
+            {
+                response = await this.mediator.Send(request);
+            }
+            catch (BrokerAccountNotLinkedException ex)
+            {
+                // 409 y no 500: que el operador todavía no haya vinculado su cuenta es un estado
+                // esperado, no una falla del servidor. El `code` es lo que le permite al tablero
+                // decir "vinculá tu cuenta" en vez de mostrar el error crudo.
+                return this.Conflict(new { error = ex.Message, code = BrokerAccountNotLinkedException.Code });
+            }
 
             if (HttpMethods.IsGet(this.Request.Method))
             {

@@ -8,20 +8,27 @@ import { CurrentUser, fetchCurrentUser } from '../api/me';
  * estrategia es global y admin-only, así que a un no-admin hay que mostrárselo deshabilitado en vez
  * de dejarlo clickear para cobrar un 403.
  *
- * Se lee UNA vez al montar el tablero. No hay refresh: el rol de un usuario no cambia mientras usa
- * la app, y si cambia, vuelve a entrar.
+ * Se lee al montar el tablero. No hay refresh: el rol de un usuario no cambia mientras usa la app,
+ * y si cambia, vuelve a entrar.
+ *
+ * NO HAY UN `load` IDEMPOTENTE, y es a propósito. Lo hubo: leía una sola vez y se iba si ya estaba
+ * cargado. Pero el store es de módulo y sobrevive al logout —que solo desmonta el tablero—, así que
+ * cuando alguien salía y entraba con OTRA cuenta sin recargar la página, se iba sin preguntar y
+ * dejaba al usuario anterior en memoria: un no-admin entrando después de un admin veía la pestaña
+ * Admin y los switches habilitados. Se pide de nuevo en cada montaje del tablero, que es una vez
+ * por login, y `reset` limpia al salir.
  */
 interface CurrentUserStore {
   user: CurrentUser | null;
   /** null = todavía no se sabe. No es lo mismo que "no puede": mientras carga no se decide nada. */
   loaded: boolean;
-  /** Lee una sola vez. Idempotente: las pantallas la pueden llamar sin coordinarse. */
-  load: () => Promise<void>;
-  /** Vuelve a preguntar. Para cuando el permiso pudo haber cambiado en esta misma sesión. */
+  /** Pregunta quién está logueado. La llama el tablero al montar. */
   reload: () => Promise<void>;
+  /** Olvida quién estaba. Se llama al cerrar sesión, para que no quede nada del usuario anterior. */
+  reset: () => void;
 }
 
-export const useCurrentUserStore = create<CurrentUserStore>((set, get) => {
+export const useCurrentUserStore = create<CurrentUserStore>((set) => {
   const fetch = async () => {
     try {
       set({ user: await fetchCurrentUser(), loaded: true });
@@ -36,12 +43,9 @@ export const useCurrentUserStore = create<CurrentUserStore>((set, get) => {
     user: null,
     loaded: false,
 
-    load: async () => {
-      if (get().loaded) return;
-      await fetch();
-    },
-
     reload: fetch,
+
+    reset: () => set({ user: null, loaded: false }),
   };
 });
 

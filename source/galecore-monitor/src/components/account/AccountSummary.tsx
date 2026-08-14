@@ -1,7 +1,7 @@
 import React from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useAccountStore } from '../../store/useAccountStore';
-import { fetchBalances, fetchPositions } from '../../api/account';
+import { fetchBalances, fetchPositions, describeAccountError } from '../../api/account';
 import { fmtCurrency, fmtTime, isStale } from '../../utils/formatters';
 
 export function AccountSummary() {
@@ -15,6 +15,7 @@ export function AccountSummary() {
     setLoadingBalances,
     setLoadingPositions,
     setErrorBalances,
+    failPositions,
   } = useAccountStore();
 
   const stale = isStale(lastUpdate);
@@ -23,13 +24,13 @@ export function AccountSummary() {
     setLoadingBalances(true);
     fetchBalances()
       .then(setBalances)
-      .catch((e) => setErrorBalances(e.message))
+      .catch((e) => setErrorBalances(describeAccountError(e)))
       .finally(() => setLoadingBalances(false));
 
     setLoadingPositions(true);
     fetchPositions()
       .then(setPositions)
-      .catch(console.error)
+      .catch(failPositions)
       .finally(() => setLoadingPositions(false));
   };
 

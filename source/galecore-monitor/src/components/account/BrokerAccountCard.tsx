@@ -194,7 +194,9 @@ export function BrokerAccountCard() {
             onChange={(e) => setAccountNumber(e.target.value)}
             className="w-full px-3 py-2 rounded text-sm font-mono outline-none"
             style={inputStyle}
-            placeholder="5WZ50196"
+            // Descriptivo y no un número real: el ejemplo de antes era la cuenta de una persona, y
+            // en gris adentro del campo se leía como un valor ya cargado que venía por default.
+            placeholder="tu número de cuenta en Tastytrade"
             autoComplete="off"
             spellCheck={false}
           />

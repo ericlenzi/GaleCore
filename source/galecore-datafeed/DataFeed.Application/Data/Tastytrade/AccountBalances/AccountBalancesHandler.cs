@@ -47,6 +47,12 @@ namespace DataFeed.Application.Data.Tastytrade.AccountBalances
 
                 return _mapper.Map<AccountBalancesResponse>(balances.Data);
             }
+            catch (BrokerAccountNotLinkedException)
+            {
+                // Pasa derecho: envuelta en un Exception genérico perdería su tipo y el controller
+                // no podría mapearla a 409 — volvería a ser el 500 indistinguible de una caída.
+                throw;
+            }
             catch (Exception ex)
             {
                 throw new Exception($"AccountBalancesHandler Error: {ex.Message}");
@@ -65,8 +71,7 @@ namespace DataFeed.Application.Data.Tastytrade.AccountBalances
             if (userId == null) return null;
 
             return await _credentials.GetForUserAsync(userId.Value, ct)
-                ?? throw new Exception(
-                    "El usuario autenticado no tiene una cuenta de bróker vinculada.");
+                ?? throw new BrokerAccountNotLinkedException();
         }
     }
 }

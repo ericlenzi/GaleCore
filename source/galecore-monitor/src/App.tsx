@@ -15,8 +15,9 @@ import { useMarketSocket, ConnectionStatus } from './socket/useMarketSocket';
 import { useAppConfigStore } from './store/useAppConfigStore';
 import { useAccountStore } from './store/useAccountStore';
 import { useCurrentUserStore } from './store/useCurrentUserStore';
+import { resetUserScopedStores } from './store/resetUserScoped';
 import { fetchAppConfig } from './api/rules';
-import { fetchBalances, fetchPositions } from './api/account';
+import { fetchBalances, fetchPositions, describeAccountError } from './api/account';
 
 interface DashboardProps {
   onLogout: () => void;
@@ -27,13 +28,19 @@ function Dashboard({ onLogout }: DashboardProps) {
   const [socketStatus, setSocketStatus] = useState<ConnectionStatus>('disconnected');
 
   const { setConfig, setLoading: setConfigLoading, setError: setConfigError, tickers } = useAppConfigStore();
-  const { setBalances, setPositions, setLoadingBalances, setLoadingPositions, setErrorBalances, lastUpdate } = useAccountStore();
-  const loadCurrentUser = useCurrentUserStore((s) => s.load);
+  const { setBalances, setPositions, setLoadingBalances, setLoadingPositions, setErrorBalances, failPositions, lastUpdate } = useAccountStore();
+  const reloadCurrentUser = useCurrentUserStore((s) => s.reload);
 
   useEffect(() => {
-    // Quién está logueado y qué le deja hacer la plataforma. Va primero porque de acá sale si los
-    // switches se muestran habilitados: sin esto, un no-admin clickearía para cobrar un 403.
-    loadCurrentUser();
+    // Quién está logueado y qué le deja hacer la plataforma. Va primero porque de acá sale qué
+    // pestañas se muestran y si los switches se ven habilitados: sin esto, un no-admin clickearía
+    // para cobrar un 403.
+    //
+    // `reload` y no `load`: el store es de módulo y sobrevive al logout, así que la versión
+    // idempotente se iba sin preguntar cuando alguien salía y entraba con otra cuenta sin recargar
+    // la página — el tablero del segundo mostraba los permisos del primero. Este efecto corre una
+    // vez por login (el Dashboard se monta recién cuando hay sesión), así que no es un fetch de más.
+    reloadCurrentUser();
 
     // Config de la app (universo, estrategias, monitor)
     setConfigLoading(true);
@@ -46,14 +53,15 @@ function Dashboard({ onLogout }: DashboardProps) {
     setLoadingBalances(true);
     fetchBalances()
       .then(setBalances)
-      .catch((e) => setErrorBalances(e.message ?? 'Error cargando balances'))
+      .catch((e) => setErrorBalances(describeAccountError(e)))
       .finally(() => setLoadingBalances(false));
 
-    // Positions
+    // Positions. Si fallan se vacían: dejar las de la lectura anterior es mostrarle a este operador
+    // las posiciones de otro.
     setLoadingPositions(true);
     fetchPositions()
       .then(setPositions)
-      .catch(() => {})
+      .catch(failPositions)
       .finally(() => setLoadingPositions(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -108,7 +116,15 @@ function App() {
     // se pudo renovar, logout. Sin esto, una sesión vencida dejaría la UI montada pidiendo datos
     // que la API ya rechaza.
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (alive) setAuthenticated(!!session);
+      if (!alive) return;
+
+      // La sesión se puede ir o CAMBIAR DE PERSONA sin pasar por el botón: cierre desde otra
+      // pestaña, token vencido, o alguien que entra con otra cuenta en la pestaña de al lado. En
+      // los dos casos hay que olvidar al anterior, o el siguiente hereda sus permisos y sus datos.
+      const anterior = useCurrentUserStore.getState().user?.userId ?? null;
+      if (!session || (anterior && session.user.id !== anterior)) resetUserScopedStores();
+
+      setAuthenticated(!!session);
     });
 
     return () => {
@@ -120,6 +136,10 @@ function App() {
   const handleLogout = async () => {
     await signOut();
     sessionStorage.removeItem('galecore:apiKey');
+    // Que no quede NADA del que se va: los stores son de módulo y el logout solo desmonta el
+    // tablero. Sin esto, el próximo en entrar hereda sus permisos, su número de cuenta y sus
+    // posiciones hasta que cada fetch los pise — y los que fallen no los pisan nunca.
+    resetUserScopedStores();
     setAuthenticated(false);
   };
 
