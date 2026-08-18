@@ -150,9 +150,14 @@ function buildCell(
     case 'realized_vol': {
       const rv = inputs?.realizedVolRegime;
       if (!rv || rv.rv10d == null || rv.rv30d == null) return NO_DATA;
+      // La referencia sale de `interpretation` y NO de `signal`. El signal del backend es
+      // `rv10d > rv30d ? "high" : "low"` (CascadeUtils.ComputeRealizedVol): una comparación
+      // RELATIVA entre la corta y la larga, o sea expansión contra contracción. Escribirlo como
+      // "regimen low" lo convertía en una afirmación sobre el nivel de vol, que es otra cosa —
+      // SKM mostraba "regimen low" con RV 55.5 / 69.2. El backend ya manda la frase correcta.
       return {
         value: `${rv.rv10d.toFixed(1)} / ${rv.rv30d.toFixed(1)}`,
-        reference: `vol realizada · regimen ${rv.signal ?? '—'}`,
+        reference: rv.interpretation ?? 'RV 10d / RV 30d anualizadas',
         tooltip: [
           { label: 'RV 10d', value: rv.rv10d.toFixed(2) },
           { label: 'RV 30d', value: rv.rv30d.toFixed(2) },

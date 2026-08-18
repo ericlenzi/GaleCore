@@ -40,9 +40,29 @@ export function fmtOI(n: number | null | undefined): string {
   return `${n}`;
 }
 
+/**
+ * GEX en la escala que le corresponde a su magnitud. Recibe SIEMPRE billones, que es la unidad en
+ * la que lo devuelve la API (`metric: "billions_usd"`).
+ *
+ * BAJA A MILLONES por debajo de 1B, y esa mitad no es simetría estética: sin ella, todo símbolo
+ * chico rendereaba `$0B`. Visto en SKM el 2026-08-18 — el GEX global, las dos filas de la Options
+ * Chain y el Net GEX del Expiry Engine decían los cuatro `$0B`, mientras el mismo barrido reportaba
+ * Call Wall 45, Put Wall 30 y un skew de 0.86 que solo puede salir de un callGEX real. El número no
+ * era cero: era menos de medio billón redondeado a cero decimales. Y en la Options Chain eso anula
+ * la razón de ser de la lista, que es comparar vencimientos entre sí.
+ *
+ * Lo que no llega ni al millón sale como `≈$0`, con el signo adentro del "casi": a esa magnitud el
+ * signo no informa nada y `-<$1M` se lee peor que el problema que resuelve. Sigue sin decir `$0`,
+ * que es lo que importa — el cero exacto es el único que se muestra como cero.
+ */
 export function fmtGex(billions: number): string {
+  if (billions === 0) return '$0';
   if (Math.abs(billions) >= 1000) return `$${(billions / 1000).toFixed(1)}T`;
-  return `$${billions.toFixed(0)}B`;
+  if (Math.abs(billions) >= 1) return `$${billions.toFixed(0)}B`;
+
+  const millions = billions * 1000;
+  if (Math.abs(millions) < 1) return '≈$0';
+  return `$${millions.toFixed(0)}M`;
 }
 
 /**
