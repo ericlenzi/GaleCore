@@ -22,7 +22,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
 | Prefijo | Tipo | Nombre | Descripción | Definición |
 |---|---|---|---|---|
 | `Rpf` | Operativa | Disparo por prima real | Venta de prima con riesgo definido decidida por dos ejes ortogonales: la **seguridad arma** el entorno y la **prima dispara** la operación (VRP + edge, en AND no-compensable). Máquina de 7 estados por símbolo sobre un loop backend; sugiere por SignalR y **nunca ejecuta**. | [`docs/rpf/galecore-estrategia-rpf.md`](docs/rpf/galecore-estrategia-rpf.md) · [índice](docs/rpf/README.md) |
-| `Gex` | Informativa | Gamma Exposure | GEX global de toda la cadena dentro de `max_dte` (50), incluido 0DTE y weeklies. **Sin trades**: no propone estructura, no calcula strikes ni sizing, no emite señales — su único producto es información para decidir. | [`docs/gex/galecore-estrategia-gex.md`](docs/gex/galecore-estrategia-gex.md) · [índice](docs/gex/README.md) |
+| `Gex` | Informativa | Gamma Exposure | GEX global de toda la cadena dentro de `max_dte` (60), incluido 0DTE y weeklies. **Sin trades**: no propone estructura, no calcula strikes ni sizing, no emite señales — su único producto es información para decidir. | [`docs/gex/galecore-estrategia-gex.md`](docs/gex/galecore-estrategia-gex.md) · [índice](docs/gex/README.md) |
 
   Los tres lugares donde vive una estrategia y que **tienen que coincidir**:
   * **Este nodo** — el índice narrativo, con el link a su doc.
@@ -523,8 +523,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   │   └── ServiceCard.tsx     # Card por servicio de plataforma (services[]): no navega ni tiene References — solo su switch
   │   ├── ticker/
   │   │   ├── TickerCard.tsx      # Card por ticker: precio, variación, bid/ask/vol
-  │   │   ├── TickerGrid.tsx      # Grid de TickerCards. `symbols` es obligatorio: lo pasa la estrategia dueña de la pantalla
-  │   │   └── MarketDiagnostics.tsx # Contexto de mercado (z-score, skew GEX, tendencia, RV) desde structureInputs
+  │   │   └── TickerGrid.tsx      # Grid de TickerCards. `symbols` es obligatorio: lo pasa la estrategia dueña de la pantalla
   │   ├── chart/
   │   │   ├── GexChart.tsx        # Gráfico LW-Charts: precio + GEX barras + muros + std dev
   │   │   └── GexBarsPanel.tsx    # Panel de barras de gamma por strike
@@ -538,6 +537,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   │   ├── RpfStateBadge.tsx    # Badge del estado de la máquina
   │   │   └── RpfSuggestionCard.tsx # Sugerencia de trade con accept/dismiss
   │   ├── gex/                    # Tab GEX
+  │   │   ├── DetailsPanel.tsx     # Cuadro Details: los 10 indicadores de contexto agrupados por la PREGUNTA que contestan (mercado / volatilidad / gamma / precio), sin semáforo. Reemplazó a ValidationLayers + MarketDiagnostics
   │   │   ├── OptionsChainList.tsx # Lista de vencimientos (0DTE primero); elegir uno acota Expiry Engine + gráfico
   │   │   ├── ExpiryEngine.tsx     # Strike Engine sin las filas de estructura: ZGL, muros, EM, Net GEX del vencimiento
   │   │   └── GexReference.tsx     # Panel de Definiciones de GEX (solapa del modal References): universo, checks, config del barrido, umbral por símbolo
@@ -545,8 +545,6 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   │   ├── PortfolioRiskBar.tsx # Barra superior: Net Liq / Buying Power / Daily P&L / Portfolio Heat / Positions
   │   │   ├── PositionCard.tsx     # Card por spread: header (strikes/exp/DTE), StrikeLadder, métricas (Credit/P&L/Max), strip de stats (Net Delta/Theta/Vega/Gamma agregados de Greeks live + POP/Prob.+50%/IV Rank), management triggers c/ acción concreta ligada (el más imminente = "NEXT" con la ejecución: cerrar a costo X, rollear a strikes Y/Z por delta de la cadena GEX), legs con entry/valor/variación
   │   │   └── StrikeLadder.tsx     # Barra de zonas MAX LOSS / RISK / PROFIT AT EXP con spot, strikes y muros GEX
-  │   ├── validation/
-  │   │   └── ValidationLayers.tsx # macroRegime (6 checks) con semáforo. Lo usa la pestaña GEX
   │   └── strategy/
   │       ├── ReferencePrimitives.tsx # Primitivas visuales compartidas por los paneles de References (Card, CollapsibleCard, Stat, TH/TD)
   │       └── StrategyReference.tsx # Panel de Definiciones de RPF (solapa del modal References): reglas, umbrales, protocolo (lee /App/Rpf/Rules). `embedded` le saca el chrome de página
@@ -567,7 +565,6 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   └── rpf.ts              # Tipos de la orquestación RPF
   ├── utils/
   │   ├── formatters.ts       # Formateo de números, fechas, colores semáforo, tint()
-  │   ├── validationLayers.ts # mapValidationToLayers: adapta la respuesta al panel de checks
   │   ├── spreadBuilder.ts    # Arma spreads live desde las posiciones de la cuenta
   │   └── streamerSymbol.ts   # Símbolos DXLink y crédito neto actual
   └── App.tsx
@@ -593,6 +590,30 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
 
   Corolario: **un error nunca deja el dato viejo a la vista.** Es la misma regla que la de una
   estrategia en OFF — números plausibles que nadie confronta se leen como vigentes.
+
+- Regla — un panel se agrupa por la pregunta que contesta, no por el origen del dato
+  Los paneles de contexto agrupan sus métricas por lo que el operador quiere saber. **Agruparlas por
+  el objeto de la respuesta que las trae es un orden que a nadie le sirve:** el cuadro Details de GEX
+  tenía sus diez indicadores repartidos en dos columnas, `macroRegime.checks` a la izquierda y
+  `structureInputs` a la derecha, así que RV quedaba lejos de IV Rank —juntas son la lectura de VRP—
+  y la historia del gamma (tamaño, asimetría, spot vs ZGL) estaba partida entre las dos mitades.
+  Los grupos, sus etiquetas y qué métrica va en cada uno los declara el JSON de la estrategia
+  (`display_config...details_panel.groups`); el front solo sabe dibujar cada id.
+
+  Dos corolarios que salieron de ahí (2026-08-18):
+  * **Lo que no depende del símbolo no va bajo el encabezado del símbolo.** VIX y VIX9D son índices
+    CBOE que el backend pide como símbolos fijos: valen lo mismo en SPY, QQQ o AAPL. Mezclados en la
+    grilla de `SPY · Details`, cambiar de ticker y ver que esos dos no se mueven es indistinguible de
+    un dato que quedó colgado del barrido anterior. Van en su propia franja, arriba y rotulada. El
+    `scope` de cada grupo (`market` / `symbol`) es lo que lo declara, y lo congela
+    `GexRulesJsonTests.DetailsPanel_AgrupaPorPreguntaYSeparaLoQueEsDelMercado`.
+  * **El semáforo verde/rojo con ✓/✗ es vocabulario de decisión: no va en una pantalla informativa.**
+    GEX no tiene gates (sus checks son `on_fail: inform_only`), y el ✓/✗ heredado de la cascada de
+    Main hacía que un GEX global de −$921B —que es lo normal en SPY— se leyera como una avería. Cada
+    celda muestra su referencia en texto, y el color queda solo para las métricas cuyo valor ES una
+    dirección de mercado (skew de muros, trend), con los mismos colores que el gráfico usa para los
+    muros. Una sola gramática visual por panel: dos (tiles de un lado, filas del otro) se leen como
+    dos tipos de dato distintos.
 
 - Manejo del tiempo real
   * Conexión SignalR

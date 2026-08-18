@@ -8,6 +8,15 @@ import { GexStrike, MacroRegimeResult, StructureInputs } from './api';
  * de Main, que mira un solo vencimiento. No se comparan entre sí.
  */
 
+/**
+ * Valor de `selectedExpiry` que significa "el agregado de toda la cadena" en vez de un vencimiento.
+ *
+ * Es un centinela y no un flag aparte a propósito: la elección de scope es UNA sola, y con dos
+ * estados (`selectedExpiry` + un `isGlobal`) se puede representar el imposible "global Y el 0DTE".
+ * No colisiona con un `expiration` real, que siempre es una fecha ISO.
+ */
+export const GLOBAL_SCOPE = 'global';
+
 /** Strike tal como llega de la API (mismo shape que ValidationGexStrike). */
 export interface GexStrikeApi {
   strike: number;
@@ -96,21 +105,45 @@ export interface GexChartData {
   strikes: GexStrike[];
 }
 
+/**
+ * Un grupo del cuadro Details. Agrupa por la PREGUNTA que contestan sus métricas, no por el objeto
+ * de la respuesta que las trae — `macroRegime.checks` y `structureInputs` son dos orígenes de dato
+ * y ese reparto no le dice nada a quien lee.
+ *
+ * `scope: 'market'` es el que importa: VIX y VIX9D son índices CBOE que el backend pide como
+ * símbolos fijos, así que valen lo mismo en SPY, QQQ o AAPL. Van en su propia franja y fuera del
+ * encabezado "<símbolo> · Details" — mezclados con los del símbolo, cambiar de ticker y ver que
+ * esos dos no se mueven es indistinguible de un dato que quedó colgado del barrido anterior.
+ */
+export interface DetailsGroup {
+  id: string;
+  label: string;
+  scope?: 'market' | 'symbol';
+  hint?: string;
+  /** El `id` es el contrato con el panel, que mapea id → celda. El `label` es lo que se ve. */
+  metrics: { id: string; label: string }[];
+}
+
 /** Contrato de render de la pestaña: display_config.gex_tab del JSON de reglas. */
 export interface GexTabDisplayConfig {
   refresh_seconds?: number;
   default_expiry?: string;
   candles?: { interval?: string; count?: number; right_pad_bars?: number };
   details_panel?: {
-    title?: string;
     subtitle?: string;
-    /** Etiqueta de la celda de GEX: acá es "GEX Global" porque agrega toda la cadena. */
-    gex_label?: string;
     microstructure?: boolean;
     gex_scope?: string;
+    /** false = sin verde/rojo ni checkmarks. GEX no tiene gates: nada acá aprueba ni reprueba. */
+    semaphore?: boolean;
+    /** Los grupos del cuadro Details, en orden de lectura. Ver DetailsGroup. */
+    groups?: DetailsGroup[];
   };
   expiry_engine?: { label?: string; rows?: { id: string; label: string }[] };
-  options_chain?: { label?: string };
+  options_chain?: {
+    label?: string;
+    /** Fila fija que selecciona el agregado de toda la cadena en vez de un vencimiento. */
+    global_row?: { enabled?: boolean; label?: string; scope?: string };
+  };
 }
 
 export interface GexRules {

@@ -374,7 +374,7 @@ namespace DataFeed.Application.App.Gex
             var band = node?["oi_delta_band"]?.AsArray();
 
             return new ScanConfig(
-                MaxDte: node?["max_dte"]?.GetValue<int>() ?? 50,
+                MaxDte: node?["max_dte"]?.GetValue<int>() ?? 60,
                 IncludeZeroDte: node?["include_zero_dte"]?.GetValue<bool>() ?? true,
                 ExpirationTypes: types is { Length: > 0 } ? types : new[] { "Regular", "Weekly" },
                 GreeksBatchSize: node?["greeks_batch_size"]?.GetValue<int>() ?? 1000,

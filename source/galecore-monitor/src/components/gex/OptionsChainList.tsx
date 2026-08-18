@@ -1,19 +1,33 @@
 import React from 'react';
-import { GexExpiryApi } from '../../types/gex';
+import { GexExpiryApi, GLOBAL_SCOPE } from '../../types/gex';
 import { fmtExpiry, fmtGex } from '../../utils/formatters';
 
 interface Props {
   expiries: GexExpiryApi[];
   selected: string | null;
-  onSelect: (expiration: string) => void;
+  onSelect: (scope: string) => void;
   label?: string;
+  /** Net GEX del agregado de toda la cadena — lo que muestra la fila GLOBAL. */
+  globalNetGex?: number;
+  /** Tope de DTE del barrido, para rotular el alcance de la fila GLOBAL. */
+  maxDte?: number;
+  /** Etiqueta de la fila GLOBAL (display_config.gex_tab.options_chain.global_row.label). */
+  globalLabel?: string;
 }
 
 /**
  * Lista de vencimientos de la cadena (0DTE primero). Elegir uno acota el Expiry Engine y el
  * gráfico a ese vencimiento; el cuadro Details sigue mostrando el GEX global.
+ *
+ * Arriba de todo, fija fuera del scroll, va la fila GLOBAL: lleva el gráfico y el Expiry Engine al
+ * agregado de toda la cadena. Va separada y en el violeta del panel, no como un vencimiento más,
+ * porque NO es un vencimiento — no tiene fecha, DTE ni expected move.
  */
-export function OptionsChainList({ expiries, selected, onSelect, label = 'Options Chain' }: Props) {
+export function OptionsChainList({
+  expiries, selected, onSelect, label = 'Options Chain',
+  globalNetGex, maxDte, globalLabel = 'GLOBAL',
+}: Props) {
+  const isGlobal = selected === GLOBAL_SCOPE;
   return (
     <div style={{ padding: 8 }}>
       <div style={{
@@ -30,6 +44,45 @@ export function OptionsChainList({ expiries, selected, onSelect, label = 'Option
         }}>
           {label}
         </span>
+
+        {globalNetGex != null && (
+          <button
+            onClick={() => onSelect(GLOBAL_SCOPE)}
+            title="Agregado de toda la cadena: el mismo GEX que muestra el cuadro Details"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 6,
+              padding: '3px 5px',
+              border: 'none',
+              borderBottom: '1px solid var(--border)',
+              borderLeft: `2px solid ${isGlobal ? '#a78bfa' : 'transparent'}`,
+              backgroundColor: isGlobal ? 'var(--bg-secondary)' : 'transparent',
+              cursor: 'pointer',
+              textAlign: 'left',
+              width: '100%',
+            }}
+          >
+            <span className="tabular-nums" style={{
+              fontSize: 10.5,
+              fontFamily: 'JetBrains Mono, monospace',
+              fontWeight: 700,
+              color: '#a78bfa',
+              whiteSpace: 'nowrap',
+            }}>
+              {globalLabel}
+            </span>
+            <span className="tabular-nums" style={{
+              fontSize: 9,
+              fontFamily: 'JetBrains Mono, monospace',
+              color: 'var(--text-muted)',
+              whiteSpace: 'nowrap',
+            }}>
+              {maxDte != null ? `≤${maxDte}d · ` : ''}{fmtGex(globalNetGex)}
+            </span>
+          </button>
+        )}
 
         {!expiries.length ? (
           <span style={{ fontSize: 10, color: 'var(--text-muted)', padding: '4px 0' }}>Sin vencimientos.</span>

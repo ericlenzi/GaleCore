@@ -162,6 +162,27 @@ public class GexRulesJsonTests
     }
 
     /// <summary>
+    /// El umbral de gex_total es el SIGNO (0), no un piso en billones, y eso no es un detalle de
+    /// calibracion: el GEX de esta estrategia agrega TODA la cadena, asi que es mayor en magnitud
+    /// que el de un solo vencimiento y cualquier piso en billones queda descalibrado. Es lo que dice
+    /// el _note del nodo desde el principio.
+    ///
+    /// Hasta el 2026-08-18 los valores eran SPY 200 y QQQ 50 —contradiciendo a su propia nota— y
+    /// nadie lo veia: el cuadro Details pintaba el check en rojo con una cruz, y un check reprobado
+    /// mas no llama la atencion. Aparecio recien al sacar el semaforo y mostrar la referencia en
+    /// texto: "ref >= $200B" al lado de un valor de -$951B se lee solo.
+    /// </summary>
+    [Fact]
+    public void UmbralDeGex_EsElSigno_NoUnPisoEnBillones()
+    {
+        var thresholds = Gex()["definitions"]!["gex_threshold_by_symbol"]!["values"]!.AsObject();
+
+        Assert.NotEmpty(thresholds);
+        foreach (var kv in thresholds)
+            Assert.Equal(0d, (double)kv.Value!);
+    }
+
+    /// <summary>
     /// El Diagnostico de mercado interpreta el z-score con estos dos umbrales, que el handler busca
     /// en position_builder.layers[id=2].config.structure_selection.thresholds (via GetPositionBuilderLayer).
     /// </summary>
@@ -197,6 +218,11 @@ public class GexRulesJsonTests
         Assert.False((bool)details["microstructure"]!, "Microstructure se elimino del cuadro Details de GEX.");
         Assert.Equal("global", (string?)details["gex_scope"]);
 
+        // El split en dos columnas por componente se reemplazo por grupos tematicos. Ver
+        // DetailsPanel_AgrupaPorPreguntaYSeparaLoQueEsDelMercado.
+        Assert.False(details.ContainsKey("columns"),
+            "details_panel ya no declara columnas por componente: declara groups.");
+
         var hidden = tab["hidden_blocks"]!.AsArray().Select(h => (string?)h).ToArray();
         Assert.Contains("setup_candidato", hidden);
 
@@ -206,5 +232,108 @@ public class GexRulesJsonTests
             Assert.Contains(id, rowIds);
         foreach (var forbidden in new[] { "structure", "short_put", "short_call", "strikes_inside_walls" })
             Assert.DoesNotContain(forbidden, rowIds);
+    }
+
+    /// <summary>
+    /// El cuadro Details agrupa por la PREGUNTA que contesta cada indicador, y no por el objeto de
+    /// la respuesta que lo trae. El invariante que importa es el scope: VIX y VIX9D son indices CBOE
+    /// que GexAnalysisHandler pide como simbolos fijos, asi que valen lo mismo en SPY, QQQ o AAPL.
+    /// Mezclados con los del simbolo, cambiar de ticker y ver que esos dos no se mueven es
+    /// indistinguible de un dato que quedo colgado del barrido anterior.
+    ///
+    /// Los ids se congelan porque son el contrato con el front: el panel mapea id a celda, asi que
+    /// renombrar uno aca no rompe el build. Hace desaparecer la celda, en silencio.
+    /// </summary>
+    [Fact]
+    public void DetailsPanel_AgrupaPorPreguntaYSeparaLoQueEsDelMercado()
+    {
+        var details = Gex()["display_config"]!["gex_tab"]!["details_panel"]!.AsObject();
+        var groups = details["groups"]!.AsArray();
+
+        // La franja de mercado va PRIMERA: es el marco dentro del cual se leen los del simbolo.
+        Assert.Equal("market", (string?)groups[0]!["id"]);
+        Assert.Equal("market", (string?)groups[0]!["scope"]);
+
+        var scopeOf = groups.ToDictionary(g => (string)g!["id"]!, g => (string?)g!["scope"]);
+        var metricsOf = groups.ToDictionary(
+            g => (string)g!["id"]!,
+            g => g!["metrics"]!.AsArray().Select(m => (string)m!["id"]!).ToArray());
+
+        // Los dos macro viven en el grupo de mercado, y en ningun grupo del simbolo.
+        foreach (var macro in new[] { "vix", "vix_term_structure" })
+        {
+            Assert.Contains(macro, metricsOf["market"]);
+            foreach (var id in metricsOf.Keys.Where(k => scopeOf[k] == "symbol"))
+                Assert.DoesNotContain(macro, metricsOf[id]);
+        }
+
+        // Los diez indicadores, exactos y sin repetir: el front mapea cada id a una celda.
+        var all = metricsOf.Values.SelectMany(v => v).ToArray();
+        Assert.Equal(all.Length, all.Distinct().Count());
+        Assert.Equal(new[]
+        {
+            "gex_global", "gex_skew", "iv_momentum", "iv_rank", "price_zscore",
+            "realized_vol", "spot_vs_zgl", "trend_ema", "vix", "vix_term_structure",
+        }, all.OrderBy(x => x, StringComparer.Ordinal).ToArray());
+
+        // Cada grupo y cada metrica traen su etiqueta: el front renderiza lo que el JSON declara.
+        foreach (var g in groups)
+        {
+            Assert.False(string.IsNullOrWhiteSpace((string?)g!["label"]));
+            Assert.NotEmpty(g!["metrics"]!.AsArray());
+            foreach (var m in g!["metrics"]!.AsArray())
+                Assert.False(string.IsNullOrWhiteSpace((string?)m!["label"]));
+        }
+
+        // Sin semaforo: GEX no tiene gates, y un numero en rojo con una cruz se lee como averia.
+        Assert.False((bool)details["semaphore"]!,
+            "GEX es informativa: el cuadro Details no pinta pass/fail.");
+    }
+
+    /// <summary>
+    /// La fila GLOBAL de la lista de vencimientos lleva el grafico y el Expiry Engine al agregado de
+    /// toda la cadena. Es una eleccion explicita: default_expiry sigue siendo el mas cercano, porque
+    /// el agregado no tiene vencimiento ni DTE y no deberia ser lo primero que se ve sin pedirlo.
+    /// </summary>
+    [Fact]
+    public void OptionsChain_OfreceElScopeGlobalComoEleccionExplicita()
+    {
+        var tab = Gex()["display_config"]!["gex_tab"]!.AsObject();
+
+        Assert.Equal("nearest", (string?)tab["default_expiry"]);
+
+        var globalRow = tab["options_chain"]!["global_row"]!.AsObject();
+        Assert.True((bool)globalRow["enabled"]!);
+        Assert.False(string.IsNullOrWhiteSpace((string?)globalRow["label"]));
+        Assert.Equal("gex.global", (string?)globalRow["scope"]);
+    }
+
+    /// <summary>
+    /// En scope global el panel muestra solo lo que el agregado sabe calcular. expected_move tiene
+    /// que quedar SIN fuente: es spot * atmIv * sqrt(t) y el agregado no tiene un t. Si alguien le
+    /// pone `source`, el panel pasa a mostrar el EM de otro scope como si fuera del que se esta
+    /// mirando — el mismo problema que un dato viejo que sobrevive a un error.
+    /// </summary>
+    [Fact]
+    public void ExpiryEngine_EnGlobal_NoInventaExpectedMove()
+    {
+        var engine = Gex()["display_config"]!["gex_tab"]!["expiry_engine"]!.AsObject();
+        var globalRows = engine["global_rows"]!.AsArray();
+
+        JsonNode Row(string id) => globalRows.First(r => (string?)r!["id"] == id)!;
+
+        // Lo que el backend YA calcula sobre los strikes agregados sale de gex.global.
+        foreach (var id in new[] { "net_gex", "zgl", "call_wall", "put_wall" })
+            Assert.StartsWith("global.", (string?)Row(id)["source"]);
+
+        // Lo que no existe en el agregado no se rellena con el de un vencimiento.
+        Assert.Null((string?)Row("expected_move")["source"]);
+
+        // Y las filas que reemplazan a vencimiento/DTE son hechos del agregado, no de un vencimiento.
+        Assert.Equal("gex.config.maxDte", (string?)Row("dte")["source"]);
+        Assert.Equal("global.expirationsIncluded", (string?)Row("expirations")["source"]);
+
+        foreach (var r in globalRows)
+            Assert.DoesNotContain("byExpiry", (string?)r!["source"] ?? "");
     }
 }

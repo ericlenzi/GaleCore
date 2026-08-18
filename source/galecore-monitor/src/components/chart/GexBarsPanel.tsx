@@ -1,5 +1,6 @@
 import React from 'react';
 import { GexStrike } from '../../types/api';
+import { GEX_BARS_W } from '../gex/graphLayout';
 import { fmtPrice } from '../../utils/formatters';
 
 interface Props {
@@ -12,7 +13,7 @@ interface Props {
   height:   number;
 }
 
-const PANEL_W  = 352;
+const PANEL_W  = GEX_BARS_W;
 const LABEL_W  = 38;  // px for strike labels on left
 const BAR_AREA = PANEL_W - LABEL_W - 4; // total horizontal space for bars
 const HALF_BAR = BAR_AREA / 2;          // each side (put left, call right)

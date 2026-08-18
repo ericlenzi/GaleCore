@@ -19,7 +19,11 @@ interface GexStore {
   loading: Record<string, boolean>;
   error: Record<string, string | null>;
 
-  /** Vencimiento elegido por símbolo. null = todavía no eligió → manda el más cercano (0DTE). */
+  /**
+   * Scope elegido por símbolo: una fecha de vencimiento, o `GLOBAL_SCOPE` para el agregado de toda
+   * la cadena. null = todavía no eligió → manda el más cercano (0DTE), como declara
+   * `display_config.gex_tab.default_expiry`.
+   */
   selectedExpiry: Record<string, string | null>;
 
   // El switch de la estrategia NO vive acá: es el mismo hecho que muestra la card de Main, así que

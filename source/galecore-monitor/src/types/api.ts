@@ -461,7 +461,8 @@ export interface PositionResponse {
 
 // ─── Structure Inputs ────────────────────────────────────────────────────────
 // Factores de contexto de mercado (z-score, skew GEX, tendencia, vol realizada) que computa
-// CascadeUtils en el backend. Hoy los expone /App/Gex/Analysis y los renderiza MarketDiagnostics.
+// CascadeUtils en el backend. Hoy los expone /App/Gex/Analysis y los renderiza el DetailsPanel de
+// GEX, repartidos entre sus grupos de volatilidad, gamma y precio según qué pregunta contesta cada uno.
 
 export interface StructureInputs {
   priceZScore: PriceZScoreInput;

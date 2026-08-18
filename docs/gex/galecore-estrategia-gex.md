@@ -37,7 +37,7 @@ Es la diferencia que más confusión genera y por eso va primero.
 
 | | `/App/Gex/Analysis` (esta estrategia) | `/App.Analytics/GammaExposure` |
 |---|---|---|
-| Vencimientos | **Todos** los de la cadena dentro de `gex.max_dte` (50), incluido 0DTE y weeklies | **Uno solo** |
+| Vencimientos | **Todos** los de la cadena dentro de `gex.max_dte` (60), incluido 0DTE y weeklies | **Uno solo** |
 | Quién lo usa | Pestaña GEX | Monitor, `PutSkew`, RPF, `SkewSnapshotService` |
 
 **Son números distintos a propósito y no se comparan.** El global es mayor en magnitud que el de un
@@ -65,6 +65,19 @@ Los 6 checks: `vix_absolute`, `vix_term_structure`, `iv_rank`, `iv_momentum`, `g
 
 `definitions` quedó reducido a los **dos** nodos que el código efectivamente lee. Las definiciones de
 fórmulas que nadie consumía se sacaron.
+
+**Estos 6 no son un bloque en la pantalla, y desde el 2026-08-18 tampoco se muestran juntos.** Que
+vengan de la misma llamada es un hecho del backend, no una forma de leerlos: el cuadro Details los
+reparte por la pregunta que contesta cada uno, mezclados con los 4 factores de `structureInputs` —
+`vix_absolute` y `vix_term_structure` a la franja **Mercado** (no dependen del símbolo: son índices
+CBOE que el handler pide como símbolos fijos, así que valen lo mismo en SPY, QQQ o AAPL),
+`iv_rank` e `iv_momentum` a **Volatilidad** junto a la RV realizada, y `gex_total` con `spot_vs_zgl`
+a **Estructura gamma** junto al skew de muros. Los grupos los declara
+`display_config.gex_tab.details_panel.groups`.
+
+Y **no llevan semáforo**: son `on_fail: inform_only`, así que nada de esto aprueba ni reprueba. El
+✓/✗ verde-rojo que el panel había heredado de la cascada de RPF hacía que un `gex_total` de −$921B —lo
+normal en SPY con el agregado de toda la cadena— se leyera como una avería.
 
 ## 4. Latencia y cache
 
@@ -146,6 +159,32 @@ bloques: `candles`, `details_panel`, `options_chain`, `expiry_engine`.
 `portfolio_manager`, `microstructure`, `strike_engine_structure_rows`.
 
 La pestaña se monta **recién al entrar** (el barrido es caro).
+
+### El cuadro Graph tiene dos scopes
+
+La lista Options Chain elige **un vencimiento** o **toda la cadena**. La fila `GLOBAL`
+(`options_chain.global_row`) va fija arriba de la lista y lleva el gráfico y el Expiry Engine a
+`gex.global` — el mismo agregado que ya muestra el cuadro Details. Es **elección explícita**:
+`default_expiry` sigue en `"nearest"`, así que la pestaña arranca en el vencimiento más cercano
+(en día hábil, el 0DTE).
+
+Qué cambia en scope global, declarado en `expiry_engine.global_rows`:
+
+| Fila | Global | Por qué |
+|---|---|---|
+| Net GEX, ZGL, Call Wall, Put Wall | del agregado | el backend ya los calcula sobre los strikes agregados |
+| Vencimiento / DTE | `Cadena completa` / `≤ max_dte` | el agregado no tiene ninguno de los dos |
+| Vencimientos | `incluidos [/ pedidos]` | deja a la vista un barrido corto |
+| Expected Move | vacío | `spot × IV ATM × √t` necesita **un** `t`, y el agregado no lo tiene |
+
+Por lo mismo, en global el gráfico **no dibuja las bandas ±1σ/±2σ**: salen de la IV ATM del
+vencimiento, que en el agregado no existe. Ni el EM ni las bandas se rellenan con las del
+vencimiento más cercano — sería un número de otro scope leído como si fuera de éste, la misma
+trampa que un dato viejo que sobrevive a un error.
+
+**Efecto esperado:** el eje de precio se autoescala a `[putWall × 0.985, callWall × 1.015]`, y los
+muros globales están más separados que los de un vencimiento. En global el gráfico se abre y las
+velas se achatan. Es la vista correcta del scope, no un bug.
 
 ## 9. Código relevante
 

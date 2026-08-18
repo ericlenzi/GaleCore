@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, BookOpen } from 'lucide-react';
 import { TickerGrid } from '../components/ticker/TickerGrid';
-import { ValidationLayers } from '../components/validation/ValidationLayers';
-import { MarketDiagnostics } from '../components/ticker/MarketDiagnostics';
+import { DetailsPanel } from '../components/gex/DetailsPanel';
 import { OptionsChainList } from '../components/gex/OptionsChainList';
+import { CHAIN_COL_W } from '../components/gex/graphLayout';
 import { ExpiryEngine } from '../components/gex/ExpiryEngine';
 import { GexChart } from '../components/chart/GexChart';
 import { StrategySwitch } from '../components/common/StrategySwitch';
@@ -16,10 +16,10 @@ import { useMarketStore } from '../store/useMarketStore';
 import { useAppConfigStore, useSwitchEndpoint } from '../store/useAppConfigStore';
 import { useSwitchEnabled } from '../store/useStrategySwitchStore';
 import { ConnectionStatus } from '../socket/useMarketSocket';
-import { GexAnalysisResponse, GexChartData, GexExpiryApi } from '../types/gex';
-import { ValidationLayerApiResponse } from '../types/api';
-import { mapValidationToLayers, EMPTY_LAYERS } from '../utils/validationLayers';
-import { fmtGex, fmtPrice, fmtTime, isStale, tint } from '../utils/formatters';
+import {
+  GexAnalysisResponse, GexChartData, GexExpiryApi, GexScopeApi, GexStrikeApi, GLOBAL_SCOPE,
+} from '../types/gex';
+import { fmtPrice, fmtTime, isStale, tint } from '../utils/formatters';
 
 // Fallback si el JSON no declara refresh_seconds. Los barridos se serializan en el backend, así que
 // lo que manda es recorrer el universo entero (~383s medidos con 4 símbolos), no un barrido suelto.
@@ -28,26 +28,21 @@ const DETAIL_HEIGHT = 500;
 
 const GEX_REF = getStrategyReference('gex');
 
-/**
- * Adapta la respuesta de /App/Gex/Analysis al shape que consume mapValidationToLayers, para
- * reutilizar el panel de checks de Main sin duplicarlo. Acá los checks son lectura: el JSON de GEX
- * los declara con `on_fail: inform_only`.
- */
-function asValidationShape(data: GexAnalysisResponse): ValidationLayerApiResponse {
-  return {
-    symbol: data.symbol,
-    profile: 'gex',
-    timestamp: data.timestamp,
-    spotPrice: data.spotPrice,
-    overallSignal: data.macroRegime?.signal ?? '',
-    failedAtLayer: null,
-    macroRegime: data.macroRegime,
-    positionBuilder: null,
-    gexData: null,
-  };
+/** Strikes de la API al shape que dibuja GexBarsPanel. Igual para un vencimiento y para el agregado. */
+function toChartStrikes(strikes: GexStrikeApi[]) {
+  return strikes.map((s) => ({
+    strike: s.strike,
+    callGex: s.callGEX,
+    putGex: s.putGEX,
+    netGex: s.netGEX,
+    callOI: s.callOI,
+    putOI: s.putOI,
+    callDelta: s.callDelta,
+    putDelta: s.putDelta,
+  }));
 }
 
-/** Un vencimiento (o el agregado global) en el shape que dibuja GexChart + GexBarsPanel. */
+/** Un vencimiento en el shape que dibuja GexChart + GexBarsPanel. */
 function toChartData(symbol: string, spot: number, expiry: GexExpiryApi | null): GexChartData | null {
   if (!expiry) return null;
   return {
@@ -59,16 +54,30 @@ function toChartData(symbol: string, spot: number, expiry: GexExpiryApi | null):
     netGex: expiry.netGex,
     callWall: expiry.callWall ?? 0,
     putWall: expiry.putWall ?? 0,
-    strikes: expiry.strikes.map((s) => ({
-      strike: s.strike,
-      callGex: s.callGEX,
-      putGex: s.putGEX,
-      netGex: s.netGEX,
-      callOI: s.callOI,
-      putOI: s.putOI,
-      callDelta: s.callDelta,
-      putDelta: s.putDelta,
-    })),
+    strikes: toChartStrikes(expiry.strikes),
+  };
+}
+
+/**
+ * El agregado de toda la cadena en el mismo shape. ZGL y muros ya vienen calculados sobre los
+ * strikes agregados, así que el gráfico no hace nada distinto: dibuja otro scope.
+ *
+ * `dte: 0` y `expiration: GLOBAL_SCOPE` son relleno del contrato — el agregado no tiene ninguno de
+ * los dos. Nadie los lee: `expiration` no se usa en el chart, y `dte` solo entra en las bandas
+ * ±1σ/±2σ, que en global no se dibujan porque no hay IV ATM que las alimente.
+ */
+function globalToChartData(symbol: string, spot: number, global: GexScopeApi): GexChartData | null {
+  if (!global.strikes.length) return null;
+  return {
+    symbol,
+    spot,
+    dte: 0,
+    expiration: GLOBAL_SCOPE,
+    zeroGammaLevel: global.gammaZeroLevel ?? 0,
+    netGex: global.netGex,
+    callWall: global.callWall ?? 0,
+    putWall: global.putWall ?? 0,
+    strikes: toChartStrikes(global.strikes),
   };
 }
 
@@ -141,17 +150,24 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
   const err = active ? error[active] ?? null : null;
 
   const expiries = useMemo(() => data?.gex.byExpiry ?? [], [data]);
-  // Sin elección explícita manda el más cercano — que en día hábil es el 0DTE.
+  // Sin elección explícita manda el más cercano — que en día hábil es el 0DTE. El agregado global
+  // NO es el default: es una lectura distinta (sin vencimiento, sin DTE) y se pide a mano.
   const activeExpiration = (active ? selectedExpiry[active] : null) ?? expiries[0]?.expiration ?? null;
+  const isGlobalScope = activeExpiration === GLOBAL_SCOPE;
   const activeExpiry = useMemo(
-    () => expiries.find((e) => e.expiration === activeExpiration) ?? null,
-    [expiries, activeExpiration],
+    () => (isGlobalScope ? null : expiries.find((e) => e.expiration === activeExpiration) ?? null),
+    [expiries, activeExpiration, isGlobalScope],
   );
 
-  const layers = data ? mapValidationToLayers(asValidationShape(data)) : EMPTY_LAYERS;
-  const chartData = active ? toChartData(active, data?.spotPrice ?? 0, activeExpiry) : null;
+  const chartData = !active || !data
+    ? null
+    : isGlobalScope
+      ? globalToChartData(active, data.spotPrice ?? 0, data.gex.global)
+      : toChartData(active, data.spotPrice ?? 0, activeExpiry);
 
   // IV del vencimiento seleccionado, anualizada en % — alimenta las bandas ±1σ/±2σ del gráfico.
+  // En global queda undefined y las bandas no se dibujan: el agregado no tiene IV ATM (ni un solo
+  // vencimiento del que sacarla), y tomar la del más cercano sería mostrar otro scope.
   const iv30 = activeExpiry?.atmIv != null ? activeExpiry.atmIv * 100 : undefined;
 
   // Un vencimiento sin Greeks no aporta al agregado: el GEX da más chico sin que se note.
@@ -256,7 +272,11 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
                 <span className="tabular-nums" style={{
                   fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-muted)',
                 }}>
-                  GEX global {fmtGex(data?.gex.global.netGex ?? 0)} · {data?.gex.global.expirationsIncluded ?? 0} vtos
+                  {/* Solo la COBERTURA del barrido. El GEX global se fue de acá: es una métrica y
+                      vive en su celda del cuadro (grupo "Estructura gamma"), donde tiene su
+                      referencia al lado. Repetido en el encabezado, el mismo número aparecía dos
+                      veces en la misma pantalla con dos formatos distintos. */}
+                  {data?.gex.global.expirationsIncluded ?? 0} vtos
                   {data?.gex.config.maxDte != null && ` ≤ ${data.gex.config.maxDte} DTE`}
                 </span>
                 {/* Barrido incompleto: sin este aviso, un GEX más chico por vencimientos faltantes
@@ -319,21 +339,12 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
                 Error cargando GEX: {err}
               </div>
             ) : (
-              <div style={{ display: 'flex', alignItems: 'stretch' }}>
-                <div style={{ flex: 1.4, minWidth: 0, borderRight: '1px solid var(--border-dark)' }}>
-                  <ValidationLayers
-                    layers={layers}
-                    vlData={data ? asValidationShape(data) : null}
-                    title={display?.details_panel?.title ?? 'Macro Régimen'}
-                    subtitle={display?.details_panel?.subtitle
-                      ?? 'Contexto de mercado — lectura informativa'}
-                    gexLabel={display?.details_panel?.gex_label ?? 'GEX Global'}
-                  />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <MarketDiagnostics inputs={data?.structureInputs ?? null} />
-                </div>
-              </div>
+              <DetailsPanel
+                data={data}
+                groups={display?.details_panel?.groups}
+                subtitle={display?.details_panel?.subtitle
+                  ?? 'Contexto de mercado — lectura informativa'}
+              />
             )}
           </div>
 
@@ -356,7 +367,7 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
                 fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: 13,
                 color: 'var(--text-primary)', letterSpacing: '0.04em',
               }}>
-                {active} · Graph (GEX by Expiry)
+                {active} · Graph ({isGlobalScope ? 'GEX Global — toda la cadena' : 'GEX by Expiry'})
               </span>
               <span className="tabular-nums" style={{
                 fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-muted)',
@@ -368,7 +379,7 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
             <div style={{ display: 'flex', height: DETAIL_HEIGHT }}>
               {/* Izquierda: cadena + lectura numérica del vencimiento elegido */}
               <div style={{
-                width: 230,
+                width: CHAIN_COL_W,
                 flexShrink: 0,
                 borderRight: '1px solid var(--border-dark)',
                 overflowY: 'auto',
@@ -376,10 +387,18 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
                 <OptionsChainList
                   expiries={expiries}
                   selected={activeExpiration}
-                  onSelect={(exp) => selectExpiry(active, exp)}
+                  onSelect={(scope) => selectExpiry(active, scope)}
                   label={display?.options_chain?.label}
+                  globalNetGex={data?.gex.global.netGex}
+                  maxDte={data?.gex.config.maxDte}
+                  globalLabel={display?.options_chain?.global_row?.label}
                 />
-                <ExpiryEngine expiry={activeExpiry} label={display?.expiry_engine?.label} />
+                <ExpiryEngine
+                  scope={isGlobalScope && data
+                    ? { kind: 'global', global: data.gex.global, maxDte: data.gex.config.maxDte ?? null }
+                    : { kind: 'expiry', expiry: activeExpiry }}
+                  label={display?.expiry_engine?.label}
+                />
               </div>
 
               {/* Derecha: gráfico del vencimiento seleccionado */}
