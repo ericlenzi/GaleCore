@@ -216,6 +216,8 @@
       "short_below_put_wall": {
         "enabled": true,
         "label": "Short put strike <= put wall (restriccion de sanidad)",
+        "on_missing_wall": "no_trade",
+        "_on_missing_wall_note": "Que hace el gate cuando NO hay put wall. 'no_trade' = falla cerrado; 'inform_only' = no bloquea (el comportamiento hasta 2026-08-18). Hasta esa fecha un muro ausente caia en no_data y no_data NO bloquea, asi que la restriccion de sanidad se apagaba sola justo cuando no habia con que verificarla — el unico gate del embudo cuyo dato faltante significa 'no puedo comprobar que el short este protegido', no 'todavia no se'. Se volvio relevante el mismo dia: los muros ahora exigen que el neto del strike tenga el signo de su lado (ver GammaExposureHandler.SelectPutWall), asi que un putWall null pasa de ser una rareza de datos a un resultado legitimo — significa que ningun strike bajo el spot tiene gamma neto negativo. OJO: esto solo aplica al MURO ausente. Sin short put strike el gate sigue en no_data, porque ahi no falta el dato: falta el candidato, y un gate no puede juzgar lo que todavia no existe.",
         "on_fail": "no_trade"
       },
       "edge": {

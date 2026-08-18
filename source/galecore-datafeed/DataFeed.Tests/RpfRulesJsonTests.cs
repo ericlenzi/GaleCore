@@ -141,6 +141,34 @@ public class RpfRulesJsonTests
         Assert.Equal("volatility_risk_premium", failr.FailedGate);
     }
 
+    /// <summary>
+    /// El JSON declara que un put wall ausente BLOQUEA, y el evaluador lo obedece. Sin muro no hay
+    /// contra que verificar que el short este protegido: dejarlo pasar apagaba la restriccion de
+    /// sanidad justo cuando no habia con que aplicarla. Se volvio alcanzable el 2026-08-18, cuando
+    /// los muros pasaron a exigir que el neto del strike tenga el signo de su lado.
+    /// </summary>
+    [Fact]
+    public void Rpf_ShortBelowPutWall_SinMuro_Bloquea()
+    {
+        var gate = Rpf()["signal_gates"]!["gates"]!["short_below_put_wall"]!;
+        Assert.Equal("no_trade", (string?)gate["on_missing_wall"]);
+
+        var pop = PopCalibrationTable.Parse(File.ReadAllText(Path.Combine(FilesDir(), "pop_calibration.json")));
+        var sinMuro = new SignalGatesInputs
+        {
+            Symbol = "SPY",
+            AtmIv30 = 18.0, RealizedVol30 = 12.0,
+            Vvix = 95, Skew25Roc5d = 0.01,
+            ShortPutStrike = 690, PutWall = null,   // el caso: candidato si, muro no
+            Credit = 0.90, SpreadWidth = 5,
+            ShortPutDeltaAbs = 0.25, Regime = "normal",
+        };
+
+        var r = SignalGatesEvaluator.Evaluate(Rpf()["signal_gates"], sinMuro, pop);
+        Assert.False(r.AllPass);
+        Assert.Equal("short_below_put_wall", r.FailedGate);
+    }
+
     [Theory]
     [InlineData(12, "low_vol")]
     [InlineData(18, "normal")]

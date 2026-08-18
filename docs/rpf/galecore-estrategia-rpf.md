@@ -286,7 +286,14 @@ Política **B**, validada por BT-4 (domina en velocidad de capital):
 - **Delta objetivo del short: 0.25** (BT-17 ganador; BT-12 confirmó meseta 0.28–0.32, no pico).
 - **Ancho: $5** ($10 rechazado — es apalancamiento, no alpha: mismo total con 2× max loss, BT-17).
 - **DTE: [35, 50], target 45.**
-- **Restricción de sanidad:** `short_strike ≤ put_wall`.
+- **Restricción de sanidad:** `short_strike ≤ put_wall`. **Sin put wall, el gate bloquea**
+  (`signal_gates.gates.short_below_put_wall.on_missing_wall: "no_trade"`). Es la excepción al
+  "sin datos no bloquea" del resto del embudo: acá el dato que falta es la referencia contra la que
+  se verifica, así que dejarlo pasar apagaba la restricción justo cuando no había con qué aplicarla.
+  Ojo con la asimetría: sin **short strike** el gate sigue en `no_data` y no bloquea — ahí no falta
+  un dato, falta el candidato. Se volvió alcanzable el 2026-08-18, cuando los muros pasaron a exigir
+  que el neto del strike tenga el signo de su lado (ver `docs/gex/gex_endpoint.md` §1): un
+  `putWall` null dejó de ser una rareza de datos y pasó a ser un resultado legítimo.
 - **Piso anti-pennies:** `credit_ratio ≥ 10%` **y** `crédito ≥ $0.30`.
 - **Microestructura:** `open_interest ≥ 100` (bajó de 2000 — el OI no predice calidad de quote en
   SPY moderno, BT §8) · `spread ≤ 5%` (gate primario, se auto-protege).

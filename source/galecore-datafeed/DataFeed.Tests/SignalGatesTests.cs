@@ -85,6 +85,53 @@ public class SignalGatesTests
         Assert.Equal("short_below_put_wall", r.FailedGate);
     }
 
+    /// <summary>
+    /// La excepción a "sin datos no bloquea": sin put wall no hay contra qué verificar que el short
+    /// esté protegido, así que el gate falla cerrado. Hasta 2026-08-18 caía en no_data y la
+    /// restricción de sanidad se apagaba sola justo cuando no había con qué aplicarla.
+    /// </summary>
+    [Fact]
+    public void ShortBelowPutWall_SinMuro_FallaCerrado()
+    {
+        var inp = GoodInputs();
+        inp.PutWall = null;
+        var r = SignalGatesEvaluator.Evaluate(Gates(), inp, Pop());
+
+        Assert.False(r.AllPass);
+        Assert.Equal("short_below_put_wall", r.FailedGate);
+        Assert.Equal("fail", r.Gates.Single(g => g.Id == "short_below_put_wall").Status);
+    }
+
+    /// <summary>El JSON puede volver al comportamiento viejo sin tocar código.</summary>
+    [Fact]
+    public void ShortBelowPutWall_SinMuro_InformOnly_NoBloquea()
+    {
+        var gates = Gates();
+        gates["gates"]!["short_below_put_wall"]!["on_missing_wall"] = "inform_only";
+        var inp = GoodInputs();
+        inp.PutWall = null;
+
+        var r = SignalGatesEvaluator.Evaluate(gates, inp, Pop());
+
+        Assert.True(r.AllPass);
+        Assert.Equal("no_data", r.Gates.Single(g => g.Id == "short_below_put_wall").Status);
+    }
+
+    /// <summary>
+    /// La otra mitad: sin short put strike NO falta un dato, falta el candidato. Un gate no puede
+    /// juzgar lo que todavía no existe, así que sigue en no_data y no bloquea.
+    /// </summary>
+    [Fact]
+    public void ShortBelowPutWall_SinShortPut_SigueEnNoData()
+    {
+        var inp = GoodInputs();
+        inp.ShortPutStrike = null;
+        var r = SignalGatesEvaluator.Evaluate(Gates(), inp, Pop());
+
+        Assert.True(r.AllPass);
+        Assert.Equal("no_data", r.Gates.Single(g => g.Id == "short_below_put_wall").Status);
+    }
+
     [Fact]
     public void Edge_PasaYFalla_SegunBarraDeRegimen()
     {

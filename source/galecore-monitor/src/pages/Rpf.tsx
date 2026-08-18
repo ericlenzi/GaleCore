@@ -150,15 +150,27 @@ function StatusIcon({ status }: { status: string }) {
 }
 
 // Fila de check macro/prima: icono + etiqueta + valor/umbral.
+//
+// El `detail` se muestra cuando el check NO pasa, y ahí es lo único que explica por qué. Un check
+// puede fallar sin umbral contra el cual compararse —`short_below_put_wall` sin put wall es el
+// caso— y sin esta línea la fila queda en rojo con un número suelto: el operador ve que algo
+// bloqueó, no qué. Es la misma regla que el amarillo de `no_data`: el estado tiene que decir cuál
+// guarda dejó de estar, no solo que no está verde.
 function CheckRow({ c }: { c: RpfCheck }) {
   const color = STATUS_COLOR[c.status] ?? 'var(--text-muted)';
   const valTxt = c.value != null
     ? `${fmt(c.value)}${c.threshold != null ? ` / ${fmt(c.threshold)}` : ''}`
     : '';
+  const showDetail = !!c.detail && c.status !== 'pass';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-dark)' }}>
       <StatusIcon status={c.status} />
-      <span style={{ flex: 1, fontSize: 12, color: 'var(--text-primary)', fontFamily: 'Inter, sans-serif' }}>{c.label}</span>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-primary)', fontFamily: 'Inter, sans-serif' }}>{c.label}</div>
+        {showDetail && (
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif' }}>{c.detail}</div>
+        )}
+      </div>
       <span className="tabular-nums" style={{ fontSize: 11, color: c.status === 'fail' ? color : 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace' }}>{valTxt}</span>
     </div>
   );

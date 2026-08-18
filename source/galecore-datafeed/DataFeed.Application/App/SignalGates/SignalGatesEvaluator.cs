@@ -47,6 +47,9 @@ namespace DataFeed.Application.App.SignalGates
     /// Embudo de signal_gates v1.4.0 (BT-9b..BT-17). Evalúa cada gate declarado en signal_gates.gates,
     /// en orden, con semántica all_must_pass cortocircuitante. Un gate deshabilitado ("enabled":false)
     /// o sin datos ("no_data") NO bloquea — solo un gate habilitado con status "fail" desarma la señal.
+    /// La excepción es <c>short_below_put_wall</c> sin put wall, que falla cerrado por declaración del
+    /// JSON (<c>on_missing_wall</c>): es el único gate cuyo dato faltante significa "no puedo
+    /// comprobar que el short esté protegido" en vez de "todavía no sé". Ver EvalShortBelowPutWall.
     /// Estático y sin estado: cada estrategia le pasa el nodo `signal_gates` de su propio JSON.
     /// </summary>
     public static class SignalGatesEvaluator
@@ -160,12 +163,36 @@ namespace DataFeed.Application.App.SignalGates
             return Pass(g); // si se reactiva, requiere el cálculo de gamma agregado (no cableado aún)
         }
 
+        /// <summary>
+        /// El único gate del embudo que puede fallar por falta de dato, y por eso separa los dos
+        /// "no hay" que antes caían juntos en no_data:
+        /// <list type="bullet">
+        /// <item><b>Sin short put strike</b> — no falta un dato, falta el candidato. El gate no
+        /// aplica todavía y sigue en no_data (no bloquea).</item>
+        /// <item><b>Sin put wall</b> — falta la referencia contra la que se verifica. Ahí no_data
+        /// significaba "no puedo comprobar que el short esté protegido, sigan adelante": la
+        /// restricción de sanidad se apagaba sola justo cuando no había con qué verificarla.
+        /// Lo declara <c>on_missing_wall</c> en el JSON; el default es fallar cerrado.</item>
+        /// </list>
+        /// Se volvió relevante el 2026-08-18: desde que los muros exigen que el neto del strike
+        /// tenga el signo de su lado (ver <c>GammaExposureHandler.SelectPutWall</c>), un PutWall
+        /// null dejó de ser una rareza de datos y pasó a ser un resultado legítimo.
+        /// </summary>
         private static GateResult EvalShortBelowPutWall(JsonNode? node, SignalGatesInputs inp)
         {
             var g = Base(node, "short_below_put_wall");
             if (!g.Enabled) return Skipped(g);
-            if (inp.ShortPutStrike is not > 0 || inp.PutWall is not > 0)
-                return NoData(g, "short put o put wall no disponibles");
+            if (inp.ShortPutStrike is not > 0)
+                return NoData(g, "short put no disponible");
+
+            if (inp.PutWall is not > 0)
+            {
+                g.Value = inp.ShortPutStrike;
+                g.Detail = "sin put wall: ningún strike bajo el spot con gamma neto negativo";
+                return node?["on_missing_wall"]?.GetValue<string>() != "inform_only"
+                    ? Fail(g)
+                    : NoData(g, g.Detail);
+            }
 
             g.Value = inp.ShortPutStrike;
             g.Threshold = inp.PutWall;
