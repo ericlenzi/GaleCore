@@ -115,27 +115,6 @@ export function calcDte(expiration: string): number {
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
-/** Returns ET market status using UTC-based DST approximation (works regardless of local timezone) */
-export function getMarketStatus(): 'PRE-MARKET' | 'ABIERTO' | 'CERRADO' {
-  const now = new Date();
-  // EDT (UTC-4): second Sunday of March through first Sunday of November
-  // Approximate with month range: March(3) through November(11) exclusive
-  const month = now.getUTCMonth() + 1; // 1-12
-  const etOffsetHours = (month >= 3 && month <= 11) ? 4 : 5; // hours behind UTC
-  const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60;
-  const etHours = ((utcHours - etOffsetHours) % 24 + 24) % 24;
-
-  if (etHours >= 9.5 && etHours < 16) return 'ABIERTO';
-  if (etHours >= 4   && etHours < 9.5) return 'PRE-MARKET';
-  return 'CERRADO';
-}
-
-export function signalColor(signal: string): string {
-  if (signal === 'OPERAR' || signal === 'OPERAR_PCS') return '#00c896';
-  if (signal === 'ESPERAR') return '#f59e0b';
-  return '#ef4444';
-}
-
 /**
  * Tinte translúcido válido para CUALQUIER color CSS, incluidas las `var(--x)`.
  * Concatenar alpha-hex a una var (`var(--green)1e`) produce un color inválido que el
@@ -145,11 +124,6 @@ export function signalColor(signal: string): string {
  */
 export function tint(color: string, pct: number): string {
   return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
-}
-
-export function boolToStatus(v: boolean | null): 'ok' | 'warn' | 'na' {
-  if (v === null) return 'na';
-  return v ? 'ok' : 'warn';
 }
 
 export function fmtPnl(n: number): string {

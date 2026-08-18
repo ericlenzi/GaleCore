@@ -1,5 +1,3 @@
-export type SignalType = 'OPERAR' | 'ESPERAR' | 'NO OPERAR';
-
 export interface TickerState {
   symbol: string;
   price: number;
@@ -34,35 +32,3 @@ export interface TickerState {
     gex?: string;
   };
 }
-
-export interface LayerStatus {
-  // Layer 1 — Régimen & GEX
-  vixAbsoluteOk: boolean | null;         // VIX < threshold
-  vixAbsoluteValue: number | null;
-  vixTermStructureOk: boolean | null;    // VIX9D < VIX30D
-  ivRankOk: boolean | null;              // 25–65
-  ivRankValue: number | null;
-  ivMomentumOk: boolean | null;          // IV ROC ≤ 12%
-  ivMomentumValue: number | null;
-  gexOk: boolean | null;                 // ≥ threshold
-  gexValue: number | null;               // in billions
-  spotAboveZgl: boolean | null;          // Spot > ZGL
-  zglValue: number | null;
-
-  // Layer 2 — Motor de strikes
-  expectedMove: number | null;
-  callWall: number | null;
-  putWall: number | null;
-
-  // Layer 3 — Microestructura (ATM)
-  atmStrike: number | null;
-  atmCallOI: number | null;
-  atmPutOI: number | null;
-  atmCallDelta: number | null;
-  atmPutDelta: number | null;
-
-  // Summary
-  signal: SignalType;
-}
-
-export type MarketStatus = 'PRE-MARKET' | 'ABIERTO' | 'CERRADO';

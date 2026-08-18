@@ -559,12 +559,13 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │                           #   Se monta recién al entrar a la pestaña (el barrido es caro).
   ├── types/
   │   ├── api.ts              # AppConfig/StrategyEntry/ServiceEntry, ValidationLayerApiResponse, StructureInputs
-  │   ├── market.ts           # Tipos de mercado (ticker state, capas, señal)
+  │   ├── market.ts           # TickerState: precio, quote, Greeks e IV por símbolo. Nada más —
+  │   │                       #   `LayerStatus`/`SignalType`/`MarketStatus` eran de la cascada v1.4.0
   │   ├── position.ts         # Tipos de posiciones y P&L
   │   ├── gex.ts              # Tipos de /App/Gex/*
   │   └── rpf.ts              # Tipos de la orquestación RPF
   ├── utils/
-  │   ├── formatters.ts       # Formateo de números, fechas, colores semáforo, tint()
+  │   ├── formatters.ts       # Formateo de números, fechas y P&L, agrupado de posiciones, tint()
   │   ├── spreadBuilder.ts    # Arma spreads live desde las posiciones de la cuenta
   │   └── streamerSymbol.ts   # Símbolos DXLink y crédito neto actual
   └── App.tsx

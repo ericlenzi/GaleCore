@@ -4,9 +4,6 @@ import { TradePayload, QuotePayload, GreeksPayload } from '../types/api';
 
 interface MarketStore {
   tickers: Record<string, TickerState>;
-  // VIX term structure (market-wide)
-  vix9d: number | null;
-  vix3m: number | null;
 
   initTicker:   (symbol: string) => void;
   updatePrice:  (symbol: string, data: TradePayload) => void;
@@ -18,7 +15,6 @@ interface MarketStore {
   setIV:       (symbol: string, iv30: number, iv9d?: number, iv3m?: number) => void;
   setLoading:  (symbol: string, key: keyof TickerState['loading'], value: boolean) => void;
   setError:    (symbol: string, key: keyof TickerState['error'], msg?: string) => void;
-  setVix:      (vix9d: number, vix3m: number) => void;
 }
 
 const defaultLoading = { price: false, ivRank: false, iv: false, gex: false };
@@ -39,8 +35,6 @@ const emptyTicker = (symbol: string): TickerState => ({
 
 export const useMarketStore = create<MarketStore>((set) => ({
   tickers: {},
-  vix9d: null,
-  vix3m: null,
 
   initTicker: (symbol) =>
     set((s) => {
@@ -135,6 +129,4 @@ export const useMarketStore = create<MarketStore>((set) => ({
         },
       };
     }),
-
-  setVix: (vix9d, vix3m) => set({ vix9d, vix3m }),
 }));
