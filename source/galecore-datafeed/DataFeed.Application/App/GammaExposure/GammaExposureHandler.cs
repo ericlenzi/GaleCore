@@ -64,6 +64,41 @@ namespace DataFeed.Application.App.GammaExposure
         public static long SanitizeOpenInterest(long oi) => oi < 0 ? 0 : oi;
 
         /// <summary>
+        /// Call Wall: el strike por encima del spot con mayor CallGEX, <b>entre los que además
+        /// tienen gamma neto positivo</b>. Devuelve null si ninguno califica.
+        /// </summary>
+        /// <remarks>
+        /// El ranking sigue siendo por lado y no por neto, por dos razones medidas en SPY el
+        /// 2026-08-18 (cadena completa, 17 vencimientos, cobertura 100%):
+        /// <list type="bullet">
+        /// <item>Es lo que dibuja <c>GexBarsPanel</c>: barras por lado, no netas. Con el argmax del
+        /// neto, la línea del muro dejaba de caer sobre el pico visible.</item>
+        /// <item>Es más estable. El margen entre el #1 y el #2 del Call Wall global caía de 23.8% a
+        /// 6.1% al rankear por neto — es una resta de dos números grandes y el ganador se da vuelta
+        /// con mucho menos movimiento.</item>
+        /// </list>
+        /// La guarda de signo es lo que se agregó: sin ella, el Call Wall del 0DTE de ese día salía
+        /// 770, un strike con OI de puts 6x el de calls y gamma neto −$30B. Un muro donde el dealer
+        /// está net short gamma es lo contrario de lo que la palabra promete.
+        /// La guarda también resuelve el vencimiento sin OI (ese día, 2026-09-01 con 30 strikes y OI
+        /// 0): NetGEX 0 no es &gt; 0, así que devuelve null en vez de elegir un strike arbitrario
+        /// entre puros ceros.
+        /// </remarks>
+        public static double? SelectCallWall(IEnumerable<GammaExposureStrike> strikes, double spot) =>
+            strikes.Where(s => s.Strike > spot && s.CallGEX > 0 && s.NetGEX > 0)
+                   .OrderByDescending(s => s.CallGEX)
+                   .FirstOrDefault()?.Strike;
+
+        /// <summary>
+        /// Put Wall: el strike por debajo del spot con mayor |PutGEX|, entre los que además tienen
+        /// gamma neto negativo. Espejo de <see cref="SelectCallWall"/> — mismas razones.
+        /// </summary>
+        public static double? SelectPutWall(IEnumerable<GammaExposureStrike> strikes, double spot) =>
+            strikes.Where(s => s.Strike < spot && s.PutGEX < 0 && s.NetGEX < 0)
+                   .OrderBy(s => s.PutGEX)
+                   .FirstOrDefault()?.Strike;
+
+        /// <summary>
         /// Obtiene Greeks (IV/delta/gamma) + OI por símbolo vía la conexión DXLink persistente,
         /// sin abrir una sesión nueva. Greeks pasa por reference-counting (no pisa al Monitor);
         /// Candle (OI) va en lotes con cache diario.
@@ -436,10 +471,8 @@ namespace DataFeed.Application.App.GammaExposure
                             DTE = exp.DaysToExpiration,
                             ExpirationType = exp.ExpirationType,
                             GammaZeroLevel = CalculateGammaZero(strikes, spot),
-                            CallWall = strikes.Where(s => s.Strike > spot && s.CallGEX > 0)
-                                              .OrderByDescending(s => s.CallGEX).FirstOrDefault()?.Strike,
-                            PutWall = strikes.Where(s => s.Strike < spot && s.PutGEX < 0)
-                                             .OrderBy(s => s.PutGEX).FirstOrDefault()?.Strike,
+                            CallWall = SelectCallWall(strikes, spot),
+                            PutWall = SelectPutWall(strikes, spot),
                             AtmIv = atmIv.HasValue ? Math.Round(atmIv.Value, 4) : null,
                             ExpectedMove = expectedMove,
                             Strikes = strikes,
@@ -457,19 +490,9 @@ namespace DataFeed.Application.App.GammaExposure
                 // ═══════════════════════════════════════════════════════════
                 response.GammaZeroLevel = CalculateGammaZero(response.Strikes, spot);
 
-                // Call Wall: strike por encima del spot con mayor CallGEX
-                var callWallStrike = response.Strikes
-                    .Where(s => s.Strike > spot && s.CallGEX > 0)
-                    .OrderByDescending(s => s.CallGEX)
-                    .FirstOrDefault();
-                response.CallWall = callWallStrike?.Strike;
-
-                // Put Wall: strike por debajo del spot con mayor |PutGEX|
-                var putWallStrike = response.Strikes
-                    .Where(s => s.Strike < spot && s.PutGEX < 0)
-                    .OrderBy(s => s.PutGEX)
-                    .FirstOrDefault();
-                response.PutWall = putWallStrike?.Strike;
+                // Muros del agregado. Misma definición que la de cada vencimiento — ver SelectCallWall.
+                response.CallWall = SelectCallWall(response.Strikes, spot);
+                response.PutWall = SelectPutWall(response.Strikes, spot);
 
                 return response;
             }

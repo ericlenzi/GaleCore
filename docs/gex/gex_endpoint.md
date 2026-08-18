@@ -17,8 +17,25 @@ Calcula el **Gamma Exposure (GEX) por strike** del subyacente para la expiració
 cercana dentro de un horizonte de DTE, e infiere niveles clave de la estructura de gamma:
 
 - **Gamma Zero Level (ZGL)** — precio donde el Net GEX cruza de negativo a positivo (gamma flip).
-- **Call Wall** — strike por **encima** del spot con mayor `CallGEX` (resistencia).
-- **Put Wall** — strike por **debajo** del spot con mayor `|PutGEX|` (soporte).
+- **Call Wall** — strike por **encima** del spot con mayor `CallGEX`, **entre los que además tienen
+  `NetGEX > 0`** (resistencia). `null` si ninguno califica.
+- **Put Wall** — strike por **debajo** del spot con mayor `|PutGEX|`, entre los que además tienen
+  `NetGEX < 0` (soporte). `null` si ninguno califica.
+
+  El ranking es **por lado** y la guarda es **por neto**, y cada mitad responde a una falla distinta
+  (medido en SPY el 2026-08-18: cadena completa, 17 vencimientos, cobertura 100%, spot 767.85):
+  * **Por qué el ranking no es por neto.** Es lo que dibuja `GexBarsPanel` —barras por lado, no
+    netas—, así que con el argmax del neto la línea del muro dejaba de caer sobre el pico visible.
+    Y es más estable: el margen entre el #1 y el #2 del Call Wall global caía de 23.8% a 6.1%,
+    porque el neto es una resta de dos números grandes y el ganador se da vuelta con menos movimiento.
+  * **Por qué hace falta la guarda.** Sin ella, el Call Wall del 0DTE de ese día salía 770: OI de
+    puts 6x el de calls y gamma neto −$30B. Un muro donde el dealer está net short gamma es lo
+    contrario de lo que la palabra promete. La guarda además resuelve el vencimiento sin OI
+    (ese día, 2026-09-01 con 30 strikes y OI 0), donde el argmax elegía un strike arbitrario entre
+    puros ceros en vez de devolver `null`.
+
+  En el agregado los dos criterios daban lo mismo (775 / 765); la diferencia aparece por vencimiento
+  (7 de 17 en el Call Wall, 2 de 17 en el Put Wall). Congelado por `GammaExposureWallTests.cs`.
 
 Es el insumo principal de la **Capa 1** de la estrategia (régimen macro / GEX y Spot vs ZGL).
 
@@ -211,7 +228,9 @@ vieja pedida. Antes, dos requests concurrentes del mismo símbolo (ej. IVRank y 
 - Mantener el **log de ERROR de DXLink** (no volver al `catch {}` vacío).
 - Los caches (`_chainCache`, `_oiCache`) son **por día UTC**; el OI es el settled del día previo y no
   cambia intradía, por eso es seguro cachearlo. Si se necesita refresco intradía de OI, invalidar por tiempo.
-- Call Wall siempre **arriba** del spot; Put Wall siempre **abajo** (definición estándar de muros GEX).
+- Call Wall siempre **arriba** del spot; Put Wall siempre **abajo** (definición estándar de muros GEX),
+  y ambos exigen que el **neto del strike tenga el signo del lado** (ver §1). Un muro `null` es un
+  resultado válido, no un dato faltante: significa que ningún strike de ese lado califica.
 
 ---
 
