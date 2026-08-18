@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { DetailsGroup, GexAnalysisResponse } from '../../types/gex';
 import { MacroRegimeChecks, StructureInputs } from '../../types/api';
 import { fmtGex, fmtPrice } from '../../utils/formatters';
+import { CALL_COLOR, PUT_COLOR } from '../../utils/optionSideColors';
 
 /**
  * Cuadro Details de la pestaña GEX: los diez indicadores de contexto, agrupados por la PREGUNTA que
@@ -58,15 +59,20 @@ export const DEFAULT_DETAILS_GROUPS: DetailsGroup[] = [
 ];
 
 /**
- * Las dos únicas métricas que se pintan, porque su valor ES una dirección de mercado y no un
- * veredicto: qué muro domina y hacia dónde apuntan las EMAs.
+ * Las dos únicas métricas que se pintan, porque su valor ES una dirección y no un veredicto: qué
+ * muro domina y hacia dónde apuntan las EMAs. Pero no se pintan con la misma escala:
  *
- * El skew usa los mismos colores que los muros en GexChart —call wall rojo, put wall verde—, así
- * que "put 0.39" en verde significa lo mismo que la línea verde del gráfico (soporte estructural
- * abajo), no "este check pasó".
+ * * **El skew usa la identidad del lado de la cadena** (`optionSideColors`): call verde, put rojo,
+ *   los mismos colores con los que el gráfico y el panel de barras dibujan ese muro. "put 0.38" en
+ *   rojo dice "el muro dominante es de puts", igual que la línea roja del Put Wall — no dice que
+ *   algo esté mal.
+ * * **El trend usa el verde/rojo de dirección de precio**, que es el mismo de las velas.
+ *
+ * Son dos ejes distintos que comparten los dos colores del tema, así que el que lee tiene que
+ * apoyarse en la etiqueta de la celda. Por eso son las únicas dos con color.
  */
-const DIRECTION_GREEN = 'var(--green)';
-const DIRECTION_RED = 'var(--red-gc)';
+const TREND_UP = 'var(--green)';
+const TREND_DOWN = 'var(--red-gc)';
 
 interface Cell {
   /** El número o la palabra que se lee de un vistazo. */
@@ -184,8 +190,8 @@ function buildCell(
       return {
         value: `${lado} ${n(g.skewRatio)}`,
         reference: g.interpretation ?? 'callGEX / (callGEX + |putGEX|)',
-        color: g.value === 'put_dominant' ? DIRECTION_GREEN
-          : g.value === 'call_dominant' ? DIRECTION_RED
+        color: g.value === 'put_dominant' ? PUT_COLOR
+          : g.value === 'call_dominant' ? CALL_COLOR
           : undefined,
         tooltip: [
           { label: 'Ratio', value: n(g.skewRatio) },
@@ -230,7 +236,7 @@ function buildCell(
         reference: t.ema20 != null && t.ema50 != null
           ? `EMA20 ${t.ema20.toFixed(1)} · EMA50 ${t.ema50.toFixed(1)}`
           : (t.interpretation ?? 'EMA 20 vs EMA 50'),
-        color: t.signal === 'up' ? DIRECTION_GREEN : t.signal === 'down' ? DIRECTION_RED : undefined,
+        color: t.signal === 'up' ? TREND_UP : t.signal === 'down' ? TREND_DOWN : undefined,
         tooltip: [
           { label: 'EMA 20', value: n(t.ema20, 1) },
           { label: 'EMA 50', value: n(t.ema50, 1) },

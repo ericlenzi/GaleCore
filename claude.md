@@ -615,6 +615,22 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     muros. Una sola gramática visual por panel: dos (tiles de un lado, filas del otro) se leen como
     dos tipos de dato distintos.
 
+- Regla — el color del lado de la cadena vive en un solo archivo
+  **CALL es verde y PUT es rojo**, en el gráfico, en las barras de gamma y en el skew del Details.
+  El valor lo declara `utils/optionSideColors.ts` (`CALL_COLOR` / `PUT_COLOR`) y nadie más escribe
+  ese hex: con el literal repetido en cada componente, la convención no vive en ningún lado.
+
+  Y no vivía: hasta el 2026-08-18 el panel de barras pintaba las calls de verde y las puts de rojo,
+  mientras las líneas de muro de **ese mismo panel** —y las de `GexChart`— pintaban el Call Wall de
+  rojo y el Put Wall de verde. El rojo significaba "put" a diez píxeles de donde significaba "call".
+
+  **Este verde/rojo NO es el de bien/mal**, y tampoco el de dirección de precio de las velas: es la
+  identidad de un lado de la cadena. Un Call Wall verde no dice que algo esté bien — dice que ese
+  muro es de calls. Por eso el `StrikeLadder` del Monitor **queda afuera a propósito**: ahí el color
+  codifica el rol en la posición (rojo = leg long, ámbar = leg short, rojo de fondo = MAX LOSS) y
+  los dos muros van en un índigo neutro. Meter la convención de lado ahí haría que el rojo
+  significara tres cosas distintas en la misma franja.
+
 - Manejo del tiempo real
   * Conexión SignalR
   ```typescript

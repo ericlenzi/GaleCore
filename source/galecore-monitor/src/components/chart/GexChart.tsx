@@ -10,6 +10,7 @@ import {
   CrosshairMode,
 } from 'lightweight-charts';
 import { GammaExposureResponse } from '../../types/api';
+import { CALL_COLOR, PUT_COLOR } from '../../utils/optionSideColors';
 import { fetchEquityCandles } from '../../api/marketdata';
 import { fmtPrice, etDateParts, etOffsetMinutes } from '../../utils/formatters';
 import { GexBarsPanel } from './GexBarsPanel';
@@ -211,8 +212,8 @@ export function GexChart({
       gexLinesRef.current.push(series.createPriceLine({ price, color, lineWidth: width, lineStyle: style, axisLabelVisible: axis, title: label }));
     };
 
-    add(gexData.callWall,       '#f43f5e', `Call Wall ${fmtPrice(gexData.callWall, 0)}`,       2, LineStyle.Dashed);
-    add(gexData.putWall,        '#22c55e', `Put Wall ${fmtPrice(gexData.putWall, 0)}`,          2, LineStyle.Dashed);
+    add(gexData.callWall,       CALL_COLOR, `Call Wall ${fmtPrice(gexData.callWall, 0)}`,      2, LineStyle.Dashed);
+    add(gexData.putWall,        PUT_COLOR,  `Put Wall ${fmtPrice(gexData.putWall, 0)}`,         2, LineStyle.Dashed);
     add(gexData.zeroGammaLevel, '#94a3b8', `ZGL ${fmtPrice(gexData.zeroGammaLevel, 0)}`,        1, LineStyle.Dashed);
 
     const spot = gexData.spot;

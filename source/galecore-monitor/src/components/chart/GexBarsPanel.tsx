@@ -1,6 +1,7 @@
 import React from 'react';
 import { GexStrike } from '../../types/api';
 import { GEX_BARS_W } from '../gex/graphLayout';
+import { CALL_COLOR, PUT_COLOR, sideColorAlpha } from '../../utils/optionSideColors';
 import { fmtPrice } from '../../utils/formatters';
 
 interface Props {
@@ -55,8 +56,8 @@ export const GexBarsPanel = React.memo(function GexBarsPanel({
     }}>
       <svg width={PANEL_W} height={height} style={{ display: 'block' }}>
         {/* Header labels */}
-        <text x={CENTER_X - HALF_BAR / 2} y={10} fill="rgba(244,63,94,0.55)" fontSize={7} textAnchor="middle">PUT</text>
-        <text x={CENTER_X + HALF_BAR / 2} y={10} fill="rgba(34,197,94,0.55)"  fontSize={7} textAnchor="middle">CALL</text>
+        <text x={CENTER_X - HALF_BAR / 2} y={10} fill={sideColorAlpha(PUT_COLOR, 0.55)} fontSize={7} textAnchor="middle">PUT</text>
+        <text x={CENTER_X + HALF_BAR / 2} y={10} fill={sideColorAlpha(CALL_COLOR, 0.55)} fontSize={7} textAnchor="middle">CALL</text>
 
         {/* Zero axis */}
         <line x1={CENTER_X} y1={14} x2={CENTER_X} y2={height} stroke="var(--border)" strokeWidth={1} />
@@ -95,7 +96,7 @@ export const GexBarsPanel = React.memo(function GexBarsPanel({
                   y={yPx - barH / 2}
                   width={callW}
                   height={barH}
-                  fill={isAtm ? 'rgba(34,197,94,0.9)' : 'rgba(34,197,94,0.55)'}
+                  fill={sideColorAlpha(CALL_COLOR, isAtm ? 0.9 : 0.55)}
                   rx={1}
                 />
               )}
@@ -107,7 +108,7 @@ export const GexBarsPanel = React.memo(function GexBarsPanel({
                   y={yPx - barH / 2}
                   width={putW}
                   height={barH}
-                  fill={isAtm ? 'rgba(244,63,94,0.9)' : 'rgba(244,63,94,0.55)'}
+                  fill={sideColorAlpha(PUT_COLOR, isAtm ? 0.9 : 0.55)}
                   rx={1}
                 />
               )}
@@ -121,16 +122,16 @@ export const GexBarsPanel = React.memo(function GexBarsPanel({
         {/* Call Wall line */}
         {callWallY !== null && (
           <g>
-            <line x1={LABEL_W} y1={callWallY} x2={PANEL_W} y2={callWallY} stroke="#f43f5e" strokeWidth={1} strokeDasharray="3,2" />
-            <text x={PANEL_W - 2} y={callWallY - 2} fill="#f43f5e" fontSize={7} textAnchor="end">CW {fmtPrice(callWall, 0)}</text>
+            <line x1={LABEL_W} y1={callWallY} x2={PANEL_W} y2={callWallY} stroke={CALL_COLOR} strokeWidth={1} strokeDasharray="3,2" />
+            <text x={PANEL_W - 2} y={callWallY - 2} fill={CALL_COLOR} fontSize={7} textAnchor="end">CW {fmtPrice(callWall, 0)}</text>
           </g>
         )}
 
         {/* Put Wall line */}
         {putWallY !== null && (
           <g>
-            <line x1={LABEL_W} y1={putWallY} x2={PANEL_W} y2={putWallY} stroke="#22c55e" strokeWidth={1} strokeDasharray="3,2" />
-            <text x={PANEL_W - 2} y={putWallY + 9} fill="#22c55e" fontSize={7} textAnchor="end">PW {fmtPrice(putWall, 0)}</text>
+            <line x1={LABEL_W} y1={putWallY} x2={PANEL_W} y2={putWallY} stroke={PUT_COLOR} strokeWidth={1} strokeDasharray="3,2" />
+            <text x={PANEL_W - 2} y={putWallY + 9} fill={PUT_COLOR} fontSize={7} textAnchor="end">PW {fmtPrice(putWall, 0)}</text>
           </g>
         )}
 
