@@ -145,7 +145,28 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   El principal origen de datos actualmente es la api de Tastytrade, cuya documentación esta disponible en https://developer.tastytrade.com/
 
   The API runs on local http://localhost:7001 (IIS Express) and opens Swagger UI at /swagger.
-  The API runs on production: https://datafeed-g5b4dkfccda5hkdh.chilecentral-01.azurewebsites.net/swagger/index.html
+  The API runs on production: https://vps-6285555-x.dattaweb.com/swagger/index.html
+
+- Producción — VPS Linux, no PaaS
+  Desde el 2026-08-19 la API corre en un **VPS de Donweb** (Ubuntu 24.04, x64): la app en
+  `/srv/galecore/app` bajo el usuario de servicio `galecore`, Kestrel escuchando solo en
+  `127.0.0.1:5001`, y Nginx adelante terminando TLS con certificado de Let's Encrypt. Antes estaba
+  en Azure App Service, cuyo host dejó de resolver por DNS.
+
+  **Los secretos van en `/etc/galecore/datafeed.env`** (modo 600, `EnvironmentFile` de la unidad de
+  systemd), nunca en `appsettings.*.json`: las variables de entorno le ganan a cualquier JSON, y el
+  archivo no viaja adentro del paquete desplegado. El `:` de la jerarquía se escribe `__`.
+
+  Dos cosas del entorno que no se deducen del código:
+  * **`Tastytrade__OAuth__refresh_token` no se configura.** Sale de la fila marcada `is_system` en
+    `accounts` y se descifra con `Security__TokenProtectionKey`; el de configuración es solo el
+    fallback para cuando esa fila no existe. O sea que esa clave no es "para las cuentas
+    vinculadas": sin ella no hay feed de mercado en absoluto.
+  * **Un valor con espacios va entre comillas dobles.** En un `EnvironmentFile` el valor termina en
+    el primer espacio y lo que sigue systemd lo toma como otra variable. La cadena de conexión lleva
+    `SSL Mode=Require`, así que sin comillas llega mutilada.
+
+  El hostname de hoy es el que asigna el proveedor, no un dominio propio.
 
 - Taxonomía de la API — controllers y tags de Swagger
   Dos controllers, cada uno con su prefijo de ruta; dentro, los endpoints se agrupan por tag de Swagger.
@@ -481,8 +502,14 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   REACT_APP_SIGNALR_HUB_URL=http://localhost:7001/hubs/marketdata
 
   * env production
-  REACT_APP_API_BASE_URL=https://datafeed-g5b4dkfccda5hkdh.chilecentral-01.azurewebsites.net
-  REACT_APP_SIGNALR_HUB_URL=https://datafeed-g5b4dkfccda5hkdh.chilecentral-01.azurewebsites.net/hubs/marketdata
+  REACT_APP_API_BASE_URL=https://vps-6285555-x.dattaweb.com
+  REACT_APP_SIGNALR_HUB_URL=https://vps-6285555-x.dattaweb.com/hubs/marketdata
+
+  El tablero se despliega en Vercel (`galecore.vercel.app`), conectado al repo: el push a master
+  dispara el build solo. **Vercel compila con `CI=true`, que convierte los warnings de ESLint en
+  errores**, así que un import muerto que `npm start` ignora tumba el deploy — y el fallo es
+  silencioso desde afuera, porque Vercel sigue sirviendo el último build que sí pasó: el síntoma no
+  es un error, es que los cambios no aparecen. Correr `CI=true npm run build` antes de pushear.
 
 - Estructura de archivos:
   src/
