@@ -74,9 +74,13 @@ export function PositionMonitor({ subscribeLeg, unsubscribeLeg, subscribeSymbol,
 
   // Cleanup all subscriptions on unmount
   useEffect(() => {
+    // Se captura el Set al montar: el cleanup corre cuando `subscribedLegsRef.current` ya podría
+    // apuntar a otra cosa. Acá el ref nunca se reasigna, así que es el mismo objeto — pero leerlo
+    // dentro del cleanup es el patrón que rompe cuando alguien sí lo reasigna.
+    const subscribed = subscribedLegsRef.current;
     return () => {
-      Array.from(subscribedLegsRef.current).forEach(sym => unsubscribeLeg(sym));
-      subscribedLegsRef.current.clear();
+      Array.from(subscribed).forEach(sym => unsubscribeLeg(sym));
+      subscribed.clear();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

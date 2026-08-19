@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { X, Copy, Check } from 'lucide-react';
-import { tint } from '../../utils/formatters';
 
 type RefTab = 'definiciones' | 'json';
 

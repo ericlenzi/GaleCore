@@ -17,7 +17,7 @@ import { useAppConfigStore, useSwitchEndpoint } from '../store/useAppConfigStore
 import { useSwitchEnabled } from '../store/useStrategySwitchStore';
 import { ConnectionStatus } from '../socket/useMarketSocket';
 import {
-  GexAnalysisResponse, GexChartData, GexExpiryApi, GexScopeApi, GexStrikeApi, GLOBAL_SCOPE,
+  GexChartData, GexExpiryApi, GexScopeApi, GexStrikeApi, GLOBAL_SCOPE,
 } from '../types/gex';
 import { fmtPrice, fmtTime, isStale, tint } from '../utils/formatters';
 
