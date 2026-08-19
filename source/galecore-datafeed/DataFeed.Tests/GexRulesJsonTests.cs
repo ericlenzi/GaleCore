@@ -238,8 +238,10 @@ public class GexRulesJsonTests
     /// El cuadro Details agrupa por la PREGUNTA que contesta cada indicador, y no por el objeto de
     /// la respuesta que lo trae. El invariante que importa es el scope: VIX y VIX9D son indices CBOE
     /// que GexAnalysisHandler pide como simbolos fijos, asi que valen lo mismo en SPY, QQQ o AAPL.
-    /// Mezclados con los del simbolo, cambiar de ticker y ver que esos dos no se mueven es
-    /// indistinguible de un dato que quedo colgado del barrido anterior.
+    /// Sin un rotulo que lo diga, cambiar de ticker y ver que esos dos no se mueven es
+    /// indistinguible de un dato que quedo colgado del barrido anterior. El scope los mantiene
+    /// juntos y primeros; que el panel los dibuje en la misma grilla que el resto o en una franja
+    /// aparte es decision del front, no de este contrato.
     ///
     /// Los ids se congelan porque son el contrato con el front: el panel mapea id a celda, asi que
     /// renombrar uno aca no rompe el build. Hace desaparecer la celda, en silencio.
@@ -267,14 +269,20 @@ public class GexRulesJsonTests
                 Assert.DoesNotContain(macro, metricsOf[id]);
         }
 
-        // Los diez indicadores, exactos y sin repetir: el front mapea cada id a una celda.
+        // Los once indicadores, exactos y sin repetir: el front mapea cada id a una celda.
         var all = metricsOf.Values.SelectMany(v => v).ToArray();
         Assert.Equal(all.Length, all.Distinct().Count());
         Assert.Equal(new[]
         {
-            "gex_global", "gex_skew", "iv_momentum", "iv_rank", "price_zscore",
+            "gex_global", "gex_skew", "iv_atm", "iv_momentum", "iv_rank", "price_zscore",
             "realized_vol", "spot_vs_zgl", "trend_ema", "vix", "vix_term_structure",
         }, all.OrderBy(x => x, StringComparer.Ordinal).ToArray());
+
+        // IV ATM va pegado a IV Rank: los dos leen el mismo precio del seguro, uno en percentil de
+        // su propio ano y el otro en nivel absoluto, y separarlos obliga a buscar el nivel en el
+        // tooltip del z-score, que es donde estaba escondido.
+        var vol = metricsOf["volatility"];
+        Assert.Equal(Array.IndexOf(vol, "iv_rank") + 1, Array.IndexOf(vol, "iv_atm"));
 
         // Cada grupo y cada metrica traen su etiqueta: el front renderiza lo que el JSON declara.
         foreach (var g in groups)
@@ -285,9 +293,22 @@ public class GexRulesJsonTests
                 Assert.False(string.IsNullOrWhiteSpace((string?)m!["label"]));
         }
 
-        // Sin semaforo: GEX no tiene gates, y un numero en rojo con una cruz se lee como averia.
+        // Sin semaforo de PANEL: GEX no tiene gates, y un numero en rojo con una cruz se lee como
+        // averia. Lo que si hay es color por celda contra su referencia, declarado metrica por
+        // metrica: el flag de arriba tiene que seguir en false o vuelven los checkmarks a todo.
         Assert.False((bool)details["semaphore"]!,
-            "GEX es informativa: el cuadro Details no pinta pass/fail.");
+            "GEX es informativa: el cuadro Details no pinta un veredicto de panel.");
+
+        // Las unicas dos celdas con lectura de dentro/fuera de la referencia. Se declara aca y no
+        // en el front para que se vea desde las reglas cuales la tienen; el valor 'vs_ref' es el
+        // contrato con DetailsPanel.paintVsRef, que ignora cualquier otro.
+        var colorOf = groups
+            .SelectMany(g => g!["metrics"]!.AsArray())
+            .ToDictionary(m => (string)m!["id"]!, m => (string?)m!["color"]);
+        Assert.Equal(new[] { "iv_rank", "vix" },
+            colorOf.Where(kv => kv.Value != null).Select(kv => kv.Key).OrderBy(x => x, StringComparer.Ordinal).ToArray());
+        Assert.Equal("vs_ref", colorOf["vix"]);
+        Assert.Equal("vs_ref", colorOf["iv_rank"]);
     }
 
     /// <summary>

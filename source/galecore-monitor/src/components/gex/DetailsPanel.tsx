@@ -5,10 +5,10 @@ import { fmtGex, fmtPrice } from '../../utils/formatters';
 import { CALL_COLOR, PUT_COLOR } from '../../utils/optionSideColors';
 
 /**
- * Cuadro Details de la pestaña GEX: los diez indicadores de contexto, agrupados por la PREGUNTA que
+ * Cuadro Details de la pestaña GEX: los once indicadores de contexto, agrupados por la PREGUNTA que
  * contestan.
  *
- * REEMPLAZA a ValidationLayers + MarketDiagnostics, que repartían estos mismos diez en dos columnas
+ * REEMPLAZA a ValidationLayers + MarketDiagnostics, que repartían estos mismos indicadores en dos columnas
  * según de qué objeto de la respuesta venían (`macroRegime.checks` a la izquierda,
  * `structureInputs` a la derecha). Ese es el origen del dato, no una pregunta que alguien se haga:
  * dejaba RV lejos de IV Rank —juntas son la lectura de VRP— y partía la historia del gamma
@@ -19,8 +19,12 @@ import { CALL_COLOR, PUT_COLOR } from '../../utils/optionSideColors';
  * SIN SEMÁFORO, a propósito (`display_config...semaphore: false`). GEX es informativa y no tiene
  * gates: los checks vienen con `on_fail: inform_only`. El verde/rojo con ✓/✗ que heredó de la
  * cascada de Main hacía que un GEX global de -$921B —que es lo normal en SPY— se leyera como una
- * avería. Cada celda muestra su referencia en texto, y el color queda para las dos métricas cuyo
- * valor ES una dirección de mercado (ver COLOR_DE_DIRECCION).
+ * avería. Cada celda muestra su referencia en texto, y el color queda para las tres métricas cuyo
+ * valor ES una lectura de mercado y no un veredicto (ver el bloque de TREND_UP).
+ *
+ * Los grupos van todos en la misma grilla, separados por una línea vertical, y el `scope` del
+ * JSON solo los ordena (los de mercado primero) — hasta 2026-08-19 sacaba a Mercado a una franja
+ * propia arriba, con fondo y tipografía distintas de las del resto.
  *
  * Los grupos, sus etiquetas y qué métrica va en cada uno los declara el JSON de reglas; acá vive
  * solo el cómo se dibuja cada id. Un id que el JSON declare y este panel no conozca se omite: es
@@ -31,12 +35,13 @@ import { CALL_COLOR, PUT_COLOR } from '../../utils/optionSideColors';
 export const DEFAULT_DETAILS_GROUPS: DetailsGroup[] = [
   {
     id: 'market', label: 'Mercado', scope: 'market', hint: 'Igual para todos los simbolos',
-    metrics: [{ id: 'vix', label: 'VIX' }, { id: 'vix_term_structure', label: 'VIX TS' }],
+    metrics: [{ id: 'vix', label: 'VIX', color: 'vs_ref' }, { id: 'vix_term_structure', label: 'VIX TS' }],
   },
   {
     id: 'volatility', label: 'Volatilidad', scope: 'symbol', hint: 'Cuanto vale el seguro, y hacia donde va',
     metrics: [
-      { id: 'iv_rank', label: 'IV Rank' },
+      { id: 'iv_rank', label: 'IV Rank', color: 'vs_ref' },
+      { id: 'iv_atm', label: 'IV ATM' },
       { id: 'iv_momentum', label: 'IV Momentum' },
       { id: 'realized_vol', label: 'RV 10 / 30' },
     ],
@@ -59,20 +64,37 @@ export const DEFAULT_DETAILS_GROUPS: DetailsGroup[] = [
 ];
 
 /**
- * Las dos únicas métricas que se pintan, porque su valor ES una dirección y no un veredicto: qué
- * muro domina y hacia dónde apuntan las EMAs. Pero no se pintan con la misma escala:
+ * Las tres métricas que se pintan, porque su valor ES una lectura de mercado y no un veredicto:
+ * qué muro domina, hacia dónde apuntan las EMAs y de qué signo es el gamma del dealer. Pero cada
+ * una en su eje, y los tres comparten los dos colores del tema:
  *
  * * **El skew usa la identidad del lado de la cadena** (`optionSideColors`): call verde, put rojo,
  *   los mismos colores con los que el gráfico y el panel de barras dibujan ese muro. "put 0.38" en
  *   rojo dice "el muro dominante es de puts", igual que la línea roja del Put Wall — no dice que
  *   algo esté mal.
  * * **El trend usa el verde/rojo de dirección de precio**, que es el mismo de las velas.
+ * * **El GEX global usa el signo del gamma**: positivo verde, negativo rojo.
  *
- * Son dos ejes distintos que comparten los dos colores del tema, así que el que lee tiene que
- * apoyarse en la etiqueta de la celda. Por eso son las únicas dos con color.
+ * Tres ejes distintos con dos colores, así que el que lee tiene que apoyarse en la etiqueta de la
+ * celda. Ninguno de los tres es bien/mal: en SPY el GEX global es negativo casi siempre.
  */
 const TREND_UP = 'var(--green)';
 const TREND_DOWN = 'var(--red-gc)';
+const GAMMA_POSITIVO = 'var(--green)';
+const GAMMA_NEGATIVO = 'var(--red-gc)';
+
+/**
+ * El cuarto eje, y el único que SÍ es aprobado/reprobado: verde si el valor cae dentro de la
+ * referencia declarada, rojo si no. Lo piden VIX e IV Rank, las dos celdas donde la referencia
+ * es una banda y estar afuera cambia cómo se lee todo lo demás.
+ *
+ * Sigue sin haber ✓/✗ ni veredicto de panel (`semaphore: false`): estos checks vienen con
+ * `on_fail: inform_only`, así que un VIX en rojo dice "fuera de la banda", no "no operar".
+ * Qué celda lo lleva lo declara el JSON (`metrics[].color: 'vs_ref'`) y no este archivo, para
+ * que se vea desde las reglas cuáles tienen esa lectura.
+ */
+const DENTRO_DE_REF = 'var(--green)';
+const FUERA_DE_REF = 'var(--red-gc)';
 
 interface Cell {
   /** El número o la palabra que se lee de un vistazo. */
@@ -83,6 +105,12 @@ interface Cell {
   color?: string;
   /** Filas exactas para el tooltip. Sin esto se perdían los valores crudos al redondear. */
   tooltip?: { label: string; value: string }[];
+  /**
+   * Si el valor cae dentro de su referencia. Lo calcula el backend (`checks.<x>.passed`), no
+   * el panel: el umbral vive en el JSON de reglas y recalcularlo acá sería una segunda fuente
+   * de verdad. Solo se pinta si el JSON declara `color: 'vs_ref'` para esa métrica.
+   */
+  passed?: boolean;
 }
 
 const NO_DATA: Cell = { value: '—', reference: 'sin dato' };
@@ -107,6 +135,7 @@ function buildCell(
       if (!c || c.value == null) return NO_DATA;
       return {
         value: c.value.toFixed(1),
+        passed: c.passed,
         reference: `ref < ${c.threshold}`,
         tooltip: [{ label: 'VIX', value: c.value.toFixed(2) }, { label: 'Ref', value: `< ${c.threshold}` }],
       };
@@ -128,10 +157,32 @@ function buildCell(
     case 'iv_rank': {
       const c = checks?.ivRank;
       if (!c) return NO_DATA;
+      // Un decimal: el percentil se mueve dentro del entero, y redondeado a cero decimales dos
+      // barridos seguidos mostraban el mismo numero como si nada se hubiera movido.
       return {
-        value: c.value.toFixed(0),
+        value: c.value.toFixed(1),
+        passed: c.passed,
         reference: `ref ${c.min}–${c.max}`,
         tooltip: [{ label: 'IV Rank', value: c.value.toFixed(2) }, { label: 'Ref', value: `${c.min} – ${c.max}` }],
+      };
+    }
+    // El nivel absoluto, al lado del percentil. IV Rank dice donde esta la IV DENTRO de su propio
+    // ano: sola no dice si el seguro esta caro, y un rank de 30 sobre una IV de 12% no es la misma
+    // lectura que sobre una de 45%. El nivel ya venia en la respuesta, pero escondido en el tooltip
+    // del z-score, que es el unico que lo necesitaba para normalizar.
+    // Fuente: IV30 30d (GexAnalysisHandler), ya en porcentaje anualizado — la MISMA base que las
+    // dos RV de este grupo, asi que las celdas se leen juntas como VRP sin convertir nada.
+    case 'iv_atm': {
+      const z = inputs?.priceZScore;
+      // 0 = no vino IV30 (el handler hace `?? 0`), y no una IV de cero.
+      if (!z || z.ivAtm == null || z.ivAtm <= 0) return NO_DATA;
+      return {
+        value: `${z.ivAtm.toFixed(1)}%`,
+        reference: 'IV 30d anualizada · se lee contra RV',
+        tooltip: [
+          { label: 'IV ATM', value: `${z.ivAtm.toFixed(2)}%` },
+          { label: 'Fuente', value: 'IV30 30d' },
+        ],
       };
     }
     case 'iv_momentum': {
@@ -155,12 +206,17 @@ function buildCell(
       // RELATIVA entre la corta y la larga, o sea expansión contra contracción. Escribirlo como
       // "regimen low" lo convertía en una afirmación sobre el nivel de vol, que es otra cosa —
       // SKM mostraba "regimen low" con RV 55.5 / 69.2. El backend ya manda la frase correcta.
+      // El `%` va porque esto ES volatilidad, la misma unidad que IV ATM dos celdas a la izquierda.
+      // Sin el signo, la pareja que se lee junta como VRP mostraba la misma magnitud con dos
+      // vestidos distintos, y el que compara tiene que asumir que la de al lado esta en la misma
+      // base. Regla del panel: lo que es volatilidad lleva `%`; el percentil (IV Rank) no, que si
+      // no un rank de 31 se leeria como un nivel de vol de 31%.
       return {
-        value: `${rv.rv10d.toFixed(1)} / ${rv.rv30d.toFixed(1)}`,
+        value: `${rv.rv10d.toFixed(1)}% / ${rv.rv30d.toFixed(1)}%`,
         reference: rv.interpretation ?? 'RV 10d / RV 30d anualizadas',
         tooltip: [
-          { label: 'RV 10d', value: rv.rv10d.toFixed(2) },
-          { label: 'RV 30d', value: rv.rv30d.toFixed(2) },
+          { label: 'RV 10d', value: `${rv.rv10d.toFixed(2)}%` },
+          { label: 'RV 30d', value: `${rv.rv30d.toFixed(2)}%` },
         ],
       };
     }
@@ -176,8 +232,14 @@ function buildCell(
       const referencia = umbral == null ? 'sin umbral declarado'
         : umbral === 0 ? 'ref: gamma positivo (≥ 0)'
         : `ref ≥ ${fmtGex(umbral)}`;
+      // Verde el gamma positivo, rojo el negativo. Es el SIGNO, no un veredicto: positivo =
+      // el dealer vende fuerza y compra debilidad (regimen de pinning), negativo = amplifica el
+      // movimiento. En SPY el global vive en negativo, asi que esta celda va a estar casi siempre
+      // roja: eso es la lectura normal del simbolo y no una averia — lo que la distingue de un
+      // semaforo es que la referencia de al lado dice contra que se lee, y que no hay cruz.
       return {
         value: fmtGex(c.value),
+        color: c.value > 0 ? GAMMA_POSITIVO : c.value < 0 ? GAMMA_NEGATIVO : undefined,
         reference: referencia,
         tooltip: [
           { label: 'Net GEX', value: `${c.value.toFixed(1)}B` },
@@ -251,6 +313,16 @@ function buildCell(
     default:
       return null;
   }
+}
+
+/**
+ * Pinta la celda contra su referencia, si el JSON lo pidió para esa métrica y el backend mandó
+ * el `passed`. Va afuera de `buildCell` a propósito: `buildCell` sabe LEER cada métrica, y quién
+ * se pinta es una decisión de presentación que toma el JSON.
+ */
+function paintVsRef(cell: Cell | null, color?: 'vs_ref'): Cell | null {
+  if (!cell || color !== 'vs_ref' || cell.passed == null) return cell;
+  return { ...cell, color: cell.passed ? DENTRO_DE_REF : FUERA_DE_REF };
 }
 
 /** Etiqueta de grupo: el mismo formato que ya usaban los dos paneles que este reemplaza. */
@@ -364,13 +436,10 @@ export function DetailsPanel({ data, groups, subtitle }: Props) {
     .map((g) => ({
       group: g,
       cells: g.metrics
-        .map((m) => ({ label: m.label, cell: buildCell(m.id, checks, inputs) }))
+        .map((m) => ({ label: m.label, cell: paintVsRef(buildCell(m.id, checks, inputs), m.color) }))
         .filter((c): c is { label: string; cell: Cell } => c.cell !== null),
     }))
     .filter((g) => g.cells.length > 0);
-
-  const market = rendered.filter((g) => g.group.scope === 'market');
-  const symbol = rendered.filter((g) => g.group.scope !== 'market');
 
   return (
     <div style={{ padding: '10px 12px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -387,57 +456,41 @@ export function DetailsPanel({ data, groups, subtitle }: Props) {
           Sin barrido todavia.
         </span>
       ) : (
-        <>
-          {/* Franja de mercado: arriba y con su propio fondo, porque NO es del símbolo del
-              encabezado. Sin este corte, cambiar de ticker y ver que el VIX no se mueve es
-              indistinguible de un dato colgado del barrido anterior. */}
-          {market.map(({ group, cells }) => (
-            <div
-              key={group.id}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
-                padding: '7px 10px', borderRadius: 6,
-                backgroundColor: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-dark)',
-              }}
-            >
-              <GroupLabel label={group.label} hint={group.hint} />
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 18, flexWrap: 'wrap' }}>
-                {cells.map(({ label, cell }) => (
-                  <div key={label} style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
-                    <span style={{
-                      fontSize: 8.5, fontWeight: 600, letterSpacing: '0.09em', textTransform: 'uppercase',
-                      color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif',
-                    }}>
-                      {label}
-                    </span>
-                    <span className="tabular-nums" style={{
-                      fontSize: 13, fontWeight: 700, color: cell.color ?? 'var(--text-primary)',
-                      fontFamily: 'JetBrains Mono, monospace',
-                    }}>
-                      {cell.value}
-                    </span>
-                    <span style={{
-                      fontSize: 9, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif',
-                    }}>
-                      {cell.reference}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+        /* TODOS los grupos en la misma grilla, Mercado incluido, y el mismo tile para cada
+           métrica: así ninguna parece de otra clase por venir de otro objeto de la respuesta.
+           Mercado tenía su propia franja arriba, con fondo y tipografía propias — una segunda
+           gramática visual para la misma clase de dato, que es justo lo que este panel evita.
+           Lo que sigue avisando que VIX y VIX TS no dependen del símbolo es su rótulo más el hint
+           ("Igual para todos los simbolos"), y que van primeros; el `scope` del JSON los ordena,
+           ya no los saca de la grilla.
 
-          {/* Los grupos del símbolo: mismo tile para todos, así ninguna métrica parece de otra
-              clase por venir de otro objeto de la respuesta. */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${symbol.length || 1}, minmax(0, 1fr))`,
-            gap: 12,
-            alignItems: 'start',
-          }}>
-            {symbol.map(({ group, cells }) => (
-              <div key={group.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+           Cada grupo pesa lo que mide: `Nfr` con N = cuantas celdas tiene, y no una fracción igual
+           para todos. Con columnas iguales, el grupo más poblado reparte su tercio entre más tiles,
+           así que el MISMO tile sale angosto en Volatilidad y ancho en Precio.
+
+           El separador es el borde derecho de cada grupo, no un elemento aparte. El último no lo
+           lleva: ahí la línea sería el borde del panel y no una separación entre dos cosas.
+           `stretch` (y no `start`) para que todas midan lo mismo — con columnas de alto propio, la
+           línea más larga se lee como si ese grupo pesara más. */
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: rendered.length
+            ? rendered.map((g) => `minmax(0, ${g.cells.length}fr)`).join(' ')
+            : 'minmax(0, 1fr)',
+          gap: 12,
+          alignItems: 'stretch',
+        }}>
+          {rendered.map(({ group, cells }, i) => {
+            const separa = i < rendered.length - 1;
+            return (
+              <div
+                key={group.id}
+                style={{
+                  display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0,
+                  borderRight: separa ? '1px solid var(--border-dark)' : undefined,
+                  paddingRight: separa ? 12 : undefined,
+                }}
+              >
                 <GroupLabel label={group.label} hint={group.hint} />
                 <div style={{
                   display: 'grid',
@@ -449,9 +502,9 @@ export function DetailsPanel({ data, groups, subtitle }: Props) {
                   ))}
                 </div>
               </div>
-            ))}
-          </div>
-        </>
+            );
+          })}
+        </div>
       )}
     </div>
   );

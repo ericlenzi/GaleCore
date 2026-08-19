@@ -179,7 +179,7 @@
         "subtitle": "Contexto de mercado — lectura informativa: nada de este cuadro habilita ni bloquea una operacion.",
         "_gex_global_note": "La celda gex_global dice 'GEX Global' porque el numero agrega TODA la cadena; en Main la misma metrica se llama 'GEX' y es de un solo vencimiento. Los simbolos sin umbral en definitions.gex_threshold_by_symbol muestran 'sin umbral declarado' en la linea de referencia, no un umbral inventado.",
         "semaphore": false,
-        "_semaphore_note": "Sin verde/rojo y sin checkmarks. GEX es informativa y no tiene gates: un numero en rojo con una cruz se lee como averia, no como dato — el GEX global negativo es lo normal en SPY. Cada metrica muestra su referencia en texto ('< 30', '25-65') y el color queda reservado para lo que tiene direccion de mercado propia.",
+        "_semaphore_note": "false = sin checkmarks y sin veredicto de PANEL: GEX no tiene gates, nada de este cuadro habilita ni bloquea nada, y un numero en rojo con una cruz se lee como averia — el GEX global negativo es lo normal en SPY. Cada metrica muestra su referencia en texto ('< 30', '25-65'). Lo que NO prohibe es que una celda suelta se pinte contra su referencia: eso se declara metrica por metrica con color 'vs_ref' (ver _color_note), y hoy lo piden VIX e IV Rank.",
         "groups": [
           {
             "id": "market",
@@ -187,7 +187,7 @@
             "scope": "market",
             "hint": "Igual para todos los simbolos",
             "metrics": [
-              { "id": "vix", "label": "VIX" },
+              { "id": "vix", "label": "VIX", "color": "vs_ref" },
               { "id": "vix_term_structure", "label": "VIX TS" }
             ]
           },
@@ -197,7 +197,8 @@
             "scope": "symbol",
             "hint": "Cuanto vale el seguro, y hacia donde va",
             "metrics": [
-              { "id": "iv_rank", "label": "IV Rank" },
+              { "id": "iv_rank", "label": "IV Rank", "color": "vs_ref" },
+              { "id": "iv_atm", "label": "IV ATM" },
               { "id": "iv_momentum", "label": "IV Momentum" },
               { "id": "realized_vol", "label": "RV 10 / 30" }
             ]
@@ -224,8 +225,9 @@
             ]
           }
         ],
-        "_groups_note": "Los diez indicadores agrupados por la PREGUNTA que contestan, y no por el objeto de la respuesta que los trae (macroRegime.checks contra structureInputs), que es un orden de origen del dato y al operador no le dice nada: dejaba RV lejos de IV Rank — juntas son la lectura de VRP — y partia la historia del gamma en dos columnas. El orden de los grupos es la secuencia de lectura: primero el marco de mercado, despues lo propio del simbolo. Reemplazo a 'columns', que declaraba las dos columnas por componente (validation_layers / market_diagnostics).",
-        "_scope_note": "scope 'market' = el valor NO depende del simbolo. VIX y VIX9D son indices CBOE que GexAnalysisHandler pide como simbolos fijos, asi que dan lo mismo en SPY, QQQ o AAPL. Por eso van en su propia franja arriba y fuera del encabezado '<simbolo> - Details': mezclados con los del simbolo, cambiar de ticker y ver que esos dos no se mueven es indistinguible de un dato que quedo colgado del barrido anterior.",
+        "_groups_note": "Los once indicadores agrupados por la PREGUNTA que contestan, y no por el objeto de la respuesta que los trae (macroRegime.checks contra structureInputs), que es un orden de origen del dato y al operador no le dice nada: dejaba RV lejos de IV Rank — juntas son la lectura de VRP — y partia la historia del gamma en dos columnas. El orden de los grupos es la secuencia de lectura: primero el marco de mercado, despues lo propio del simbolo. Reemplazo a 'columns', que declaraba las dos columnas por componente (validation_layers / market_diagnostics).",
+        "_scope_note": "scope 'market' = el valor NO depende del simbolo. VIX y VIX9D son indices CBOE que GexAnalysisHandler pide como simbolos fijos, asi que dan lo mismo en SPY, QQQ o AAPL. Por eso van PRIMEROS y con su propio rotulo mas el hint que lo dice: sin ese aviso, cambiar de ticker y ver que esos dos no se mueven es indistinguible de un dato que quedo colgado del barrido anterior. Desde el 2026-08-19 comparten la grilla con los grupos del simbolo, separados por la misma linea vertical que separa a los demas; antes el scope 'market' los sacaba a una franja aparte arriba, con fondo y tipografia propias, que era una segunda gramatica visual para la misma clase de dato.",
+        "_color_note": "color de una metrica: 'vs_ref' = verde si el valor cae dentro de la referencia que declara macro_regime y rojo si no (lo resuelve el `passed` que ya calcula el backend, no el front). Se declara aca y no en el front para que quien lea el JSON vea que celdas del cuadro tienen lectura de aprobado/reprobado. Las metricas SIN este campo pueden igual llevar color, pero por otro eje y no por su referencia: skew de muros usa la identidad del lado de la cadena (call verde / put rojo), trend usa direccion de precio y gex_global usa el signo del gamma. Son cuatro ejes que comparten los mismos dos colores del tema.",
         "_metric_reference_note": "La linea de referencia de cada celda se arma con lo que devuelve la API (checks.<x>.threshold / min / max), no se declara aca: duplicar el umbral en display_config seria una segunda fuente de verdad que puede quedar desalineada de macro_regime."
       },
       "options_chain": {

@@ -564,7 +564,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   │   ├── RpfStateBadge.tsx    # Badge del estado de la máquina
   │   │   └── RpfSuggestionCard.tsx # Sugerencia de trade con accept/dismiss
   │   ├── gex/                    # Tab GEX
-  │   │   ├── DetailsPanel.tsx     # Cuadro Details: los 10 indicadores de contexto agrupados por la PREGUNTA que contestan (mercado / volatilidad / gamma / precio), sin semáforo. Reemplazó a ValidationLayers + MarketDiagnostics
+  │   │   ├── DetailsPanel.tsx     # Cuadro Details: los 11 indicadores de contexto agrupados por la PREGUNTA que contestan (mercado / volatilidad / gamma / precio), sin semáforo. Reemplazó a ValidationLayers + MarketDiagnostics
   │   │   ├── OptionsChainList.tsx # Lista de vencimientos (0DTE primero); elegir uno acota Expiry Engine + gráfico
   │   │   ├── ExpiryEngine.tsx     # Strike Engine sin las filas de estructura: ZGL, muros, EM, Net GEX del vencimiento
   │   │   └── GexReference.tsx     # Panel de Definiciones de GEX (solapa del modal References): universo, checks, config del barrido, umbral por símbolo
@@ -632,16 +632,29 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   * **Lo que no depende del símbolo no va bajo el encabezado del símbolo.** VIX y VIX9D son índices
     CBOE que el backend pide como símbolos fijos: valen lo mismo en SPY, QQQ o AAPL. Mezclados en la
     grilla de `SPY · Details`, cambiar de ticker y ver que esos dos no se mueven es indistinguible de
-    un dato que quedó colgado del barrido anterior. Van en su propia franja, arriba y rotulada. El
+    un dato que quedó colgado del barrido anterior. Van primeros y con su propio rótulo, en la misma
+    grilla que los demás y separados por la línea vertical que separa a todos los grupos — hasta
+    2026-08-19 iban en una franja aparte arriba, con fondo y tipografía propias, que era una
+    segunda gramática visual para la misma clase de dato. El
     `scope` de cada grupo (`market` / `symbol`) es lo que lo declara, y lo congela
     `GexRulesJsonTests.DetailsPanel_AgrupaPorPreguntaYSeparaLoQueEsDelMercado`.
-  * **El semáforo verde/rojo con ✓/✗ es vocabulario de decisión: no va en una pantalla informativa.**
-    GEX no tiene gates (sus checks son `on_fail: inform_only`), y el ✓/✗ heredado de la cascada de
-    Main hacía que un GEX global de −$921B —que es lo normal en SPY— se leyera como una avería. Cada
-    celda muestra su referencia en texto, y el color queda solo para las métricas cuyo valor ES una
-    dirección de mercado (skew de muros, trend), con los mismos colores que el gráfico usa para los
-    muros. Una sola gramática visual por panel: dos (tiles de un lado, filas del otro) se leen como
-    dos tipos de dato distintos.
+  * **El ✓/✗ es vocabulario de decisión: no va en una pantalla informativa.** GEX no tiene gates
+    (sus checks son `on_fail: inform_only`), y el ✓/✗ heredado de la cascada de Main hacía que un
+    GEX global de −$921B —que es lo normal en SPY— se leyera como una avería. `semaphore: false` es
+    eso: sin checkmarks y **sin veredicto de panel**. Cada celda muestra su referencia en texto.
+
+    El color va por celda, y son **cuatro ejes distintos con los mismos dos colores del tema**, así
+    que el que lee se apoya en la etiqueta: skew de muros usa la identidad del lado de la cadena
+    (call verde / put rojo), trend usa dirección de precio, **el GEX global usa el signo del gamma**
+    (verde positivo, rojo negativo) y **VIX e IV Rank se pintan contra su referencia** (verde
+    adentro, rojo afuera) — los dos últimos desde 2026-08-19. Este cuarto eje sí es aprobado
+    /reprobado, pero de una celda y no del panel: un VIX en rojo dice "fuera de la banda", no "no
+    operar". Quién lo lleva lo declara el JSON (`metrics[].color: "vs_ref"`, congelado por
+    `GexRulesJsonTests`) y no el front, para que se vea desde las reglas qué celdas tienen esa
+    lectura; los otros tres ejes viven en el front porque salen del significado del valor y no de un
+    umbral. Ojo con el del GEX: en SPY el global es negativo casi siempre, o sea que esa celda va a
+    estar roja casi siempre. Una sola gramática visual por panel: dos (tiles de un lado, filas del
+    otro) se leen como dos tipos de dato distintos.
 
 - Regla — el color del lado de la cadena vive en un solo archivo
   **CALL es verde y PUT es rojo**, en el gráfico, en las barras de gamma y en el skew del Details.

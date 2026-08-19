@@ -120,8 +120,16 @@ export interface DetailsGroup {
   label: string;
   scope?: 'market' | 'symbol';
   hint?: string;
-  /** El `id` es el contrato con el panel, que mapea id → celda. El `label` es lo que se ve. */
-  metrics: { id: string; label: string }[];
+  /**
+   * El `id` es el contrato con el panel, que mapea id → celda. El `label` es lo que se ve.
+   *
+   * `color: 'vs_ref'` = esta celda se pinta contra su referencia (verde dentro, rojo fuera).
+   * Es la única lectura de aprobado/reprobado del cuadro y por eso la declara el JSON: el
+   * resto de los colores del panel son otros ejes (lado de la cadena, dirección de precio,
+   * signo del gamma) y viven en el front porque salen del significado del valor, no de un
+   * umbral. Sin el campo, la celda va en texto neutro salvo que su eje propio la pinte.
+   */
+  metrics: { id: string; label: string; color?: 'vs_ref' }[];
 }
 
 /** Contrato de render de la pestaña: display_config.gex_tab del JSON de reglas. */
