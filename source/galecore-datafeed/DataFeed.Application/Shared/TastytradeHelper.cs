@@ -10,9 +10,29 @@ namespace DataFeed.Application.Shared
 {
     public class TastytradeHelper
     {
+        /// <summary>
+        /// OCC (21 chars) → símbolo streamer de DXLink. Ej: "TSLA  260904P00352500" → ".TSLA260904P352.5"
+        /// </summary>
+        /// <remarks>
+        /// Los 3 decimales del strike (chars 18-20) son parte del símbolo, no relleno. Hasta el
+        /// 2026-08-24 esta función leía solo los 5 enteros y devolvía ".TSLA260904P352" para el
+        /// strike 352.5: un símbolo que en DXLink no existe. El feed no falla — devuelve vacío y el
+        /// request agota su timeout de 10s —, así que cualquier opción de strike fraccionario venía
+        /// sin datos y sin error. La cadena de TSLA a 11 DTE tenía 31 strikes así, 27 con OI.
+        /// Afectaba a los cinco handlers que traducen OCC (Quote, Trade, Greeks, TradeQuoteGreeks,
+        /// Candle); el GEX se salvaba porque arma sus símbolos desde el strikeMap de la cadena.
+        /// </remarks>
         public static string GetOptionSymbolFromTicker(string ticker)
         {
-            return "." + ticker.Substring(0, 6).Trim(' ') + ticker.Substring(6, 6) + ticker.Substring(12, 1) + Convert.ToInt32(ticker.Substring(13, 5).TrimStart('0')).ToString();
+            var root   = ticker.Substring(0, 6).Trim(' ');
+            var date   = ticker.Substring(6, 6);
+            var type   = ticker.Substring(12, 1);
+            var whole  = Convert.ToInt32(ticker.Substring(13, 5)).ToString(CultureInfo.InvariantCulture);
+            // "500" → ".5" ; "000" → "" (un strike entero va sin punto decimal, como espera DXLink)
+            var frac   = ticker.Substring(18, 3).TrimEnd('0');
+            var strike = frac.Length > 0 ? whole + "." + frac : whole;
+
+            return "." + root + date + type + strike;
         }
 
         public static string GetStockSymbolFromTicker(string ticker)
