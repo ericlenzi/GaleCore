@@ -1530,10 +1530,14 @@ o sea un weekly, y este alcance lo excluye**. El tercer viernes de ese mes era e
 
 Eso no invalida nada de lo medido: el contraste DTE 11 contra DTE 53 sigue mostrando lo que muestra
 sobre el crédito requerido, y el error de columna del hallazgo del 24 se corrigió sobre los dos por
-igual. Lo que sí significa es que **la mitad de la evidencia del v5 viene de un tipo de vencimiento
-que el flujo, como quedó definido, no recorre**. La próxima captura —la que la 43.4 pide sobre SPY
-y QQQ con book vivo— debería usar vencimientos regulares, o el alcance y la evidencia van a seguir
-apuntando a cosas distintas.
+igual. Tampoco deja el DTE corto fuera de alcance —un regular también pasa por DTE 11—. Lo que sí
+significa es que **la mitad de la evidencia del v5 viene de un tipo de contrato que el flujo no
+recorre**, y que un weekly y un mensual al mismo DTE no son intercambiables donde importa: open
+interest, bid/ask y slippage. La afirmación más expuesta es la de la 28, *"con DTE corto no hay
+ventana en absoluto"*, que descansa entera en ese sweep.
+
+Detalle, alcance de la contaminación y qué medir para separarlo, en
+[el hallazgo](hallazgos/2026-08-24-el-4-sep-es-un-weekly.md).
 
 **Lo que el diagrama deja a la vista es cuánto falta.** De los seis niveles hay uno definido
 (el 2), dos provisionales (1 y 3), uno vacío (4), uno reprobado con su calibración actual (5), y
