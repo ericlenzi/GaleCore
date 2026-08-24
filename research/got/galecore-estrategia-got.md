@@ -6,17 +6,21 @@
 > Documento **vivo**: se edita en el lugar y la historia la guarda git. Las versiones 1 a 4 están
 > congeladas en [versiones/](versiones/).
 >
-> **Errata — las secciones 25 y 27 están invalidadas.** Sus tablas de CALL leyeron la columna
-> `pcsCredit_w5` de los datasets en vez de `ccsCredit_w5`, con lo que los créditos del lado
-> call quedaron sobrestimados entre 6x y 16x. Recalculado, el **Hallazgo 3 se invierte**. Detalle,
-> tablas corregidas y consecuencias en
-> [el hallazgo del 2026-08-24](hallazgos/2026-08-24-credito-call-columna-equivocada.md).
-> Las tablas de PUT (secciones 24 y 26) se verificaron correctas y no se tocan.
+> **Corregido el 2026-08-24.** Las tablas de CALL de las secciones 25 y 27 leían la columna
+> `pcsCredit_w5` de los datasets en vez de `ccsCredit_w5`, sobrestimando el crédito del lado call
+> entre 6x y 16x. Recalculado desde los datos, el **Hallazgo 3 se invirtió** y aparecieron tres
+> consecuencias que no estaban vistas. Las secciones afectadas ya están reescritas y llevan su
+> propia nota: **25**, **27**, **28**, **39**, **43.1** (nueva), **53**, **54**, **83** y **98**.
+> Las tablas de PUT (secciones 24 y 26) se verificaron correctas y no se tocaron.
 >
-> *El texto que sigue es el recibido el 2026-08-24, sin cambios de contenido. Solo se repararon
-> defectos de transcripción: un fence sin cerrar que aplanaba los headings de las secciones 5.2 a
-> 99, las tablas que habían quedado separadas por tabs, y un fragmento del script que generó el
-> archivo pegado al final.*
+> Verificación completa, tablas recalculadas y consecuencias en
+> [el hallazgo del 2026-08-24](hallazgos/2026-08-24-credito-call-columna-equivocada.md).
+> Reproducible con [`scripts/recheck_econ.py`](scripts/recheck_econ.py).
+>
+> *Fuera de esas secciones, el texto es el recibido el 2026-08-24 sin cambios de contenido. Se
+> repararon además defectos de transcripción del archivo original: un fence sin cerrar que
+> aplanaba los headings de las secciones 5.2 a 99, las tablas que habían quedado separadas por
+> tabs, y un fragmento del script que generó el archivo pegado al final.*
 
 **Fecha:** 24/08/2026  
 **Estado:** Diseño avanzado / validación empírica en curso  
@@ -50,7 +54,7 @@ Los tests recientes con TSLA demostraron:
 - un vencimiento corto puede tener una estructura excelente pero no pagar suficiente;
 - un vencimiento largo puede ofrecer créditos aparentemente pequeños y seguir siendo económicamente atractivos;
 - por lo tanto, el crédito debe evaluarse **relativamente al riesgo, DTE y distancia estructural**, no mediante un mínimo absoluto fijo;
-- el Delta `0.10–0.20` aparece como una ventana muy razonable en los datos testeados, pero todavía no debe considerarse una ley fija;
+- el Delta `0.10–0.20` **no quedó demostrado como ventana**: es el rango que se barrió, y lo que se observó es que la estructura corta arriba y la economía corta abajo, en un punto que depende del lado y del DTE (ver 28, corregida el 2026-08-24);
 - el Delta `0.22` no necesariamente es malo: en los últimos tests fue eliminado principalmente por **Wall Distance**, lo que sugiere que el límite de Delta podría ser consecuencia de la estructura y no una regla artificial;
 - la arquitectura final debería separar claramente **filtro estructural**, **filtro económico** y **ranking de candidatos**.
 
@@ -547,28 +551,41 @@ El problema del 4 Sep PUT no es encontrar el Delta correcto; el vencimiento simp
 
 # 25. Resultado — TSLA 4 Sep CALL
 
+> **Sección corregida el 2026-08-24.** La versión original leía la columna `pcsCredit_w5`
+> del dataset en vez de `ccsCredit_w5`, con lo que los créditos estaban sobrestimados
+> entre 6x y 11x, y concluía que todos los candidatos pasaban. Ver
+> [el hallazgo](hallazgos/2026-08-24-credito-call-columna-equivocada.md).
 
-| Target Delta | Strike | Actual Delta | WD | Credit |
-|---|---|---|---|---|
-| 0.10 | 395 | .1057 | 1.362 | $3.10 |
-| 0.12 | 392.5 | .1188 | 1.265 | $2.50 |
-| 0.15 | 387.5 | .1502 | 1.070 | $2.50 |
-| 0.18 | 382.5 | .1893 | .875 | $2.70 |
-| 0.20 | 382.5 | .1893 | .875 | $2.70 |
-| 0.22 | 380 | .2121 | .778 | $3.45 |
+Crédito del vertical de $5 del lado CALL, con el `RequiredCredit` que le corresponde a
+cada candidato por DTE 11 y su WD:
 
-Todos pasaron económicamente.
+| Target Delta | Strike | Actual Delta | WD | Credit | Required | Cushion | Resultado |
+|---|---|---|---|---|---|---|---|
+| 0.10 | 395 | .1057 | 1.362 | $0.29 | $0.72 | −59.8% | falla |
+| 0.12 | 392.5 | .1188 | 1.265 | $0.33 | $0.72 | −54.2% | falla |
+| 0.15 | 387.5 | .1502 | 1.070 | $0.47 | $0.72 | −34.8% | falla |
+| 0.18 | 382.5 | .1893 | .875 | $0.63 | $0.74 | −14.7% | falla |
+| 0.20 | 382.5 | .1893 | .875 | $0.63 | $0.74 | −14.7% | falla |
+| 0.22 | 380 | .2121 | .778 | $0.69 | $0.75 | −8.3% | falla |
+
+Resultado:
+
+Ningún candidato pasó el filtro económico.
 
 Conclusión:
 
-Un mismo vencimiento puede ser malo para PUT y excelente para CALL.
+Combinado con la sección 24, el 4 Sep **falla de los dos lados**: los cinco candidatos
+PUT y los cinco CALL quedan por debajo de su `RequiredCredit`.
 
-Por lo tanto:
+No es un vencimiento bueno de un lado y malo del otro. Es un DTE corto que no paga en
+ninguno: con `DTEFactor = sqrt(30/11) = 1.65`, el modelo exige del orden de $0.72 a $0.90
+sobre width 5, y la cadena de 11 días no lo ofrece a ningún delta razonable de ninguno de
+los dos lados.
 
-Expiration ≠ Trade Quality
-La unidad de evaluación debe ser:
-
-Expiration × Side × Strike
+El comportamiento es además **monótono en la dirección esperada**: el Cushion mejora al
+subir el delta (de −59.8% en 0.10 a −8.3% en 0.22), o sea que el candidato menos malo es
+el más agresivo. Un vencimiento que solo se vuelve viable acercándose al spot no es un
+vencimiento viable.
 # 26. Resultado — TSLA 16 Oct PUT
 
 
@@ -602,32 +619,60 @@ Este fue uno de los resultados más importantes.
 
 # 27. Resultado — TSLA 16 Oct CALL
 
+> **Sección corregida el 2026-08-24.** La versión original leía la columna `pcsCredit_w5`
+> del dataset en vez de `ccsCredit_w5`, con lo que los créditos estaban sobrestimados
+> entre 6x y 16x, y concluía que pasaban cinco de seis. Ver
+> [el hallazgo](hallazgos/2026-08-24-credito-call-columna-equivocada.md).
 
-| Target Delta | Strike | Actual Delta | WD | Credit |
-|---|---|---|---|---|
-| 0.10 | 450 | .1098 | .838 | $3.30 |
-| 0.12 | 445 | .1192 | .754 | $3.25 |
-| 0.15 | 430 | .1569 | .503 | $3.50 |
-| 0.18 | 425 | .1725 | .419 | $3.40 |
-| 0.20 | 415 | .2064 | .251 | $3.25 |
-| 0.22 | 410 | .2260 | .168 | $3.10 |
+| Target Delta | Strike | Actual Delta | WD | Credit | Required | Cushion | Resultado |
+|---|---|---|---|---|---|---|---|
+| 0.10 | 450 | .1098 | .838 | $0.21 | $0.36 | −41.6% | falla |
+| 0.12 | 445 | .1192 | .754 | $0.20 | $0.37 | −45.4% | falla |
+| 0.15 | 430 | .1569 | .503 | $0.35 | $0.38 | −9.1% | falla |
+| 0.18 | 425 | .1725 | .419 | $0.40 | $0.40 | −0.1% | empata |
+| 0.20 | 415 | .2064 | .251 | $0.55 | $0.46 | +20.0% | **pasa** |
+| 0.22 | 410 | .2260 | .168 | $0.60 | — | — | falla WD |
 
 Resultado:
 
 ```text
-0.10 → pasa
-
-0.12 → pasa
-
-0.15 → pasa
-
-0.18 → pasa
-
+0.10 → falla economico
+0.12 → falla economico
+0.15 → falla economico
+0.18 → empata
 0.20 → pasa
-
 0.22 → falla WD
-
 ```
+
+Conclusión:
+
+**Acá sí aparece la asimetría entre lados**, pero al revés de lo que decía la versión
+original: el mismo vencimiento pasa 5 de 6 del lado PUT (sección 26) y 1 de 6 del lado
+CALL. Y no es un accidente de este vencimiento — es **skew**. A delta equivalente:
+
+```text
+put delta .1070 -> $0.46      call delta .1098 -> $0.21
+put delta .1925 -> $0.90      call delta .2064 -> $0.55
+```
+
+Las puts pagan aproximadamente el doble que las calls equidistantes, que es el
+comportamiento normal de la superficie de volatilidad de un equity.
+
+Por lo tanto la unidad de evaluación sigue siendo:
+
+Expiration × Side × Strike
+
+pero el motivo cambia. El lado no importa porque un vencimiento sea caprichosamente mejor
+de un lado; importa porque **la cadena cotiza los dos lados a precios distintos por la
+misma probabilidad**. Eso tiene una consecuencia sobre el diseño del filtro económico que
+se trata en la sección 43.
+
+**Nota sobre el rango de delta.** El candidato que pasa es el de delta 0.2064 —el más
+alto que sobrevive a WD—, y los de delta bajo fallan por economía. Del lado call la
+ventana queda apretada por los dos extremos a la vez: la estructura elimina los deltas
+altos y la economía elimina los bajos. Del lado put, con DTE 56, los deltas bajos pasan
+sin problema. La ventana de delta **no es la misma de los dos lados**, que es otra forma
+de ver lo mismo.
 
 # 28. Conclusión del Delta Sweep
 
@@ -638,7 +683,7 @@ sea una ley universal.
 
 Lo que demuestra es algo más interesante:
 
-La zona 0.10–0.20 aparece naturalmente como una región robusta porque los candidatos más agresivos empiezan a ser eliminados por la estructura.
+El límite superior de la ventana no es una regla de delta: es la estructura.
 
 En particular:
 
@@ -653,6 +698,27 @@ Por eso no conviene imponer todavía:
 
 MaxDelta = 0.20
 como regla fundamental.
+
+> **Revisado el 2026-08-24.** La versión original afirmaba que *"la zona 0.10–0.20 aparece
+> naturalmente como una región robusta"*. Con los créditos de CALL corregidos esa
+> afirmación **no se sostiene tal cual**, porque descansaba en que los seis candidatos CALL
+> del 4 Sep y cinco de los seis del 16 Oct pasaran. Ninguno de esos dos hechos es cierto.
+
+Lo que queda demostrado, más acotado:
+
+- **El límite superior sí sale de la estructura.** El delta 0.22 cae por WD en los cuatro
+  sweeps, de los dos lados y en los dos vencimientos. Ese es el hallazgo firme.
+- **El límite inferior lo pone la economía, y no es simétrico.** Del lado PUT con DTE 56 el
+  delta 0.10 pasa cómodo (+21.5%); del lado CALL, con el mismo vencimiento y el mismo WD
+  mínimo, falla por −41.6%. La misma ventana de delta no rinde igual de los dos lados.
+- **Con DTE corto no hay ventana en absoluto.** En el 4 Sep no pasa nada, a ningún delta,
+  de ningún lado.
+
+O sea que `0.10–0.20` no es una región robusta observada: es el rango que se barrió. Lo
+que se observó es que la estructura corta arriba y la economía corta abajo, y que dónde
+corta abajo depende del lado y del DTE. La ventana efectiva es una consecuencia, no un
+parámetro — que es la tesis de la sección 93, ahora con menos evidencia a favor de la que
+se creía tener.
 
 # 29. Nueva hipótesis de Delta
 
@@ -875,6 +941,20 @@ El candidato debe cumplir:
 MaxLossUSD <= MaxRisk
 si el MaxRisk se mantiene como límite absoluto.
 
+> **Medido el 2026-08-24: con width 5 sobre TSLA, este filtro elimina absolutamente todo.**
+> El maxloss de los 22 candidatos de los dos datasets va de $409 a $480 — ninguno entra en
+> $400, incluidos los cinco del 16 Oct PUT que pasan economía y el de la sección 54.
+>
+> No es que los candidatos sean malos: es que `MaxRisk` en dólares y `Width` en strikes se
+> calibraron por separado. En un subyacente de $355 el width de $5 ya produce un maxloss
+> por encima del límite antes de mirar el crédito. Las salidas son ir a width 2.5 —y ahí
+> el crédito se parte, así que todo el Cushion se recalcula— o mover el riesgo a un
+> porcentaje del capital como plantea la sección 72.
+>
+> Esto convierte a `MaxRisk = $400` en el filtro **más restrictivo de los tres**, y hasta
+> el recálculo nadie lo había notado porque se lo evaluaba después del económico y sobre
+> candidatos que ya venían filtrados. Ver el Hallazgo 9.
+
 # 40. Liquidez
 
 Todavía falta cerrar formalmente el filtro de liquidez.
@@ -981,6 +1061,61 @@ Bearish → solo CALL
 
 ```
 sin una validación independiente.
+
+## 43.1 Pero el modelo actual sí tiene un sesgo, y entra por la puerta de atrás
+
+> **Agregado el 2026-08-24**, a partir del recálculo de las secciones 25 y 27.
+
+La decisión de arriba es sobre el **diagnóstico**: GOT no elimina un lado por una
+predicción direccional. Eso se sostiene.
+
+Lo que apareció al corregir los datos es que el sesgo se cuela igual, por el filtro
+económico:
+
+```text
+RequiredCredit = f(Width, DTE, WD)
+```
+
+Ninguno de los tres argumentos sabe de qué lado de la cadena está el strike. El umbral es
+**simétrico**. Pero la superficie de volatilidad **no lo es**: por skew, en un equity las
+puts pagan del orden del doble que las calls equidistantes (sección 27). Aplicar un umbral
+simétrico a un mercado asimétrico produce un sesgo estructural hacia el PUT.
+
+Y no es teórico. En los datos de TSLA, con el mismo vencimiento, el mismo `WD_min` y el
+mismo `RequiredCredit`:
+
+```text
+16 Oct PUT  -> pasan 5 de 6
+16 Oct CALL -> pasa  1 de 6
+```
+
+**Con esta calibración GOT es un vendedor de puts de hecho**, aunque evalúe los dos lados
+como manda esta sección. El sesgo no viene de una opinión sobre el mercado —que es lo que
+la sección prohíbe— sino de un umbral que ignora de qué lado está mirando.
+
+Hay que elegir a conciencia entre tres salidas, y ninguna es obviamente la correcta
+todavía:
+
+1. **`RequiredCredit` reconoce el skew.** Normalizar el crédito requerido contra la IV del
+   lado que se está evaluando, en vez de contra el width nominal. El umbral pasa a ser
+   comparable entre lados. Es lo más consistente con la filosofía de la sección 96 —que
+   los parámetros salgan de la estructura y la economía— pero agrega una dependencia de la
+   superficie de vol que hoy el modelo no tiene.
+2. **Umbrales distintos por lado.** Un `BaseRR` para PUT y otro para CALL, calibrados por
+   separado. Simple y honesto, pero son dos números más que justificar y la sección 81
+   advierte contra multiplicar parámetros.
+3. **Asumir que GOT es put-only y decirlo.** Perfectamente defendible para una estrategia
+   de venta de prima, y elimina la mitad del trabajo de validación. El costo es que se
+   pierde el lado call en los regímenes donde sí paga, y que contradice la intención
+   declarada en esta sección.
+
+**Lo que no se puede hacer es dejarlo como está**: hoy la sección declara simetría y el
+motor produce asimetría, y esa distancia entre lo declarado y lo que pasa es exactamente
+lo que hizo falta un recálculo para ver.
+
+Esto se decide con el backtest, no antes. Lo que sí corresponde ya es medir la frecuencia
+de oportunidades **por lado** en cualquier corrida que se haga, para que el sesgo se vea
+en los números en vez de quedar implícito.
 
 # 44. Alert Engine
 
@@ -1305,6 +1440,9 @@ La segunda es particularmente útil porque ya está alineada con la filosofía d
 
 # 53. Qué se demostró con los datasets TSLA
 
+> **Hallazgo 3 reescrito el 2026-08-24** y agregados el 8, 9 y 10. Ver
+> [el hallazgo](hallazgos/2026-08-24-credito-call-columna-equivocada.md).
+
 Hallazgo 1
 El crédito absoluto no sirve como regla universal.
 
@@ -1312,7 +1450,12 @@ Hallazgo 2
 DTE modifica radicalmente el crédito necesario.
 
 Hallazgo 3
-El mismo DTE puede tener un lado excelente y otro malo.
+Un DTE corto puede no pagar de ningún lado.
+
+En el 4 Sep (DTE 11) fallan los cinco candidatos PUT y los cinco CALL. La versión original
+de este hallazgo decía lo contrario —*"el mismo DTE puede tener un lado excelente y otro
+malo"*— y salía de las tablas de CALL con la columna equivocada. Corregido, no agrega una
+dimensión nueva sino que refuerza al 2: lo que manda es el DTE, no el lado.
 
 Hallazgo 4
 Delta no determina por sí solo la calidad.
@@ -1334,6 +1477,29 @@ Un crédito relativamente alto puede ser insuficiente si:
 DTE corto
 +
 WD menos favorable
+
+Hallazgo 8
+El lado sí importa, pero por skew y no por estructura.
+
+En el 16 Oct pasan 5 de 6 candidatos PUT y 1 de 6 CALL. A delta equivalente, las puts
+pagan aproximadamente el doble que las calls. Eso no es una propiedad de ese vencimiento:
+es la asimetría normal de la superficie de volatilidad de un equity. Consecuencia de
+diseño en la sección 43.1.
+
+Hallazgo 9
+Los tres filtros duros juntos pueden dejar cero candidatos.
+
+Aplicando `WD >= 0.20`, `Credit >= RequiredCredit` y `MaxLoss <= MaxRisk` a la vez, **los
+22 candidatos de los dos datasets quedan afuera**. Los cinco puts del 16 Oct que pasan
+economía violan `MaxRisk = $400`, incluido el de la sección 54. Un filtro que nunca
+dispara es indistinguible de uno mal calibrado hasta que se cuenta cuántas veces dispara.
+
+Hallazgo 10
+Los parámetros de riesgo no son independientes de la escala del subyacente.
+
+`MaxRisk` está en dólares y `Width` en strikes. En un subyacente de $355, el width mínimo
+de la cadena ya produce un maxloss por encima del límite. Los dos parámetros hay que
+calibrarlos juntos, o expresar el riesgo como fracción del capital (sección 72).
 # 54. Ejemplo clave — 16 Oct PUT
 
 Strike 315
@@ -1351,6 +1517,16 @@ Cushion ≈ +89%
 Conclusión:
 
 $0.90 no es "poco" en términos de esta operación.
+
+> **Verificado el 2026-08-24 contra el dataset.** El crédito y el delta son correctos
+> (`pcsCredit_w5` = 0.90, `putDelta` = −0.1925), y el Cushion recalculado da +96.4% con la
+> interpolación exacta del `WDFactor` — el +89% del texto usaba un `RequiredCredit` de
+> $0.48 contra los $0.4584 que da la tabla de la sección 33. La conclusión no cambia.
+>
+> **Pero este candidato no es operable con los parámetros actuales**: su maxloss es
+> `(5 − 0.90) × 100 = $410`, por encima de `MaxRisk = $400`. Sigue siendo el mejor ejemplo
+> de por qué el crédito tiene que ser relativo, que es para lo que está esta sección, pero
+> no es un trade que el motor pudiera proponer hoy. Ver la sección 39 y el Hallazgo 9.
 
 # 55. Ejemplo clave — 4 Sep PUT
 
@@ -1917,7 +2093,8 @@ Los parámetros se calibran en un período y se prueban en otro.
 |---|---|
 | Alerts-only | Definido |
 | No Market Bias obligatorio | Definido |
-| Put/Call evaluation | Definido conceptualmente |
+| Put/Call evaluation | Definido conceptualmente — **pero el motor sesga a PUT por skew** (43.1) |
+| Simetría del filtro económico entre lados | **Abierto** — decisión pendiente en 43.1 |
 | Market Diagnostic | Definido conceptualmente |
 | Z-score thresholds | Provisional |
 | ZGL | Definido |
@@ -1934,8 +2111,8 @@ Los parámetros se calibran en un período y se prueban en otro.
 | WDFactor | Provisional |
 | Cushion | Definido |
 | POP >= 80% | Provisional |
-| MaxRisk $400 | Provisional |
-| Width | Pendiente de optimización |
+| MaxRisk $400 | **Reprobado con width 5** — elimina el 100% de los candidatos (39) |
+| Width | Pendiente de optimización — **acoplado a MaxRisk**, no se calibra solo |
 | Liquidity | Pendiente |
 | Slippage | Pendiente |
 | Exit | Pendiente |
@@ -2299,23 +2476,32 @@ streaming/alert architecture;
 eliminación de MinCredit fijo.
 
 VALIDADO PRELIMINARMENTE
-0.10–0.20 como región robusta;
-
-WD como filtro independiente;
+WD como corte superior de la ventana de delta (0.22 cae por WD en los cuatro sweeps);
 
 RequiredCredit dinámico;
 
 DTE como factor económico;
 
-diferencias PUT/CALL;
-
 diferencias entre vencimientos;
+
+asimetría PUT/CALL por skew, no por estructura (Hallazgo 8);
 
 posibilidad de aceptar créditos nominalmente pequeños en DTE largos;
 
 rechazo de créditos mayores cuando no compensan el riesgo.
 
+REPROBADO O INVALIDADO
+0.10–0.20 como región robusta — era el rango barrido, no un resultado (28);
+
+MaxRisk $400 con width 5 — elimina el 100% de los candidatos (39, Hallazgo 9);
+
+el filtro económico simétrico entre lados — produce un sesgo put-only no declarado (43.1).
+
 PENDIENTE
+decidir cómo trata el filtro económico la asimetría de skew (43.1);
+
+recalibrar MaxRisk y Width juntos, o pasar a riesgo como % del capital;
+
 calibración estadística de RequiredCredit;
 
 WD mínimo definitivo;

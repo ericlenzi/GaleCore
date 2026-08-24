@@ -24,9 +24,12 @@ documento de definición, y en la 98 el corte entre lo definido, lo validado y l
 
 ### Hallazgos
 
-| Fecha | Qué verifica | Veredicto |
-|---|---|---|
-| [2026-08-24](hallazgos/2026-08-24-credito-call-columna-equivocada.md) | Las tablas de CALL de las §24–28 (Delta Sweep TSLA) | Las §25 y §27 quedan **invalidadas**: leyeron `pcsCredit_w5` en vez de `ccsCredit_w5`. El Hallazgo 3 se **invierte** |
+| Fecha | Qué verifica | Veredicto | Estado |
+|---|---|---|---|
+| [2026-08-24](hallazgos/2026-08-24-credito-call-columna-equivocada.md) | Las tablas de CALL de las §24–28 (Delta Sweep TSLA) | Las §25 y §27 leyeron `pcsCredit_w5` en vez de `ccsCredit_w5`. El Hallazgo 3 se **invierte** | Aplicado — reescritas las §25, §27, §28, §39, §53, §54, §83, §98 y agregada la §43.1 |
+
+Los hallazgos no se editan cuando se aplican: la columna **Estado** de este índice es la que
+lleva la cuenta. El hallazgo queda como el registro de qué se encontró y cuándo.
 
 ## Disciplina de la carpeta
 
@@ -97,6 +100,11 @@ y **todavía no verificados**:
   de aceptabilidad, no de ventaja. `Cushion` alto marca dónde el mercado pide más prima que la que
   el modelo cree necesaria, que es también donde hay más riesgo real: selección adversa. RPF ya
   resolvió esto con VRP + edge y `pop_calibration.json`.
+* **Cómo trata el filtro económico la asimetría de skew.** Planteado en la §43.1 de la definición
+  con tres salidas posibles; se decide con el backtest, no antes. Hasta entonces GOT es put-only de
+  hecho.
+* **Recalibrar `MaxRisk` y `Width` juntos.** Hoy uno está en dólares y el otro en strikes, y la
+  combinación elimina el 100% de los candidatos en un subyacente de $355 (§39).
 * **Solapamiento con RPF.** Los dos son venta de prima de riesgo definido, alerts-only, sobre
   GEX/ZGL/walls, con push por socket. La diferencia real es el eje de decisión. Conviene decidir si
   GOT es una tercera estrategia o la evolución del motor de RPF antes de duplicar la maquinaria.
