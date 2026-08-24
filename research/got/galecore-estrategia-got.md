@@ -24,7 +24,9 @@
 > delta como una sola variable con dos cotas, el edge test dibujado como el gate económico que
 > falta, y una marca por bloque para que se vea cuánto del flujo está definido. Las secciones
 > **48**, **84** y **88**, que dibujan el mismo flujo desde otro ángulo, quedaron con errata
-> apuntando ahí.
+> apuntando ahí. La **47.1**, nueva, fija el alcance del bucle —vencimientos **regulares** con
+> DTE ≤ 60— y de ahí sale que el `2026-09-04` sobre el que se validó medio v5 es un weekly que ese
+> alcance excluye.
 >
 > Verificación completa, tablas recalculadas y consecuencias en
 > [el hallazgo del 2026-08-24](hallazgos/2026-08-24-credito-call-columna-equivocada.md).
@@ -1393,12 +1395,21 @@ Marcas del diagrama: `[OK]` definido · `[~]` provisional o sin calibrar · `[ ]
                               |
                               v
    NIVEL 2 - ESTRUCTURA                         ¿dónde estaría permitido vender?
-        SPOT   ZGL   CALL WALL   PUT WALL   GEX   EXPECTED MOVE
-                              |                           [OK] ZGL, walls, EM
-                              v                           [~] Sell Zones conceptual (61)
-        SELL ZONES:   PUT ZONE   |   CALL ZONE            [ ] conflicto ZGL vs wall (62)
-        (muro - spot) / EM  <-- lo único que la estructura
-                                aporta y el delta no replica
+        SPOT   ZGL   CALL WALL   PUT WALL   GEX           [OK] ZGL, walls
+        del agregado de la cadena:                        [~] Sell Zones conceptual (61)
+        UNA VEZ POR SÍMBOLO                               [ ] conflicto ZGL vs wall (62)
+                              |
+                              v
+        SELL ZONES:   PUT ZONE   |   CALL ZONE
+                              |
+                              v
+   POR CADA VENCIMIENTO REGULAR CON DTE <= 60   alcance inicial: sin weeklies,
+        EXPECTED MOVE del vencimiento           sin 0DTE. Son 2 por símbolo el
+                              |                 90% de los días (1 a 3)
+                              v
+        (muro - spot) / EM  <-- lo único que la estructura aporta
+                                y el delta no replica. El muro es
+                                del agregado; el EM, del vencimiento
                               |
                +--------------+--------------+
                |                             |
@@ -1471,10 +1482,58 @@ puestos sobre el mismo eje. Dibujarlos sobre una sola recta es lo que impide vol
 banda como un resultado, y es lo que anticipa que barrer `WD_min` y `Delta_max` por separado va a
 dar una superficie degenerada.
 
-**3. El flujo se recorre por `(símbolo, vencimiento, lado)` y las salidas no se suman.** La
-bifurcación PUT/CALL está arriba de todo a propósito: los dos lados se evalúan y se registran
-siempre, y el conteo de alertas se reporta desagregado. Agregado, el sesgo de un símbolo cancela
-el del otro y desaparece justo el dato que hay que mirar (43.5).
+**3. El flujo se recorre por `(símbolo, vencimiento regular ≤ 60 DTE, lado)` y las salidas no se
+suman.** La bifurcación PUT/CALL está arriba de todo a propósito: los dos lados se evalúan y se
+registran siempre, y el conteo de alertas se reporta desagregado. Agregado, el sesgo de un símbolo
+cancela el del otro y desaparece justo el dato que hay que mirar (43.5).
+
+## 47.1 El alcance inicial del bucle
+
+> **Definido el 2026-08-24.**
+
+El flujo recorre, por símbolo, sus **vencimientos regulares con DTE ≤ 60**. Es un alcance de
+arranque y no una decisión cerrada: el tratamiento del DTE sigue abierto (56.5, 57), y de paso
+este corte deja sin evaluar el bucket `61–90` que la 56.5 lista. Quedan afuera los **weeklies** y
+el **0DTE**.
+
+"Regular" es el vencimiento estándar mensual —el tercer viernes—, que es lo que Tastytrade devuelve
+como `expiration-type: "Regular"`; los demás son `Weekly`, `Quarterly` o `Mini`. Reproducible con
+[`scripts/vencimientos_regulares.py`](scripts/vencimientos_regulares.py).
+
+**El bucle es corto: son 2 vencimientos por símbolo el 90% de los días**, 1 el 4.4% y 3 el 5.5%
+(medido sobre 365 días de observación consecutivos). Con el universo de calibración de la 43.5
+—SPY y QQQ— y los dos lados, una corrida evalúa del orden de **ocho combinaciones**, no cientos.
+Eso tiene dos caras: hace barata la corrida transversal, y hace que la frecuencia de oportunidades
+por lado y por símbolo se mida sobre una muestra chica. Con ocho celdas, un cero no es evidencia de
+nada, y una corrida por día tarda meses en acumular estadística. Es un argumento fuerte a favor de
+la captura periódica antes que de la captura puntual.
+
+**La estructura viene de una cadena más ancha que los candidatos, y eso es deliberado.** Los muros,
+el ZGL y el GEX salen del agregado de `/App/Gex/Analysis`, que dentro de sus 60 DTE **incluye
+weeklies y 0DTE**. O sea que el 0DTE sí entra al flujo —pesa en dónde están los muros— pero no
+genera candidatos. No es una inconsistencia: el muro es una propiedad del mercado y no del
+vencimiento que uno vende. Pero es una asimetría que hay que tener declarada, porque significa que
+la estructura sobre la que GOT decide puede moverse por gamma que GOT nunca va a operar.
+
+**El Expected Move es lo que obliga a que el bucle sea por vencimiento.** `WD = (muro − spot)/EM`
+necesita un EM, y el EM es `spot × IV_atm × sqrt(t)`: **no está definido para el agregado**, que no
+tiene un `t` — así lo declara el JSON de GEX, que deja esa fila vacía a propósito en vez de
+rellenarla con el vencimiento más cercano. El muro es el mismo para todos los vencimientos; el WD
+de ese mismo muro, no. Es el mecanismo por el que dos vencimientos con idéntica estructura dan
+ventanas de delta distintas, que es exactamente lo que mostraron los datasets del 16 Oct y el 4 Sep
+(53 a 55).
+
+**Ojo con la base empírica del v5: el 4 Sep es un weekly.** Los dos vencimientos sobre los que se
+validó todo —`data/2026-08-24/`— son `2026-09-04` (DTE 11) y `2026-10-16` (DTE 53–56). El segundo
+es el tercer viernes de octubre y entra al bucle; **el primero es el primer viernes de septiembre,
+o sea un weekly, y este alcance lo excluye**. El tercer viernes de ese mes era el 18.
+
+Eso no invalida nada de lo medido: el contraste DTE 11 contra DTE 53 sigue mostrando lo que muestra
+sobre el crédito requerido, y el error de columna del hallazgo del 24 se corrigió sobre los dos por
+igual. Lo que sí significa es que **la mitad de la evidencia del v5 viene de un tipo de vencimiento
+que el flujo, como quedó definido, no recorre**. La próxima captura —la que la 43.4 pide sobre SPY
+y QQQ con book vivo— debería usar vencimientos regulares, o el alcance y la evidencia van a seguir
+apuntando a cosas distintas.
 
 **Lo que el diagrama deja a la vista es cuánto falta.** De los seis niveles hay uno definido
 (el 2), dos provisionales (1 y 3), uno vacío (4), uno reprobado con su calibración actual (5), y
@@ -2738,7 +2797,9 @@ el skew no lleva tratamiento explícito — queda absorbido por el edge test (43
 el sesgo por lado depende del símbolo, no del motor: se mide, no se declara (43.5).
 
 PENDIENTE
-recapturar SPY y QQQ en sesión, para confirmar el sesgo invertido con book vivo (43.4);
+recapturar SPY y QQQ en sesión, para confirmar el sesgo invertido con book vivo (43.4) — y
+**sobre vencimientos regulares**, porque el 2026-09-04 de la captura del 24 es un weekly y queda
+fuera del bucle definido en la 47.1;
 
 la tabla de probabilidad empírica por lado, delta y DTE que alimenta el edge test;
 

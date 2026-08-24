@@ -19,7 +19,13 @@ su propia carpeta fechada por el día de captura, y el `-OutDir` del script apun
 
 | Carpeta | Cuándo | Qué tiene | Condiciones |
 |---|---|---|---|
-| [`2026-08-24/`](2026-08-24/) | 24-ago-2026 | TSLA, SPY, QQQ · vencimientos 2026-09-04 (DTE 11) y 2026-10-16 (DTE 53–56) | **Mezcladas**: TSLA en sesión (11:57 y 12:35 ET); SPY y QQQ post-cierre (~17:25 ET) |
+| [`2026-08-24/`](2026-08-24/) | 24-ago-2026 | TSLA, SPY, QQQ · vencimientos 2026-09-04 (DTE 11, **weekly**) y 2026-10-16 (DTE 53–56, regular) | **Mezcladas**: TSLA en sesión (11:57 y 12:35 ET); SPY y QQQ post-cierre (~17:25 ET) |
+
+**El 2026-09-04 es un weekly, no un vencimiento regular** — es el primer viernes de septiembre; el
+tercero era el 18. El alcance del bucle definido en la §47.1 recorre solo vencimientos regulares,
+así que la mitad de la evidencia del v5 viene de un tipo de vencimiento que el flujo no recorre.
+Las capturas nuevas van sobre regulares. Verificable con
+[`scripts/vencimientos_regulares.py`](../scripts/vencimientos_regulares.py).
 
 La mezcla de la tanda del 24 está documentada y controlada: el
 [hallazgo del sesgo por lado](../hallazgos/2026-08-24-sesgo-por-lado-spy-qqq.md) §3 muestra
