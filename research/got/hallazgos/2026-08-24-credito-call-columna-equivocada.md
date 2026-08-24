@@ -1,8 +1,8 @@
 # 2026-08-24 — Las tablas de CALL del v5 leyeron la columna equivocada del dataset
 
 **Verifica:** GOT v5, secciones 24 a 28 (Delta Sweep sobre TSLA) y el Hallazgo 3.
-**Datos:** [`data/TSLA_gex_2026-09-04.csv`](../data/TSLA_gex_2026-09-04.csv) y
-[`data/TSLA_gex_2026-10-16.csv`](../data/TSLA_gex_2026-10-16.csv), capturados con
+**Datos:** [`data/TSLA_gex_2026-09-04.csv`](../data/2026-08-24/TSLA_gex_2026-09-04.csv) y
+[`data/TSLA_gex_2026-10-16.csv`](../data/2026-08-24/TSLA_gex_2026-10-16.csv), capturados con
 [`research/gex-strikes.ps1`](../../gex-strikes.ps1) el 2026-08-24.
 **Reproduce:** [`scripts/recheck_econ.py`](../scripts/recheck_econ.py).
 **Veredicto:** las secciones 25 y 27 quedan **invalidadas**. El Hallazgo 3 se **invierte**.

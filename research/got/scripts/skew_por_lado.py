@@ -2,8 +2,8 @@
 """
 Mide cuanto paga cada lado de la cadena por unidad de delta, por simbolo.
 
-Contesta la prediccion de la seccion 43.4: el sesgo put-only medido sobre TSLA,
-es del modelo o de la superficie de TSLA?
+Contesta la pregunta de la seccion 43.4: el sesgo por lado, es del modelo o de la
+superficie del simbolo con el que se midio?
 
 La metrica es:
 
@@ -11,101 +11,148 @@ La metrica es:
 
 `Credit/Width` es la perdida esperada risk-neutral como fraccion del ancho (43.2), y
 `delta` es la probabilidad de terminar ITM. El cociente dice cuanto paga el mercado por
-unidad de probabilidad. Si los dos lados dieran lo mismo, el filtro economico simetrico
-seria neutral entre lados; la diferencia entre lados ES el sesgo.
+unidad de probabilidad. Si los dos lados dieran lo mismo, un umbral economico simetrico
+seria neutral entre lados. La diferencia entre lados ES el sesgo.
 
 Lo que mueve el cociente no es el NIVEL de IV sino su PENDIENTE entre los dos strikes,
-porque el spread vende uno y compra el otro:
+porque el spread vende uno y compra el otro. Con put skew monotono la pendiente le RESTA
+credito al put credit spread y le SUMA al call credit spread; con el ala de call
+levantada, al reves.
 
-    put credit spread  -> vende el menos OTM, compra el mas OTM
-    call credit spread -> vende el menos OTM, compra el mas OTM (del otro lado)
+Calcula todo dos veces: con el credito conservador que trae el CSV (bid del short contra
+ask del long) y con MID. Si los dos coinciden, el ancho del book no explica el resultado.
 
-Con put skew (IV baja al subir el strike) la pendiente le RESTA credito al PCS y le SUMA
-al CCS. Con el ala de call levantada, al reves.
+No necesita spot, IV ni muros: le alcanzan las columnas de delta y credito del CSV.
 
 Uso, desde la raiz del repo:
 
-    PYTHONIOENCODING=utf-8 python research/got/scripts/skew_por_lado.py
+    PYTHONIOENCODING=utf-8 python research/got/scripts/skew_por_lado.py [carpeta]
+
+`carpeta` es un subdirectorio de research/got/data/ (por defecto el mas reciente).
 """
 import csv
+import glob
 import os
+import sys
 
-BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
 WIDTH = 5.0
 TARGETS = (0.10, 0.15, 0.20)
 
-# spot / ATM IV / muros salen del encabezado que imprime gex-strikes.ps1 al capturar:
-# no van al CSV. DTE tambien.
-META = {
-    ('TSLA', '2026-09-04'): dict(spot=355.10, dte=11, iv=0.417, cw=360.0, pw=345.0),
-    ('TSLA', '2026-10-16'): dict(spot=356.70, dte=56, iv=0.427, cw=400.0, pw=330.0),
-    ('SPY',  '2026-09-04'): dict(spot=763.28, dte=11, iv=0.1256, cw=778.0, pw=760.0),
-    ('SPY',  '2026-10-16'): dict(spot=763.28, dte=53, iv=0.1370, cw=790.0, pw=730.0),
-    ('QQQ',  '2026-09-04'): dict(spot=706.09, dte=11, iv=0.1984, cw=735.0, pw=700.0),
-    ('QQQ',  '2026-10-16'): dict(spot=706.09, dte=53, iv=0.2035, cw=750.0, pw=700.0),
-}
+
+def carpeta_por_defecto():
+    subs = [d for d in glob.glob(os.path.join(ROOT, '*')) if os.path.isdir(d)]
+    if not subs:
+        return ROOT
+    return sorted(subs)[-1]
 
 
-def load(sym, exp):
-    p = os.path.join(BASE, '%s_gex_%s.csv' % (sym, exp))
-    with open(p, encoding='utf-8-sig') as fh:
+def load(path):
+    with open(path, encoding='utf-8-sig') as fh:
         rows = [{k: (float(v) if v else None) for k, v in r.items()}
                 for r in csv.DictReader(fh)]
-    return sorted(rows, key=lambda r: r['strike'])
+    rows.sort(key=lambda r: r['strike'])
+    return rows, {r['strike']: r for r in rows}
 
 
-def at_delta(rows, side, target):
-    """Fila cuyo |delta| es el mas cercano al objetivo, con credito valido."""
-    dk, ck = ('putDelta', 'pcsCredit_w5') if side == 'PUT' else ('callDelta', 'ccsCredit_w5')
-    best = None
+def mid(row, pre):
+    b, a = row.get(pre + 'Bid'), row.get(pre + 'Ask')
+    return (b + a) / 2 if b is not None and a is not None else None
+
+
+def credito_mid(byk, strike, side):
+    pre = 'put' if side == 'PUT' else 'call'
+    corto = byk.get(strike)
+    largo = byk.get(strike - WIDTH if side == 'PUT' else strike + WIDTH)
+    if not corto or not largo:
+        return None
+    mc, ml = mid(corto, pre), mid(largo, pre)
+    return None if mc is None or ml is None else mc - ml
+
+
+def candidato(rows, side, target):
+    """Fila con |delta| mas cercano al objetivo y credito valido."""
+    dk = 'putDelta' if side == 'PUT' else 'callDelta'
+    ck = 'pcsCredit_w5' if side == 'PUT' else 'ccsCredit_w5'
+    mejor = None
     for r in rows:
-        if r[dk] is None or r[ck] is None or r[ck] <= 0:
+        if r.get(dk) is None or r.get(ck) is None or r[ck] <= 0:
             continue
         d = abs(r[dk])
         if not 0.03 < d < 0.45:
             continue
         gap = abs(d - target)
-        if best is None or gap < best[0]:
-            best = (gap, r['strike'], d, r[ck])
-    return best[1:] if best else None
+        if mejor is None or gap < mejor[0]:
+            mejor = (gap, r['strike'], d, r[ck])
+    return mejor[1:] if mejor else None
 
 
-print('Cuanto paga cada lado por unidad de delta:  (Credit/Width) / |delta|')
-print('Capturado 2026-08-24. TSLA en sesion (11:57 y 12:35 ET);')
-print('SPY y QQQ post-cierre (17:2x ET) -- ver la nota del final.\n')
+def spread_medio(rows):
+    vals = []
+    for r in rows:
+        for pre in ('call', 'put'):
+            b, a = r.get(pre + 'Bid'), r.get(pre + 'Ask')
+            if b and a and (a + b) > 0:
+                v = (a - b) / ((a + b) / 2) * 100
+                if v < 200:
+                    vals.append(v)
+    return sum(vals) / len(vals) if vals else None
 
-resumen = {}
-for sym in ('SPY', 'QQQ', 'TSLA'):
-    for exp in ('2026-09-04', '2026-10-16'):
-        m = META[(sym, exp)]
-        rows = load(sym, exp)
-        print('%s  %s   DTE %-3d spot %.2f  IV %.3f' % (sym, exp, m['dte'], m['spot'], m['iv']))
-        print('   %-6s %8s %8s %9s %9s %9s' % ('lado', 'delta', 'strike', 'credito', 'cred/w', 'ratio'))
-        por_lado = {}
+
+def main():
+    arg = sys.argv[1] if len(sys.argv) > 1 else None
+    carpeta = os.path.join(ROOT, arg) if arg else carpeta_por_defecto()
+    archivos = sorted(glob.glob(os.path.join(carpeta, '*_gex_*.csv')))
+    if not archivos:
+        print('Sin CSV en %s' % carpeta)
+        return 1
+
+    print('Cuanto paga cada lado por unidad de delta:  (Credit/Width) / |delta|')
+    print('Captura: %s\n' % os.path.basename(os.path.normpath(carpeta)))
+    print('%-6s %-11s | %-24s | %-24s | %s' %
+          ('sim', 'vencimiento', 'bid-ask   PUT CALL ratio', 'mid       PUT CALL ratio', 'book'))
+    print('-' * 96)
+
+    resumen = {}
+    for path in archivos:
+        base = os.path.basename(path).replace('.csv', '')
+        sym, exp = base.split('_gex_')
+        rows, byk = load(path)
+        lado = {}
         for side in ('PUT', 'CALL'):
-            vals = []
+            ba, md = [], []
             for t in TARGETS:
-                got = at_delta(rows, side, t)
+                got = candidato(rows, side, t)
                 if not got:
                     continue
                 k, d, c = got
-                cw = c / WIDTH
-                vals.append(cw / d)
-                print('   %-6s %8.4f %8g %9.2f %9.4f %9.2f' % (side, d, k, c, cw, cw / d))
-            if vals:
-                por_lado[side] = sum(vals) / len(vals)
-        if len(por_lado) == 2:
-            sesgo = por_lado['CALL'] / por_lado['PUT']
-            resumen.setdefault(sym, []).append(sesgo)
-            print('   -> PUT %.2f   CALL %.2f   CALL/PUT = %.2f' %
-                  (por_lado['PUT'], por_lado['CALL'], sesgo))
-        print()
+                ba.append((c / WIDTH) / d)
+                cm = credito_mid(byk, k, side)
+                if cm and cm > 0:
+                    md.append((cm / WIDTH) / d)
+            if ba:
+                lado[side] = (sum(ba) / len(ba), sum(md) / len(md) if md else None)
+        if len(lado) < 2:
+            print('%-6s %-11s | (sin candidatos de los dos lados)' % (sym, exp))
+            continue
+        rba = lado['CALL'][0] / lado['PUT'][0]
+        rmd = (lado['CALL'][1] / lado['PUT'][1]
+               if lado['PUT'][1] and lado['CALL'][1] else float('nan'))
+        resumen.setdefault(sym, []).append((rba, rmd))
+        print('%-6s %-11s | %5.2f %5.2f -> %-9.2f | %5.2f %5.2f -> %-9.2f | %.1f%%' %
+              (sym, exp, lado['PUT'][0], lado['CALL'][0], rba,
+               lado['PUT'][1] or 0, lado['CALL'][1] or 0, rmd, spread_medio(rows) or 0))
 
-print('=' * 62)
-print('SESGO POR SIMBOLO   (CALL/PUT del pago por unidad de delta)')
-print('  > 1  el lado call paga mas -> el filtro economico sesga a CALL')
-print('  < 1  el lado put  paga mas -> el filtro economico sesga a PUT')
-print('=' * 62)
-for sym, v in resumen.items():
-    print('  %-6s %.2f      (por vencimiento: %s)' %
-          (sym, sum(v) / len(v), '  '.join('%.2f' % x for x in v)))
+    print('\n' + '=' * 66)
+    print('SESGO POR SIMBOLO   (CALL/PUT del pago por unidad de delta)')
+    print('  > 1  el lado call paga mas -> el filtro economico sesga a CALL')
+    print('  < 1  el lado put  paga mas -> el filtro economico sesga a PUT')
+    print('=' * 66)
+    for sym, v in sorted(resumen.items()):
+        print('  %-6s bid-ask %.2f   mid %.2f' %
+              (sym, sum(x[0] for x in v) / len(v), sum(x[1] for x in v) / len(v)))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

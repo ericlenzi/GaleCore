@@ -2,7 +2,7 @@
 
 **Verifica:** la predicción de la sección 43.4 — el sesgo put-only medido sobre TSLA,
 ¿es del modelo o de la superficie de TSLA?
-**Datos:** los seis CSV de [`data/`](../data/), capturados el 2026-08-24 con
+**Datos:** los seis CSV de [`data/2026-08-24/`](../data/2026-08-24/), capturados el 2026-08-24 con
 [`research/gex-strikes.ps1`](../../gex-strikes.ps1) sobre los mismos dos vencimientos
 (2026-09-04, DTE 11; y 2026-10-16, DTE 53–56) para los tres símbolos.
 **Reproduce:** [`scripts/skew_por_lado.py`](../scripts/skew_por_lado.py).

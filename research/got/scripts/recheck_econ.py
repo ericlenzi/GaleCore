@@ -30,7 +30,7 @@ import csv
 import math
 import os
 
-BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', '2026-08-24')
 
 BASE_RR = 0.12   # seccion 32
 WIDTH = 5.0      # ancho capturado en los CSV (columnas *_w5)
