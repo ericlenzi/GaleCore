@@ -47,10 +47,25 @@ def carpeta_por_defecto():
     return sorted(subs)[-1]
 
 
+def num(v):
+    """Celda del CSV a float, dejando pasar las de texto.
+
+    El CSV no es todo numerico: desde el 2026-08-24 gex-strikes.ps1 agrega la columna
+    expirationType (Regular / Weekly / ...). Convertir a ciegas reventaba el script en
+    cuanto aparecio una captura nueva, y las viejas siguieron andando -- que es la peor
+    forma de romperse, porque depende de que archivo se lea.
+    """
+    if not v:
+        return None
+    try:
+        return float(v)
+    except ValueError:
+        return v
+
+
 def load(path):
     with open(path, encoding='utf-8-sig') as fh:
-        rows = [{k: (float(v) if v else None) for k, v in r.items()}
-                for r in csv.DictReader(fh)]
+        rows = [{k: num(v) for k, v in r.items()} for r in csv.DictReader(fh)]
     rows.sort(key=lambda r: r['strike'])
     return rows, {r['strike']: r for r in rows}
 
