@@ -96,15 +96,26 @@ y **todavía no verificados**:
   f(delta)`, o sea que el muro solo aporta un offset constante; en los datos de TSLA la correlación
   es prácticamente −1. Barrer `WD_min` y `Delta_max` por separado va a dar una superficie
   degenerada. Lo informativo e independiente es la posición del muro respecto del spot.
-* **Nada en GOT mide VRP.** `RequiredCredit` es un umbral de retorno sobre capital — una condición
-  de aceptabilidad, no de ventaja. `Cushion` alto marca dónde el mercado pide más prima que la que
-  el modelo cree necesaria, que es también donde hay más riesgo real: selección adversa. RPF ya
-  resolvió esto con VRP + edge y `pop_calibration.json`.
-* **Cómo trata el filtro económico la asimetría de skew.** Planteado en la §43.1 de la definición
-  con tres salidas posibles; se decide con el backtest, no antes. Hasta entonces GOT es put-only de
-  hecho.
 * **Recalibrar `MaxRisk` y `Width` juntos.** Hoy uno está en dólares y el otro en strikes, y la
   combinación elimina el 100% de los candidatos en un subyacente de $355 (§39).
+* **`WD` y `Delta` acotan la misma variable.** Confirmado el 2026-08-24 (§43.2): dentro de un
+  vencimiento el Structural Gate es un techo de delta y el Economic Gate un piso de delta. Los
+  sweeps separados de `WD_min` y `Delta_max` van a dar una superficie degenerada.
+
+### Decidido el 2026-08-24, falta implementar
+
+* **`RequiredCredit` no es el gate económico** (§43.2). Traducido a `Credit/Width` resulta un
+  umbral de probabilidad risk-neutral de pérdida — un piso de riesgo, no un test de ventaja. Baja
+  a piso de viabilidad y se queda simétrico entre lados.
+* **El gate económico real es un edge test**: probabilidad implícita en el crédito contra
+  probabilidad empírica de ese (lado, delta, DTE). Es el VRP, es lo que RPF ya hace con
+  `pop_calibration.json`, y es side-aware por construcción — por eso el skew no lleva tratamiento
+  explícito (§43.3).
+* **Antes que nada, el mismo sweep sobre SPY y QQQ** (§43.4). Toda la evidencia del sesgo viene de
+  un símbolo con superficie atípica; la predicción es que la brecha entre lados sea marcadamente
+  menor. Si se repite igual en los tres, el problema es del modelo.
+* **Hasta entonces GOT es put-biased declarado**, y el lado call se sigue registrando aunque casi
+  nunca dispare — es la muestra que después calibra el edge test (§43.5).
 * **Solapamiento con RPF.** Los dos son venta de prima de riesgo definido, alerts-only, sobre
   GEX/ZGL/walls, con push por socket. La diferencia real es el eje de decisión. Conviene decidir si
   GOT es una tercera estrategia o la evolución del motor de RPF antes de duplicar la maquinaria.

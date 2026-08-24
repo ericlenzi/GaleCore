@@ -10,8 +10,14 @@
 > `pcsCredit_w5` de los datasets en vez de `ccsCredit_w5`, sobrestimando el crédito del lado call
 > entre 6x y 16x. Recalculado desde los datos, el **Hallazgo 3 se invirtió** y aparecieron tres
 > consecuencias que no estaban vistas. Las secciones afectadas ya están reescritas y llevan su
-> propia nota: **25**, **27**, **28**, **39**, **43.1** (nueva), **53**, **54**, **83** y **98**.
+> propia nota: **25**, **27**, **28**, **31**, **39**, **53**, **54**, **83** y **98**, más las
+> **43.1 a 43.5** que son nuevas.
 > Las tablas de PUT (secciones 24 y 26) se verificaron correctas y no se tocaron.
+>
+> De ahí salió además una decisión de diseño que va más allá de la corrección: `RequiredCredit`
+> resultó ser un **piso de riesgo y no un test de ventaja**, y baja de rango a piso de viabilidad.
+> El gate económico real pasa a ser un **edge test** —probabilidad implícita contra empírica— que
+> todavía no está implementado. Ver **43.2** y **43.3**.
 >
 > Verificación completa, tablas recalculadas y consecuencias en
 > [el hallazgo del 2026-08-24](hallazgos/2026-08-24-credito-call-columna-equivocada.md).
@@ -780,6 +786,15 @@ Wall Distance;
 
 requerimiento base de retorno.
 
+> **Ojo con el rol de esto (decidido el 2026-08-24, ver 43.2 y 43.3).** `RequiredCredit`
+> **no es el gate económico de la estrategia.** Traducido a `Credit/Width` resulta ser un
+> umbral de probabilidad risk-neutral de pérdida, o sea un **piso de riesgo**: exigir más
+> crédito es exigir más riesgo. No mide ventaja en ningún punto.
+>
+> Queda como **piso de viabilidad** —¿paga comisiones, slippage y el capital
+> inmovilizado?—, que es una pregunta legítima pero secundaria. El gate económico real es
+> el edge test de la sección 43.3, que todavía no está implementado.
+
 # 32. Modelo conceptual de RequiredCredit
 
 Se utiliza:
@@ -1093,29 +1108,129 @@ mismo `RequiredCredit`:
 como manda esta sección. El sesgo no viene de una opinión sobre el mercado —que es lo que
 la sección prohíbe— sino de un umbral que ignora de qué lado está mirando.
 
-Hay que elegir a conciencia entre tres salidas, y ninguna es obviamente la correcta
-todavía:
+## 43.2 Qué es realmente `RequiredCredit`
 
-1. **`RequiredCredit` reconoce el skew.** Normalizar el crédito requerido contra la IV del
-   lado que se está evaluando, en vez de contra el width nominal. El umbral pasa a ser
-   comparable entre lados. Es lo más consistente con la filosofía de la sección 96 —que
-   los parámetros salgan de la estructura y la economía— pero agrega una dependencia de la
-   superficie de vol que hoy el modelo no tiene.
-2. **Umbrales distintos por lado.** Un `BaseRR` para PUT y otro para CALL, calibrados por
-   separado. Simple y honesto, pero son dos números más que justificar y la sección 81
-   advierte contra multiplicar parámetros.
-3. **Asumir que GOT es put-only y decirlo.** Perfectamente defendible para una estrategia
-   de venta de prima, y elimina la mitad del trabajo de validación. El costo es que se
-   pierde el lado call en los regímenes donde sí paga, y que contradice la intención
-   declarada en esta sección.
+> **Decidido el 2026-08-24.**
 
-**Lo que no se puede hacer es dejarlo como está**: hoy la sección declara simetría y el
-motor produce asimetría, y esa distancia entre lo declarado y lo que pasa es exactamente
-lo que hizo falta un recálculo para ver.
+Antes de elegir cómo corregir el sesgo hay que ver qué está midiendo el filtro, porque eso
+cambia cuál es la respuesta.
 
-Esto se decide con el backtest, no antes. Lo que sí corresponde ya es medir la frecuencia
-de oportunidades **por lado** en cualquier corrida que se haga, para que el sesgo se vea
-en los números en vez de quedar implícito.
+En un vertical, el crédito es el valor risk-neutral del spread. Dividido por el ancho:
+
+```text
+Credit / Width = perdida esperada risk-neutral, como fraccion del ancho
+```
+
+Es un número entre 0 y 1 que crece con el delta del short leg, y es **la probabilidad que
+el mercado le pone a que la operación salga mal**. Traducido el `RequiredCredit` a esas
+unidades:
+
+```text
+Credit / Width >= RRreq / (1 + RRreq)
+```
+
+| Caso | `Credit/Width` requerido |
+|---|---|
+| DTE 11, WD 0.30 | 0.179 |
+| DTE 11, WD 0.60 | 0.156 |
+| DTE 56, WD 0.30 | 0.088 |
+| DTE 56, WD 0.60 | 0.076 |
+
+De donde salen **dos conclusiones que no estaban vistas**:
+
+**1. El filtro económico es un piso de riesgo, no un test de ventaja.** Dice: *tomá solo
+operaciones donde el mercado asigne al menos 7.6% a 17.9% de probabilidad de perder*.
+Exigir más crédito es exigir más riesgo, porque en un spread el retorno se compra con
+probabilidad de pérdida. No mide edge en ningún momento — mide cuánto riesgo se está
+tomando, y pide un mínimo.
+
+**2. Con `WD_min` arriba, el motor entero es una banda de delta.** `WD` decrece
+monótonamente con el delta y `Credit/Width` crece con el delta, así que:
+
+```text
+WD >= WD_min              -> techo de delta  (estructura)
+Credit >= RequiredCredit  -> piso  de delta  (economia)
+```
+
+Los dos filtros que la sección 48 presenta como niveles distintos —Structural Gate y
+Economic Gate— son, dentro de un vencimiento, **cotas de la misma variable**. Eso explica
+la sección 28 sin misterio: la ventana de delta no emerge de nada, es la intersección de
+dos cotas sobre delta.
+
+## 43.3 La decisión
+
+**Ninguna de las tres salidas planteadas, porque las tres contestan la pregunta
+equivocada.** Preguntar si el umbral debe ser simétrico entre lados presupone que el
+umbral mide lo correcto, y no lo mide de ningún lado.
+
+Lo que se hace:
+
+**a. `RequiredCredit` baja de rango: pasa a ser un piso de viabilidad, no el gate
+económico.** La pregunta que sí contesta legítimamente es *¿esta operación paga las
+comisiones, el slippage y el capital inmovilizado?*. Para eso **se queda simétrico**,
+porque es una restricción del negocio y no una afirmación sobre el mercado: al bróker le
+da igual de qué lado de la cadena está el strike.
+
+**b. El gate económico de verdad es un test de edge**, que hoy no existe:
+
+```text
+P(perdida) implicita en el credito     <- lo que cobra el mercado
+        vs
+P(perdida) empirica de ese (lado, delta, DTE)   <- lo que pasa en realidad
+
+edge = la diferencia
+```
+
+Eso es el VRP, y es **lo único que puede decir si la operación gana plata**. Es lo que RPF
+ya hace con su tabla POP calibrada, y lo que a GOT le falta por completo.
+
+**c. Con el edge test, la pregunta del skew se disuelve en vez de contestarse.** Un test
+que compara probabilidad implícita contra probabilidad empírica **es side-aware por
+construcción y sin un solo parámetro nuevo**: si las calls pagan menos a delta igual pero
+también fallan menos a delta igual, el edge se empareja solo; y si pagan menos y fallan lo
+mismo, el lado call queda descartado por los datos y no por una constante que alguien
+eligió. El skew deja de necesitar tratamiento explícito porque queda absorbido en el lado
+empírico de la comparación.
+
+Por eso la salida 2 —un `BaseRR` por lado— es la peor de las tres: hornea la forma de una
+superficie de volatilidad dentro de una constante, donde nadie la va a volver a mirar.
+
+## 43.4 Qué NO se hace, y por qué
+
+**No se declara put-only, y no se toca ningún parámetro todavía.** El motivo es que toda la
+evidencia del sesgo viene de **un símbolo, un día, dos vencimientos** — y de un símbolo con
+una superficie atípica.
+
+TSLA tiene demanda especulativa de calls que le levanta el ala derecha; SPY y QQQ, que son
+el universo declarado en la sección 4, tienen put skew fuerte y ala de call plana o
+declinante. Son formas distintas. La asimetría medida acá:
+
+```text
+TSLA: (Credit/Width) / delta  ->  PUT ~0.72-0.94   CALL ~0.34-0.67
+```
+
+no es trasladable, y calibrar un parámetro por lado con esta muestra sería exactamente lo
+que la sección 81 prohíbe: *optimizar sobre un único símbolo y considerarlo definitivo*.
+
+**Predicción falsable, para hacer antes que cualquier otra cosa:** correr el mismo sweep
+sobre SPY y QQQ. Si el sesgo es de la superficie de TSLA y no del modelo, la brecha entre
+lados tiene que ser **marcadamente menor** que la de arriba. Si en cambio se repite igual
+en los tres, entonces es del modelo y hay que atacarlo antes del backtest.
+
+Es barato: es el mismo `gex-strikes.ps1` con otro símbolo.
+
+## 43.5 Estado interino
+
+Hasta que exista el edge test:
+
+* GOT queda **put-biased por construcción, y declarado**. El sesgo no se corrige con un
+  factor de ajuste — se deja a la vista, que es la diferencia entre un sesgo conocido y uno
+  que hay que descubrir recalculando.
+* Toda corrida mide **frecuencia de oportunidades por lado**, no agregada. Un motor que
+  emite 90% puts y lo reporta como "12 alertas" está escondiendo el dato principal.
+* El lado call **se sigue evaluando y se sigue registrando aunque casi nunca dispare**. Es
+  la única forma de juntar la muestra que después va a calibrar el edge test. Apagarlo
+  ahora garantiza no tener nunca con qué decidir si había que apagarlo.
 
 # 44. Alert Engine
 
@@ -2093,8 +2208,10 @@ Los parámetros se calibran en un período y se prueban en otro.
 |---|---|
 | Alerts-only | Definido |
 | No Market Bias obligatorio | Definido |
-| Put/Call evaluation | Definido conceptualmente — **pero el motor sesga a PUT por skew** (43.1) |
-| Simetría del filtro económico entre lados | **Abierto** — decisión pendiente en 43.1 |
+| Put/Call evaluation | Definido — ambos lados siempre, con sesgo a PUT **declarado** (43.5) |
+| Simetría del filtro económico entre lados | **Resuelto** (43.3): se queda simétrico, porque baja a piso de viabilidad |
+| RequiredCredit como gate económico | **Reprobado** (43.2): es un piso de riesgo, no un test de ventaja |
+| Edge test (implícita vs empírica) | **Decidido, no implementado** — el gate económico real (43.3) |
 | Market Diagnostic | Definido conceptualmente |
 | Z-score thresholds | Provisional |
 | ZGL | Definido |
@@ -2495,10 +2612,25 @@ REPROBADO O INVALIDADO
 
 MaxRisk $400 con width 5 — elimina el 100% de los candidatos (39, Hallazgo 9);
 
-el filtro económico simétrico entre lados — produce un sesgo put-only no declarado (43.1).
+RequiredCredit como gate económico — es un piso de riesgo, no un test de ventaja (43.2);
+
+Structural Gate y Economic Gate como niveles independientes — dentro de un vencimiento son
+las dos cotas de la misma variable, el delta (43.2).
+
+DECIDIDO EL 24/08, FALTA IMPLEMENTAR
+RequiredCredit baja a piso de viabilidad, y se queda simétrico entre lados (43.3);
+
+el gate económico real es un edge test: probabilidad implícita contra empírica (43.3);
+
+el skew no lleva tratamiento explícito — queda absorbido por el edge test (43.3);
+
+hasta entonces GOT es put-biased declarado, y el lado call se sigue registrando (43.5).
 
 PENDIENTE
-decidir cómo trata el filtro económico la asimetría de skew (43.1);
+el mismo sweep sobre SPY y QQQ, para separar lo que es del modelo de lo que es de la
+superficie de TSLA (43.4);
+
+la tabla de probabilidad empírica por lado, delta y DTE que alimenta el edge test;
 
 recalibrar MaxRisk y Width juntos, o pasar a riesgo como % del capital;
 
