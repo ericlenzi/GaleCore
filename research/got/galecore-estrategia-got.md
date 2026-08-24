@@ -1219,18 +1219,52 @@ en los tres, entonces es del modelo y hay que atacarlo antes del backtest.
 
 Es barato: es el mismo `gex-strikes.ps1` con otro símbolo.
 
+> **Corrido el mismo día. La predicción se quedó corta: el signo se invierte.**
+>
+> Midiendo cuánto paga cada lado por unidad de delta, `(Credit/Width) / |delta|`, sobre los
+> mismos dos vencimientos en los tres símbolos:
+>
+> | Símbolo | PUT | CALL | CALL/PUT |
+> |---|---|---|---|
+> | SPY | 0.51 | 0.92 | **1.81** |
+> | QQQ | 0.55 | 0.86 | **1.57** |
+> | TSLA | 0.84 | 0.54 | **0.65** |
+>
+> En el universo declarado el filtro económico simétrico **sesga hacia CALL**, no hacia PUT.
+> Verificado también con mid en vez de bid/ask, para descartar el horario de captura.
+> Detalle y mecanismo en
+> [el hallazgo](hallazgos/2026-08-24-sesgo-por-lado-spy-qqq.md).
+>
+> Refuerza esta sección más de lo que se esperaba: la salida 2 —un `BaseRR` por lado
+> calibrado sobre TSLA— no habría sido un parámetro subóptimo, habría tenido **el signo
+> cambiado** para los símbolos que la estrategia opera.
+
 ## 43.5 Estado interino
+
+> **Reescrita el 2026-08-24**, unas horas después de la versión original. Esa versión decía
+> que GOT queda *"put-biased por construcción, y declarado"*, y era falso: se había medido
+> sobre TSLA, cuya superficie va al revés que la del universo declarado. Ver
+> [el hallazgo](hallazgos/2026-08-24-sesgo-por-lado-spy-qqq.md).
 
 Hasta que exista el edge test:
 
-* GOT queda **put-biased por construcción, y declarado**. El sesgo no se corrige con un
-  factor de ajuste — se deja a la vista, que es la diferencia entre un sesgo conocido y uno
-  que hay que descubrir recalculando.
-* Toda corrida mide **frecuencia de oportunidades por lado**, no agregada. Un motor que
-  emite 90% puts y lo reporta como "12 alertas" está escondiendo el dato principal.
-* El lado call **se sigue evaluando y se sigue registrando aunque casi nunca dispare**. Es
-  la única forma de juntar la muestra que después va a calibrar el edge test. Apagarlo
-  ahora garantiza no tener nunca con qué decidir si había que apagarlo.
+* **GOT tiene un sesgo por lado, y su dirección depende del símbolo.** Sobre SPY y QQQ
+  favorece al CALL (paga ~1.6–1.8x por unidad de delta); sobre TSLA favorece al PUT. No es
+  una propiedad del motor: es la pendiente local de la superficie de volatilidad,
+  atravesando un umbral que no la mira.
+* **Por eso el sesgo no se declara como constante ni se corrige con un factor.** No hay un
+  número que declarar — cambia por símbolo, por vencimiento y en el tiempo. Se deja a la
+  vista y se mide.
+* Toda corrida mide **frecuencia de oportunidades por lado y por símbolo**, nunca agregada.
+  Un motor que emite 90% de un lado y lo reporta como "12 alertas" está escondiendo el dato
+  principal, y agregando los símbolos el sesgo de uno cancela el del otro y desaparece de la
+  vista.
+* **Los dos lados se siguen evaluando y registrando siempre.** Es la muestra que después
+  calibra el edge test. Apagar un lado ahora garantiza no tener nunca con qué decidir si
+  había que apagarlo — y como se vio, el lado que parecía descartable era el equivocado.
+* **Las calibraciones se hacen sobre SPY y QQQ**, que es el universo de la sección 4. TSLA
+  queda como caso de control: es útil tener un símbolo con la superficie invertida para
+  detectar exactamente esta clase de error.
 
 # 44. Alert Engine
 
@@ -2208,7 +2242,7 @@ Los parámetros se calibran en un período y se prueban en otro.
 |---|---|
 | Alerts-only | Definido |
 | No Market Bias obligatorio | Definido |
-| Put/Call evaluation | Definido — ambos lados siempre, con sesgo a PUT **declarado** (43.5) |
+| Put/Call evaluation | Definido — ambos lados siempre; el sesgo por lado **depende del símbolo** (43.5) |
 | Simetría del filtro económico entre lados | **Resuelto** (43.3): se queda simétrico, porque baja a piso de viabilidad |
 | RequiredCredit como gate económico | **Reprobado** (43.2): es un piso de riesgo, no un test de ventaja |
 | Edge test (implícita vs empírica) | **Decidido, no implementado** — el gate económico real (43.3) |
@@ -2601,7 +2635,8 @@ DTE como factor económico;
 
 diferencias entre vencimientos;
 
-asimetría PUT/CALL por skew, no por estructura (Hallazgo 8);
+asimetría PUT/CALL por skew, no por estructura, y con signo propio de cada símbolo
+(Hallazgo 8, y el hallazgo del 24/08 sobre SPY/QQQ);
 
 posibilidad de aceptar créditos nominalmente pequeños en DTE largos;
 
@@ -2624,11 +2659,10 @@ el gate económico real es un edge test: probabilidad implícita contra empíric
 
 el skew no lleva tratamiento explícito — queda absorbido por el edge test (43.3);
 
-hasta entonces GOT es put-biased declarado, y el lado call se sigue registrando (43.5).
+el sesgo por lado depende del símbolo, no del motor: se mide, no se declara (43.5).
 
 PENDIENTE
-el mismo sweep sobre SPY y QQQ, para separar lo que es del modelo de lo que es de la
-superficie de TSLA (43.4);
+recapturar SPY y QQQ en sesión, para confirmar el sesgo invertido con book vivo (43.4);
 
 la tabla de probabilidad empírica por lado, delta y DTE que alimenta el edge test;
 

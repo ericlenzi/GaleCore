@@ -27,6 +27,7 @@ documento de definición, y en la 98 el corte entre lo definido, lo validado y l
 | Fecha | Qué verifica | Veredicto | Estado |
 |---|---|---|---|
 | [2026-08-24](hallazgos/2026-08-24-credito-call-columna-equivocada.md) | Las tablas de CALL de las §24–28 (Delta Sweep TSLA) | Las §25 y §27 leyeron `pcsCredit_w5` en vez de `ccsCredit_w5`. El Hallazgo 3 se **invierte** | Aplicado — reescritas las §25, §27, §28, §39, §53, §54, §83, §98 y agregada la §43.1 |
+| [2026-08-24](hallazgos/2026-08-24-sesgo-por-lado-spy-qqq.md) | La predicción de la §43.4: el sesgo put-only, ¿es del modelo o de TSLA? | Es de TSLA, y **se invierte**: sobre SPY y QQQ el filtro sesga a CALL (1.8x / 1.6x) | Aplicado — reescritas la §43.4 y la §43.5 |
 
 Los hallazgos no se editan cuando se aplican: la columna **Estado** de este índice es la que
 lleva la cuenta. El hallazgo queda como el registro de qué se encontró y cuándo.
@@ -81,10 +82,11 @@ Python 3.10+, sin dependencias externas. En consola Windows correr con `PYTHONIO
 
 | Script | Qué hace | Hallazgo |
 |---|---|---|
-| [`recheck_econ.py`](scripts/recheck_econ.py) | Recalcula el filtro económico del v5 (`RRreq`, `RequiredCredit`, `Cushion`, `WD_min`, `MaxRisk`) sobre los dos datasets de TSLA, mostrando el crédito correcto contra el que usó el v5 | 2026-08-24 |
+| [`recheck_econ.py`](scripts/recheck_econ.py) | Recalcula el filtro económico del v5 (`RRreq`, `RequiredCredit`, `Cushion`, `WD_min`, `MaxRisk`) sobre los dos datasets de TSLA, mostrando el crédito correcto contra el que usó el v5 | [crédito CALL](hallazgos/2026-08-24-credito-call-columna-equivocada.md) |
+| [`skew_por_lado.py`](scripts/skew_por_lado.py) | Mide cuánto paga cada lado de la cadena por unidad de delta, por símbolo y vencimiento | [sesgo por lado](hallazgos/2026-08-24-sesgo-por-lado-spy-qqq.md) |
 
 ```bash
-PYTHONIOENCODING=utf-8 python research/got/scripts/recheck_econ.py
+PYTHONIOENCODING=utf-8 python research/got/scripts/skew_por_lado.py
 ```
 
 ## Temas abiertos
@@ -111,11 +113,12 @@ y **todavía no verificados**:
   probabilidad empírica de ese (lado, delta, DTE). Es el VRP, es lo que RPF ya hace con
   `pop_calibration.json`, y es side-aware por construcción — por eso el skew no lleva tratamiento
   explícito (§43.3).
-* **Antes que nada, el mismo sweep sobre SPY y QQQ** (§43.4). Toda la evidencia del sesgo viene de
-  un símbolo con superficie atípica; la predicción es que la brecha entre lados sea marcadamente
-  menor. Si se repite igual en los tres, el problema es del modelo.
-* **Hasta entonces GOT es put-biased declarado**, y el lado call se sigue registrando aunque casi
-  nunca dispare — es la muestra que después calibra el edge test (§43.5).
+* **El sesgo por lado depende del símbolo, no del motor** (§43.5). Medido el 2026-08-24: SPY 1.81
+  y QQQ 1.57 a favor del CALL, TSLA 0.65 a favor del PUT. Es la pendiente local de la superficie
+  atravesando un umbral que no la mira, así que no hay constante que declarar — se mide por lado y
+  por símbolo en cada corrida.
+* **Las calibraciones van sobre SPY y QQQ**, que es el universo de la §4. TSLA queda como caso de
+  control: tener un símbolo con la superficie invertida es lo que hizo visible este error.
 * **Solapamiento con RPF.** Los dos son venta de prima de riesgo definido, alerts-only, sobre
   GEX/ZGL/walls, con push por socket. La diferencia real es el eje de decisión. Conviene decidir si
   GOT es una tercera estrategia o la evolución del motor de RPF antes de duplicar la maquinaria.
