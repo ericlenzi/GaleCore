@@ -13,6 +13,12 @@
     * El DTE pedido casi nunca existe. La cadena tiene los vencimientos que tiene (0, 3, 4... 42, 56),
       asi que el script elige el MAS CERCANO al -Dte pedido y avisa en pantalla con cuanta diferencia.
       Pedir 43 y recibir 42 sin que nadie lo diga es la forma facil de comparar dos scopes distintos.
+    * El TIPO de vencimiento no se deduce de la fecha ni del DTE, y cambia lo que la captura significa.
+      La cadena trae Regular (el mensual, tercer viernes) y Weekly mezclados -- asi lo pide el JSON de
+      GEX -- y hasta agosto de 2026 ni el nombre del archivo ni el CSV lo decian: medio research de GOT
+      quedo construido sobre un weekly sin que nadie se enterara. Ver
+      research\got\hallazgos\2026-08-24-el-4-sep-es-un-weekly.md. Ahora sale en el encabezado, va como
+      columna del CSV, y si no es Regular el script avisa ANTES del barrido de quotes.
     * Las UNIDADES no son las mismas en los dos niveles. Los strikes vienen en millones de USD por 1%
       de movimiento; el netGex del vencimiento, en miles de millones. El encabezado del CSV lo dice
       (`_musd`) para que la columna no se lea como el numero del panel.
@@ -163,6 +169,19 @@ if ($Expiration) {
     Fail 'Falta el vencimiento: pasa -Dte <dias> o -Expiration <yyyy-MM-dd>.'
 }
 
+# El tipo lo informa Tastytrade por vencimiento (expiration-type) y el backend lo pasa tal cual en
+# byExpiry[].expirationType. Importa porque un weekly y un mensual al MISMO DTE no son el mismo
+# contrato: el mensual concentra mucho mas open interest, y de ahi difieren bid/ask y slippage --
+# tres de las cosas con las que se decide. El aviso va aca, antes del barrido de quotes, para que
+# quien pidio el vencimiento equivocado se entere antes de pagar los minutos.
+$expType = if ($target.expirationType) { [string] $target.expirationType } else { '' }
+if (-not $expType) {
+    Warn 'La cadena no informo el tipo de vencimiento; la columna expirationType del CSV va vacia.'
+} elseif ($expType -ne 'Regular') {
+    Warn ("El vencimiento {0} es {1}, NO Regular. El bucle de GOT (research\got, seccion 47.1) recorre solo los Regular -- ver research\got\hallazgos\2026-08-24-el-4-sep-es-un-weekly.md." -f `
+        $target.expiration, $expType.ToUpper())
+}
+
 # ── 4. Bid / ask por leg (opcional) ───────────────────────────────────────────
 # /App/Gex/Analysis NO trae precios: el GEX se calcula con gamma y OI, no con el book. El bid/ask
 # sale de /Data/Tastytrade/MarketData/Quote, un simbolo por request (~0.2s), asi que la cadena
@@ -232,6 +251,10 @@ $lines = New-Object System.Collections.Generic.List[string]
 $header = 'strike,callGEX_musd,putGEX_musd,netGEX_musd,callOI,putOI,callDelta,putDelta'
 if ($WithQuotes)        { $header += ',callBid,callAsk,putBid,putAsk' }
 if ($SpreadWidth -gt 0) { $header += ",pcsCredit_w$SpreadWidth,ccsCredit_w$SpreadWidth" }
+# Constante en todas las filas, a proposito: es un hecho del archivo, no del strike. Repetirlo es
+# lo que hace que viaje CON el dato -- el encabezado de pantalla se pierde y el nombre del archivo
+# no lo dice. Va al final para no mover las columnas que ya parsean los scripts de research\got.
+$header += ',expirationType'
 $lines.Add($header)
 foreach ($s in ($target.strikes | Sort-Object strike)) {
     $row = '{0},{1},{2},{3},{4},{5},{6},{7}' -f `
@@ -245,6 +268,7 @@ foreach ($s in ($target.strikes | Sort-Object strike)) {
     if ($SpreadWidth -gt 0) {
         $row += ',{0},{1}' -f (Num (SpreadCredit $s.strike 'PCS')), (Num (SpreadCredit $s.strike 'CCS'))
     }
+    $row += ",$expType"
     $lines.Add($row)
 }
 Set-Content -Path $csv -Value $lines -Encoding utf8
@@ -254,7 +278,8 @@ $sumCall = ($target.strikes | Measure-Object callGEX -Sum).Sum
 $sumPut  = ($target.strikes | Measure-Object putGEX  -Sum).Sum
 $sumNet  = ($target.strikes | Measure-Object netGEX  -Sum).Sum
 
-Step ("{0} - {1} - DTE {2}" -f $Symbol.ToUpper(), $target.expiration, $target.dte)
+Step ("{0} - {1} - DTE {2} - {3}" -f $Symbol.ToUpper(), $target.expiration, $target.dte,
+    $(if ($expType) { $expType.ToUpper() } else { 'TIPO DESCONOCIDO' }))
 Write-Host ("    Spot {0}   ATM IV {1}   Net GEX {2} B   Call Wall {3}   Put Wall {4}   ZGL {5}" -f `
     $resp.spotPrice, $target.atmIv, $target.netGex, $target.callWall, $target.putWall, $target.gammaZeroLevel)
 Write-Host ("    Strikes: {0} en la cadena   |   Suma call {1:N1} M | put {2:N1} M | net {3:N1} M" -f `

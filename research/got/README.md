@@ -66,7 +66,7 @@ flujo desde otro ángulo y quedaron con errata apuntando ahí.
 |---|---|---|---|
 | [2026-08-24](hallazgos/2026-08-24-credito-call-columna-equivocada.md) | Las tablas de CALL de las §24–28 (Delta Sweep TSLA) | Las §25 y §27 leyeron `pcsCredit_w5` en vez de `ccsCredit_w5`. El Hallazgo 3 se **invierte** | Aplicado — reescritas las §25, §27, §28, §39, §53, §54, §83, §98 y agregada la §43.1 |
 | [2026-08-24](hallazgos/2026-08-24-sesgo-por-lado-spy-qqq.md) | La predicción de la §43.4: el sesgo put-only, ¿es del modelo o de TSLA? | Es de TSLA, y **se invierte**: sobre SPY y QQQ el filtro sesga a CALL (1.8x / 1.6x) | Aplicado — reescritas la §43.4 y la §43.5 |
-| [2026-08-24](hallazgos/2026-08-24-el-4-sep-es-un-weekly.md) | Los vencimientos capturados contra el alcance del bucle recién definido en la §47.1 | El `2026-09-04` es un **weekly**: todo lo que el v5 concluyó sobre DTE corto está medido sobre un contrato que el flujo no recorre | Aplicado — anotado en la §47.1, en el pendiente de la §98 y en `data/README.md` |
+| [2026-08-24](hallazgos/2026-08-24-el-4-sep-es-un-weekly.md) | Los vencimientos capturados contra el alcance del bucle recién definido en la §47.1 | El `2026-09-04` es un **weekly**: todo lo que el v5 concluyó sobre DTE corto está medido sobre un contrato que el flujo no recorre | Aplicado — anotado en la §47.1, en el pendiente de la §98 y en `data/README.md`; y `gex-strikes.ps1` ahora registra el tipo (columna `expirationType` + aviso al capturar) |
 
 Los hallazgos no se editan cuando se aplican: la columna **Estado** de este índice es la que
 lleva la cuenta. El hallazgo queda como el registro de qué se encontró y cuándo.
@@ -100,6 +100,10 @@ por strike de `/App/Gex/Analysis` más bid/ask por leg y el crédito del vertica
 ```
 
 Requiere la API corriendo y la estrategia GEX prendida (si está en OFF responde 409).
+
+**Pedile siempre un vencimiento regular.** El bucle de la §47.1 recorre solo esos, y ni la fecha ni
+el DTE dicen de qué tipo es. Desde el 2026-08-24 el script lo resuelve solo: lo imprime en el
+encabezado, lo escribe en la columna `expirationType` del CSV, y avisa cuando no es `Regular`.
 
 **Ojo con las dos columnas de crédito.** El CSV trae `pcsCredit_w5` **y** `ccsCredit_w5`, en ese
 orden, y son de lados distintos de la cadena. La PCS viene primero, así que "la columna de crédito"

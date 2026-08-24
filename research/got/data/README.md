@@ -37,8 +37,16 @@ recapturar SPY y QQQ con book vivo.
 
 ```text
 strike, callGEX_musd, putGEX_musd, netGEX_musd, callOI, putOI, callDelta, putDelta,
-callBid, callAsk, putBid, putAsk, pcsCredit_w5, ccsCredit_w5
+callBid, callAsk, putBid, putAsk, pcsCredit_w5, ccsCredit_w5, expirationType
 ```
+
+**`expirationType` existe desde el 2026-08-24 y las capturas de esa fecha no lo tienen** — se
+agregó a `gex-strikes.ps1` justo después, a raíz del hallazgo del weekly. Es constante en todas
+las filas: es un hecho del archivo y no del strike, y se repite por fila para que viaje con el
+dato en vez de quedarse en el encabezado de pantalla. Los valores son los de Tastytrade
+(`Regular`, `Weekly`, `Quarterly`, `Mini`); el script además avisa al capturar cuando no es
+`Regular`. Para las capturas viejas, el tipo se deduce con
+[`scripts/vencimientos_regulares.py`](../scripts/vencimientos_regulares.py).
 
 **Las dos columnas de crédito son de lados distintos de la cadena**, y `pcsCredit_w5` viene
 primero — o sea que "la columna de crédito" es la del put por defecto. Ese fue exactamente
