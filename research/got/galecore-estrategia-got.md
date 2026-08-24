@@ -19,6 +19,13 @@
 > El gate económico real pasa a ser un **edge test** —probabilidad implícita contra empírica— que
 > todavía no está implementado. Ver **43.2** y **43.3**.
 >
+> **Flujo redibujado el 2026-08-24.** La sección **47** se rehízo entera para que el diagrama diga
+> lo que esas decisiones dejaron: seis niveles en vez de cuatro filtros en serie, la ventana de
+> delta como una sola variable con dos cotas, el edge test dibujado como el gate económico que
+> falta, y una marca por bloque para que se vea cuánto del flujo está definido. Las secciones
+> **48**, **84** y **88**, que dibujan el mismo flujo desde otro ángulo, quedaron con errata
+> apuntando ahí.
+>
 > Verificación completa, tablas recalculadas y consecuencias en
 > [el hallazgo del 2026-08-24](hallazgos/2026-08-24-credito-call-columna-equivocada.md).
 > Reproducible con [`scripts/recheck_econ.py`](scripts/recheck_econ.py).
@@ -1360,71 +1367,128 @@ Candidate Invalidated
 Candidate Re-entered
 Esto todavía necesita formalización.
 
-# 47. Flujo completo propuesto
+# 47. Flujo completo
 
+> **Redibujado el 2026-08-24.** El dibujo anterior tenía `Credit >= RequiredCredit` como el filtro
+> económico y `WD >= WD_min` como un filtro estructural independiente, uno después del otro. Las
+> dos cosas se cayeron el mismo día: `RequiredCredit` no es el gate económico sino un piso de
+> riesgo (43.2), y los dos filtros no son etapas independientes — dentro de un vencimiento son las
+> **dos cotas de la misma variable**, el delta (43.2). Tenía además `MaxRisk` como una etapa suelta,
+> cuando está acoplado a `Width` y con la calibración de hoy elimina el 100% de los candidatos (39).
+> Se redibuja para que el diagrama diga lo que la estrategia decidió — **incluido lo que le falta**.
 
-```text
-MARKET DATA
-    ↓
-MARKET DIAGNOSTIC
-    ↓
-FAVORABLE / SELECTIVE / NO OPERATE
-    ↓
-MARKET STRUCTURE
-    ↓
-SPOT
-ZGL
-CALL WALL
-PUT WALL
-GEX
-EXPECTED MOVE
-    ↓
-SELL ZONES
-    ↓
-PUT ZONE / CALL ZONE
-    ↓
-GENERATE CANDIDATES
-    ↓
-DELTA WINDOW
-    ↓
-STRUCTURAL FILTER
-    ↓
-
-```
-WD >= WD_MIN
+Marcas del diagrama: `[OK]` definido · `[~]` provisional o sin calibrar · `[ ]` no implementado ·
+`[X]` reprobado con la calibración actual.
 
 ```text
-    ↓
-RISK FILTER
-    ↓
+                         MARKET DATA
+              cadena + GEX + spot + IV                    [~] freshness sin definir (68)
+                              |
+                              v
+   NIVEL 1 - MARKET GATE                        ¿el entorno permite buscar operaciones?
+        MARKET DIAGNOSTIC                                 [~] z-score provisional (83)
+        FAVORABLE  /  SELECTIVE  /  NO OPERATE            [ ] SELECTIVE sin cerrar (64)
+                              |                           [ ] NO OPERATE sin cerrar (65)
+            NO OPERATE -------+ corta acá
+                              |
+                              v
+   NIVEL 2 - ESTRUCTURA                         ¿dónde estaría permitido vender?
+        SPOT   ZGL   CALL WALL   PUT WALL   GEX   EXPECTED MOVE
+                              |                           [OK] ZGL, walls, EM
+                              v                           [~] Sell Zones conceptual (61)
+        SELL ZONES:   PUT ZONE   |   CALL ZONE            [ ] conflicto ZGL vs wall (62)
+        (muro - spot) / EM  <-- lo único que la estructura
+                                aporta y el delta no replica
+                              |
+               +--------------+--------------+
+               |                             |
+               v                             v
+             PUT                           CALL           los dos lados SIEMPRE (43.5)
+               |                             |            se miden por separado,
+               +--------------+--------------+            nunca agregados
+                              |
+                              v
+   NIVEL 3 - LA VENTANA DE DELTA                una sola variable, dos cotas (43.2)
 
+        delta  0.05 ------------------------------------------------> 0.35
+                      [ piso ]                    [ techo ]
+                      Credit >= RequiredCredit    WD >= WD_min
+                      viabilidad del negocio:     estructura: distancia al muro
+                      comisiones, slippage,       en unidades de Expected Move
+                      capital inmovilizado
+                      [OK] simétrico entre        [~] WD_min = 0.20 provisional
+                           lados, a propósito         (es el corte que decide, 98)
+                      [~] sin calibrar (43.3)
+
+        banda vacía -> no hay candidato en ese (vencimiento, lado). No es un error.
+                              |
+                              v
+   NIVEL 4 - CALIDAD DE LA OPCIÓN               ¿el candidato es ejecutable?
+        OI   bid/ask   liquidez   slippage                [ ] sin definir (40, 41, 69)
+                              |
+                              v
+   NIVEL 5 - RIESGO Y ANCHO                     Width y MaxRisk se calibran JUNTOS
+        MaxLoss = (Width - Credit) x 100                  [X] MaxRisk 400 con width 5
+        MaxLoss <= MaxRisk                                    elimina el 100% (39)
+                              |                           [ ] o pasar a % del capital
+                              v
+   NIVEL 6 - EDGE TEST                          ¿la operación tiene ventaja?
+                                                          <-- EL GATE ECONÓMICO
+        P(pérdida) implícita en el crédito  =  Credit / Width
+                            vs
+        P(pérdida) empírica de ese (lado, delta, DTE)
+        edge = implícita - empírica  >  0                 [ ] NO IMPLEMENTADO (43.3)
+                              |                           [ ] falta la tabla empírica
+                              v
+        RANK CANDIDATES                                   [ ] sin criterio cerrado (49-51)
+                              |
+                              v
+        BEST CANDIDATE
+                              |
+                              v
+        ALERT    new | changed | invalidated | re-entered [ ] sin formalizar (46)
+        alerts-only: la alerta no implica ejecución
+                              |
+                              v
+        REGISTRO de frecuencia por lado y por símbolo (43.5)
 ```
-MaxLoss <= MaxRisk
 
-```text
-    ↓
-OPTION QUALITY
-    ↓
-POP / LIQUIDITY / BID-ASK
-    ↓
-ECONOMIC FILTER
-    ↓
+**Tres cosas que este dibujo dice y el anterior no.**
 
-```
-Credit >= RequiredCredit
+**1. Los niveles 3 y 6 no son el mismo tipo de cosa, aunque los dos hablen de plata.** El nivel 3
+es un piso sobre el delta: pide crédito suficiente para que la operación tenga sentido como
+negocio, y por eso es simétrico entre lados. El nivel 6 no es una tercera cota sobre el delta —
+es la única etapa del flujo que **mira afuera de la cadena de hoy**. Todo lo que va del nivel 2 al
+5 se deriva de la cadena que se acaba de bajar; el edge test necesita un dato que la cadena no
+tiene, que es qué pasó históricamente con ese lado, ese delta y ese DTE. De ahí que sea el último
+gate y no un ajuste de los anteriores, y de ahí que sea el único que puede decir si la operación
+gana plata.
 
-```text
-    ↓
-CUSHION
-    ↓
-RANK CANDIDATES
-    ↓
-BEST CANDIDATE
-    ↓
-ALERT
+**2. La ventana de delta no emerge: se construye.** Dibujar `WD >= WD_min` y
+`Credit >= RequiredCredit` como dos filtros en serie hacía parecer que la banda de delta 0.10–0.20
+de la sección 28 era un descubrimiento. No lo es — es la intersección de un techo y un piso
+puestos sobre el mismo eje. Dibujarlos sobre una sola recta es lo que impide volver a leer esa
+banda como un resultado, y es lo que anticipa que barrer `WD_min` y `Delta_max` por separado va a
+dar una superficie degenerada.
 
-```
+**3. El flujo se recorre por `(símbolo, vencimiento, lado)` y las salidas no se suman.** La
+bifurcación PUT/CALL está arriba de todo a propósito: los dos lados se evalúan y se registran
+siempre, y el conteo de alertas se reporta desagregado. Agregado, el sesgo de un símbolo cancela
+el del otro y desaparece justo el dato que hay que mirar (43.5).
+
+**Lo que el diagrama deja a la vista es cuánto falta.** De los seis niveles hay uno definido
+(el 2), dos provisionales (1 y 3), uno vacío (4), uno reprobado con su calibración actual (5), y
+el que decide si esto gana plata sin implementar (6). El flujo no está incompleto en los bordes:
+le falta el centro.
+
 # 48. Arquitectura de decisión recomendada
+
+> **Errata del 2026-08-24.** Estos cuatro niveles quedaron superados por el flujo redibujado de la
+> sección 47, que tiene seis. Dos cambios de fondo: el **Nivel 4 — Economic Gate** de acá no es un
+> gate económico (`RequiredCredit` es un piso de riesgo, 43.2) y el gate económico real —el edge
+> test— no figura en esta lista; y los niveles 2 y 4 **no son independientes**: dentro de un
+> vencimiento son el techo y el piso de la misma variable, el delta (43.2). Se deja el texto como
+> registro de la arquitectura que se pensó primero.
 
 La lógica debe dividirse en cuatro niveles.
 
@@ -2273,6 +2337,13 @@ Los parámetros se calibran en un período y se prueban en otro.
 
 # 84. Arquitectura recomendada para cerrar V5
 
+> **Errata del 2026-08-24.** La cadena de módulos se sostiene como descomposición, pero dos de sus
+> piezas cambiaron de contenido con el flujo redibujado de la sección 47: `StructuralValidator` y
+> `EconomicValidator` no son dos filtros en serie sino las dos cotas de la ventana de delta (43.2),
+> y el gate económico de verdad —el edge test— **no tiene módulo en esta lista**. Necesita uno
+> propio, con la tabla de probabilidad empírica por (lado, delta, DTE) como dependencia; es el
+> análogo del `pop_calibration.json` de RPF.
+
 La versión final debería tener estos módulos:
 
 MarketDataProvider
@@ -2339,6 +2410,11 @@ Spread
 Width
 MaxRisk
 # 88. Economic Validator
+
+> **Errata del 2026-08-24.** Lo que describe esta sección es el **piso de viabilidad**, no el gate
+> económico: `Credit >= RequiredCredit` resultó ser un piso de riesgo y no un test de ventaja
+> (43.2). El validador económico de verdad compara probabilidad implícita contra empírica y
+> todavía no está especificado (43.3, nivel 6 de la sección 47).
 
 Debe calcular:
 

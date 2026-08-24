@@ -44,6 +44,12 @@ canónica**: el alcance de lo que GOT puede emitir depende de eso.
 Estado al 2026-08-24: **v5, diseño avanzado**. Lo que falta cerrar está en la sección 83 del
 documento de definición, y en la 98 el corte entre lo definido, lo validado y lo pendiente.
 
+El **flujo del proceso** —uno de los tres ejes— se redibujó el 2026-08-24 en la sección 47: seis
+niveles en vez de cuatro filtros en serie, la ventana de delta como una sola variable con dos cotas
+y el edge test dibujado como el gate económico que falta, con una marca por bloque que dice si está
+definido, provisional, sin implementar o reprobado. Las secciones 48, 84 y 88 dibujaban el mismo
+flujo desde otro ángulo y quedaron con errata apuntando ahí.
+
 ## Qué hay acá
 
 | Ruta | Qué es |
