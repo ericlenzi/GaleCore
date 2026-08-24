@@ -9,6 +9,38 @@ la compensación con un crédito requerido dinámico en vez de un mínimo fijo.
 `docs/`. Cuando se implemente, [`galecore-estrategia-got.md`](galecore-estrategia-got.md) se muda
 tal cual a `docs/got/` y se sigue el checklist de "Estrategias — convención" del `CLAUDE.md`.
 
+## Alcance del trabajo — modo estudio (2026-08-24)
+
+**GOT está en modo de estudio y el esfuerzo va solo a tres ejes: definiciones, flujo del proceso
+y validaciones.** La idea futura es aprovechar la información de GEX —más la que falte— para
+descubrir trades o informarlos dentro de GaleCore, pero **eso todavía no está decidido**.
+
+Consecuencia práctica: **el backtest no está en el camino crítico**, y por lo tanto tampoco lo
+está el dataset histórico que la sección 74 pide. Lo que sí sirve ahora es la **validación
+transversal** sobre capturas puntuales, que es barata y ya tiene maquinaria. Sin un solo dato
+histórico, el 2026-08-24 se validó que `MaxRisk` con width 5 elimina el 100% de los candidatos,
+que `WD` y `Delta` son cotas de la misma variable, que el sesgo por lado depende del símbolo, y
+que `RequiredCredit` no medía lo que decía medir.
+
+Las cuatro preguntas que una captura transversal **sí** puede contestar: si un filtro es vacuo o
+binding, si dos filtros son redundantes, si un parámetro se comporta distinto por símbolo/lado/DTE,
+y con qué frecuencia pasa algo.
+
+### La pregunta de plataforma, abierta
+
+GaleCore ya tiene **GEX como estrategia informativa**, y su definición dice explícitamente que *no
+propone estructura, no calcula strikes ni sizing, no emite señales*. GOT produciendo candidatos
+concretos cruza esa línea, así que puede ser tres cosas distintas — y **cuál sea cambia las
+definiciones**:
+
+1. **Una extensión de GEX**, que dejaría de ser puramente informativa.
+2. **Una tercera estrategia**, con su prefijo, JSON, pestaña y switch.
+3. **Un motor que alimenta a RPF**, que ya es venta de prima de riesgo definido, alerts-only, sobre
+   los mismos GEX/ZGL/walls y con push por socket.
+
+No hace falta decidirlo para seguir trabajando, pero sí **antes de escribir la definición
+canónica**: el alcance de lo que GOT puede emitir depende de eso.
+
 Estado al 2026-08-24: **v5, diseño avanzado**. Lo que falta cerrar está en la sección 83 del
 documento de definición, y en la 98 el corte entre lo definido, lo validado y lo pendiente.
 
