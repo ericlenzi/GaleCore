@@ -206,7 +206,7 @@
         "label": "Score de cola < 2 (sin alerta de crash)",
         "components": {
           "vvix": { "warn": 110, "block": 130, "source": "CBOE VVIX" },
-          "skew25_roc5d": { "warn": 0.05, "block": 0.08, "source": "IV_put25d / IV_atm, RoC 5d, cadenas SPY DTE 25-35" }
+          "skew25_roc5d": { "warn": 0.05, "block": 0.08, "source": "IV_put25d / IV_atm, RoC 5d. La serie diaria (skew25_history.json) se mide sobre el vencimiento mas cercano a 30 DTE, Regular o Weekly, para que sea comparable consigo misma; el RoC se anula si el DTE de la lectura viva y el del punto historico difieren en mas de 7 dias" }
         },
         "scoring": "none=0 / warn=1 / block=2 por componente; suma >= 2 -> engine_out",
         "streak_smoothing_days": 2,

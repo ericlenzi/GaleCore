@@ -93,4 +93,47 @@ public class GammaExposureExpirationTests
         Assert.Empty(GammaExposureHandler.NormalizeExpirations(null!, Ahora));
         Assert.Empty(GammaExposureHandler.NormalizeExpirations(Array.Empty<Expiration>(), Ahora));
     }
+
+    // ── Selección del vencimiento en modo de uno solo ────────────────────────────────────
+
+    private static List<Expiration> Cadena() => new()
+    {
+        E("2026-08-28", 3), E("2026-09-04", 10), E("2026-09-18", 24, "Regular"),
+        E("2026-10-02", 38), E("2026-10-16", 52, "Regular"),
+    };
+
+    /// <summary>
+    /// Sin objetivo se mantiene el comportamiento histórico —el de MAYOR DTE— porque es el que
+    /// produjo todos los números que el operador viene mirando.
+    /// </summary>
+    [Fact]
+    public void SinTargetDte_EligeElDeMayorDte()
+    {
+        var elegida = GammaExposureHandler.SelectSingleExpiration(Cadena(), targetDte: 0);
+        Assert.Equal("2026-10-16", elegida.ExpirationDate);
+    }
+
+    /// <summary>
+    /// Con objetivo, el más cercano. Es lo que hace que la serie de skew25 sea comparable consigo
+    /// misma: "el mayor dentro de 60" saltaba de vencimiento una vez por mes, y con él saltaba el
+    /// plazo medido — de DTE 35 a DTE 59 el 2026-08-18, un escalón de +0.038 en el skew de SPY que
+    /// no era mercado.
+    /// </summary>
+    [Fact]
+    public void ConTargetDte_EligeElMasCercanoAlObjetivo()
+    {
+        var elegida = GammaExposureHandler.SelectSingleExpiration(Cadena(), targetDte: 30);
+        Assert.Equal("2026-09-18", elegida.ExpirationDate);   // 24 está a 6; 38 está a 8
+    }
+
+    /// <summary>A igual distancia gana el más corto, para que la regla no dependa del orden.</summary>
+    [Fact]
+    public void AIgualDistancia_GanaElMasCorto()
+    {
+        var empate = new List<Expiration> { E("2026-10-02", 38), E("2026-08-28", 22) };
+
+        var elegida = GammaExposureHandler.SelectSingleExpiration(empate, targetDte: 30);
+
+        Assert.Equal("2026-08-28", elegida.ExpirationDate);
+    }
 }

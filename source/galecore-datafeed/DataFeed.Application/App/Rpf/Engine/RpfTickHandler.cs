@@ -169,7 +169,11 @@ namespace DataFeed.Application.App.Rpf.Engine
             // condiciona la corrida de los gates.
             double currentSkew25 = PutSkewCalculator.Compute(gex).PutSkew25d ?? 0;
             double? skewRoc = !string.IsNullOrWhiteSpace(request.SkewHistoryJson) && currentSkew25 > 0
-                ? SkewHistory.Parse(request.SkewHistoryJson!).Roc5d(symbol, currentSkew25)
+                // El DTE va como tercer argumento a propósito: la lectura viva se mide sobre la
+                // cadena que RPF eligió y la historia sobre la que eligió SkewSnapshotService, que
+                // no tienen por qué ser el mismo plazo. Sin pasarlo, el RoC comparaba dos skews de
+                // vencimientos distintos sin que nada lo dijera.
+                ? SkewHistory.Parse(request.SkewHistoryJson!).Roc5d(symbol, currentSkew25, gex.DTE)
                 : null;
             result.SignalGates = EvaluateSignalGates(rules, symbol, iv, strikeEngine, microstructure, request.PopCalibrationJson, vvix, skewRoc);
 

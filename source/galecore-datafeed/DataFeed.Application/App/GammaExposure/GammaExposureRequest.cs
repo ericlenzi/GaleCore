@@ -42,6 +42,22 @@ namespace DataFeed.Application.App.GammaExposure
         public bool IncludeZeroDte { get; set; } = false;
 
         /// <summary>
+        /// DTE objetivo para el modo de UN vencimiento. 0 (default) = comportamiento histórico:
+        /// se elige el de MAYOR DTE dentro de <see cref="MaxDTE"/>. Con un valor &gt; 0 se elige el
+        /// más cercano a ese DTE.
+        ///
+        /// Existe porque "el mayor dentro de 60" produce una serie que NO es comparable consigo
+        /// misma: como los Regular son mensuales, el elegido salta de vencimiento una vez por mes
+        /// y con él salta el DTE medido. En skew25_history.json eso se vio como un escalón de
+        /// +0.038 en SPY y +0.034 en QQQ el 2026-08-18 —los dos símbolos el mismo día, que es la
+        /// firma de un cambio de método y no de mercado—, cuando el vencimiento medido pasó de
+        /// 2026-09-18 (DTE 35) a 2026-10-16 (DTE 59). El skew es función del DTE, así que el
+        /// escalón era puro cambio de plazo, y entraba al RoC 5d del gate tail_score como si
+        /// fuera precio de cola.
+        /// </summary>
+        public int TargetDte { get; set; } = 0;
+
+        /// <summary>
         /// Tamaño de lote para pedir Greeks a DXLink. 0 (default) = un solo pedido con todos los símbolos.
         /// Con la cadena completa son miles de símbolos y conviene trocearlos.
         /// </summary>
