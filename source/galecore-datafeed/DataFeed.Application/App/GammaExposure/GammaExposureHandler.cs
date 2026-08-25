@@ -84,6 +84,51 @@ namespace DataFeed.Application.App.GammaExposure
         /// 0): NetGEX 0 no es &gt; 0, así que devuelve null en vez de elegir un strike arbitrario
         /// entre puros ceros.
         /// </remarks>
+        /// <summary>
+        /// Recalcula el DTE de cada expiración contra la fecha de hoy en ET y descarta las vencidas.
+        ///
+        /// El `days-to-expiration` que manda Tastytrade NO es confiable. El 2026-08-25 la cadena de
+        /// SPY y la de TSLA traían `2026-08-24` —un weekly de lunes ya vencido— con DTE 0, y toda
+        /// su serie corrida un día; la de QQQ, pedida en el mismo minuto, venía bien. O sea que el
+        /// campo puede estar mal para un símbolo y bien para otro a la vez, y por eso no alcanza con
+        /// confiar en que "se actualiza en algún momento del día".
+        ///
+        /// Lo que costaba tomarlo tal cual:
+        /// * un contrato vencido entraba al barrido como si fuera el 0DTE, y su gamma muerta sumaba
+        ///   al GEX del agregado — el 37% del neto de SPY ese día;
+        /// * <see cref="CascadeUtils.YearsToExpiry"/> le daba tiempo real, porque para DTE 0 mide las
+        ///   horas hasta las 16:00 ET de HOY: el expected move de esa serie salió 20.90 contra 0.94
+        ///   del 0DTE verdadero, o sea una IV implícita de ~114%;
+        /// * con todos los DTE corridos, el expected move de cada vencimiento se calculaba con un día
+        ///   de más, y el corte de MaxDTE dejaba entrar un contrato a 61 días como si fuera de 60.
+        ///
+        /// El DTE es una cuenta de calendario contra la fecha del vencimiento: se hace acá una vez y
+        /// todo lo de abajo queda consistente. La fecha viene como `yyyy-MM-dd`; una que no parsea se
+        /// descarta, porque sin fecha no hay forma de saber si el contrato existe todavía.
+        /// </summary>
+        public static List<Expiration> NormalizeExpirations(
+            IEnumerable<Expiration> expirations, DateTimeOffset? nowUtc = null)
+        {
+            var today = CascadeUtils.TodayEt(nowUtc);
+            var vivas = new List<Expiration>();
+
+            foreach (var e in expirations ?? Enumerable.Empty<Expiration>())
+            {
+                if (e == null) continue;
+                if (!DateTime.TryParseExact(e.ExpirationDate, "yyyy-MM-dd",
+                        CultureInfo.InvariantCulture, DateTimeStyles.None, out var fecha))
+                    continue;
+
+                int dte = (int)(fecha.Date - today).TotalDays;
+                if (dte < 0) continue;
+
+                e.DaysToExpiration = dte;
+                vivas.Add(e);
+            }
+
+            return vivas;
+        }
+
         public static double? SelectCallWall(IEnumerable<GammaExposureStrike> strikes, double spot) =>
             strikes.Where(s => s.Strike > spot && s.CallGEX > 0 && s.NetGEX > 0)
                    .OrderByDescending(s => s.CallGEX)
@@ -275,9 +320,14 @@ namespace DataFeed.Application.App.GammaExposure
                 if (spot <= 0)
                     throw new Exception($"No se pudo obtener el precio spot de {request.Symbol}");
 
-                var allExpirations = optionChains?.data?.items?.SelectMany(i => i.expirations).ToList();
-                if (allExpirations == null || !allExpirations.Any())
+                var rawExpirations = optionChains?.data?.items?.SelectMany(i => i.expirations).ToList();
+                if (rawExpirations == null || !rawExpirations.Any())
                     throw new Exception($"No se encontraron cadenas de opciones para {request.Symbol}");
+
+                // El DTE se recalcula acá y NO se toma del proveedor. Ver NormalizeExpirations.
+                var allExpirations = NormalizeExpirations(rawExpirations);
+                if (!allExpirations.Any())
+                    throw new Exception($"Todas las expiraciones de {request.Symbol} vencieron o traen fecha ilegible");
 
                 // Filtrar expiraciones. Por defecto (modo histórico): solo "Regular", DTE > 0.
                 // La estrategia GEX pasa ExpirationTypes = [Regular, Weekly] e IncludeZeroDte = true.
