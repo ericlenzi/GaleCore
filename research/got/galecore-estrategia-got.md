@@ -1476,23 +1476,27 @@ Marcas del diagrama: `[OK]` definido · `[~]` provisional o sin calibrar · `[ ]
             NO OPERATE -------+ corta acá
                               |
                               v
-   NIVEL 2 - ESTRUCTURA                         ¿dónde estaría permitido vender?
-        SPOT   ZGL   CALL WALL   PUT WALL   GEX           [OK] ZGL, walls
-        del agregado de la cadena:                        [~] Sell Zones conceptual (61)
-        UNA VEZ POR SÍMBOLO                               [ ] conflicto ZGL vs wall (62)
-                              |
-                              v
-        SELL ZONES:   PUT ZONE   |   CALL ZONE
-                              |
-                              v
    POR CADA VENCIMIENTO REGULAR CON DTE <= 60   alcance inicial: sin weeklies,
-        EXPECTED MOVE del vencimiento           sin 0DTE. Son 2 por símbolo el
-                              |                 90% de los días (1 a 3)
-                              v
-        (muro - spot) / EM  <-- lo único que la estructura aporta
-                                y el delta no replica. El muro es
-                                del agregado; el EM, del vencimiento
+        el bucle abre ACÁ, antes de la          sin 0DTE. Son 2 por símbolo el
+        estructura (61.1)                       90% de los días (1 a 3)
                               |
+                              v
+   NIVEL 2 - ESTRUCTURA DEL VENCIMIENTO         ¿dónde estaría permitido vender?
+        netGEX   ZGL   CALL WALL   PUT WALL   EM          [OK] régimen = signo(netGEX)
+        TODO del vencimiento, NADA del agregado:               del vencimiento (61.1)
+        los muros del agregado caen pegados al            [~] muro sin umbral de
+        spot -- son el pin de hoy, no la pared                 dominancia (61.4, 66)
+        del mes (61.1)                                    [~] ZGL: banda muerta sin
+                              |                               calibrar (62.1)
+                              v
+        SELL ZONE del lado = pasar el muro  Y  d_min x EM
+        ata la más restrictiva, no son etapas             [~] buffer y d_min sin
+        en serie (61.3)                                       calibrar (61.3)
+                              |                           [ ] la zona podría ser
+                              |                               redundante con el delta,
+                              |                               y del lado put HOY lo es
+                              |                               (61.6) <-- puede matar todo
+                              v
                +--------------+--------------+
                |                             |
                v                             v
@@ -1594,12 +1598,20 @@ por lado y por símbolo se mida sobre una muestra chica. Con ocho celdas, un cer
 nada, y una corrida por día tarda meses en acumular estadística. Es un argumento fuerte a favor de
 la captura periódica antes que de la captura puntual.
 
-**La estructura viene de una cadena más ancha que los candidatos, y eso es deliberado.** Los muros,
-el ZGL y el GEX salen del agregado de `/App/Gex/Analysis`, que dentro de sus 60 DTE **incluye
-weeklies y 0DTE**. O sea que el 0DTE sí entra al flujo —pesa en dónde están los muros— pero no
-genera candidatos. No es una inconsistencia: el muro es una propiedad del mercado y no del
-vencimiento que uno vende. Pero es una asimetría que hay que tener declarada, porque significa que
-la estructura sobre la que GOT decide puede moverse por gamma que GOT nunca va a operar.
+> **Revertido el 2026-08-25.** Este párrafo decía que la estructura salía del **agregado** de
+> `/App/Gex/Analysis` —muros, ZGL y GEX— y que eso era deliberado: el muro como propiedad del
+> mercado y no del vencimiento. La medición del día siguiente lo tumbó. **Los muros del agregado
+> están pegados al spot**: en SPY, con spot 764.59, el call wall del agregado cae en 766.0 y el
+> put wall en 764.0, porque el 0DTE aporta −462.8 B de los −1253.6 B totales y concentra su open
+> interest en el dinero. El agregado no describe las paredes del mes, describe el pin de hoy.
+>
+> **La estructura sale del vencimiento**, entonces, igual que el Expected Move. Detalle y decisión
+> en la 61.1; qué queda haciendo el ZGL, en la 62.
+
+Lo que sí queda en pie de la versión anterior es la asimetría de alcance: el 0DTE y los weeklies
+**siguen entrando** al `netGEX` que la pestaña GEX muestra y al agregado que el endpoint devuelve,
+aunque no generen candidatos ni aporten estructura. Conviene tenerlo declarado para no volver a
+leer un número del agregado como si describiera al vencimiento que se opera.
 
 **El Expected Move es lo que obliga a que el bucle sea por vencimiento.** `WD = (muro − spot)/EM`
 necesita un EM, y el EM es `spot × IV_atm × sqrt(t)`: **no está definido para el agregado**, que no
@@ -2063,44 +2075,203 @@ si EM debe ser bidireccional;
 
 si debe usarse EM implícito puro o una medida ajustada.
 
-# 61. Falta cerrar la definición de Sell Zones
+# 61. Sell Zones
 
-La definición actual:
+> **Reescrita el 2026-08-25.** Antes decía que `PUT < PutWall` / `CALL > CallWall` era
+> "demasiado simple para ser la versión definitiva" y listaba seis preguntas abiertas. Las
+> mediciones de ese día contestaron tres y reformularon las otras.
 
-PUT  < PutWall
-CALL > CallWall
-es demasiado simple para ser la versión definitiva.
+## 61.1 Las dos decisiones de alcance
 
-Hay que determinar:
+**La estructura sale del VENCIMIENTO, no del agregado.** Es un cambio respecto de lo que la 47.1
+había fijado el día anterior, y lo fuerza la medición: los muros del agregado están pegados al
+spot.
 
-cuánto debe separarse de wall;
+```text
+SPY   spot 764.59   callWall 766.0   putWall 764.0   (15 vencimientos agregados)
+QQQ   spot 709.20   callWall 710.0   putWall 700.0
+TSLA  spot 350.78   callWall 365.0   putWall 340.0
+```
 
-relación con ZGL;
+En SPY el muro de call queda **$1.41 arriba** del spot y el de put **$0.59 abajo**: una zona
+construida sobre eso no separa nada. La causa está en el desglose — el 0DTE aporta **−462.8 B de
+los −1253.6 B** del agregado y concentra su open interest en el dinero. **El agregado no describe
+dónde están las paredes del mes; describe dónde está el pin de hoy.**
 
-relación con Expected Move;
+Sigue valiendo lo que la 47.1 dice sobre el `Expected Move` —no está definido para el agregado,
+que no tiene un `t`—, y ahora hay una segunda razón, más fuerte, para bajar todo al vencimiento:
+el agregado tampoco sirve para los muros.
 
-si la zona puede cruzar ZGL;
+**El régimen lo decide el SIGNO DEL `netGEX` del vencimiento.** Cuando esa lectura y la de
+`spot` contra `ZGL` se contradicen, gana el signo. Ver la 62 para qué queda haciendo el ZGL.
 
-cómo tratar wall muy cercana al Spot;
+## 61.2 La zona estructural tiene un solo borde
 
-cómo tratar wall muy lejana.
+Es una consecuencia de separar estructura de economía, y conviene tenerla explícita: **la
+estructura fija el borde INTERNO de la zona** —lo más cerca del spot que se puede vender— y no
+tiene nada que decir sobre el externo. Vender más lejos siempre es estructuralmente mejor y
+económicamente peor; el borde externo lo pone el crédito, que es el nivel 3 del flujo.
 
-# 62. Falta definir conflictos entre ZGL y Wall
+Buscar un "borde externo estructural" es buscar algo que no existe.
 
-Ejemplo:
+## 61.3 La definición
 
-Spot
-ZGL
-Put Wall
-pueden estar ordenados de formas diferentes.
+Para un `(vencimiento, lado)`, con `EM` el Expected Move de ese vencimiento:
 
-GOT necesita reglas explícitas para casos como:
+```text
+ZONA PUT   =  { K  :  K <= PutWall - buffer     Y   (spot - K) >= d_min x EM }
+ZONA CALL  =  { K  :  K >= CallWall + buffer    Y   (K - spot) >= d_min x EM }
+```
 
-PutWall > ZGL
-o:
+Dos condiciones sobre el mismo eje, y **ata la más restrictiva de las dos**. No son etapas en
+serie: es el mismo error que la 43.2 encontró entre `WD` y el delta, y no hay que repetirlo.
 
-CallWall < ZGL
-La lógica debe ser estructural, no depender de casos particulares.
+* `buffer` — cuánto hay que pasarse del muro. Sin calibrar.
+* `d_min` — separación mínima en unidades de Expected Move. Es lo que hoy hace `WD_min = 0.20`,
+  aplicado al strike en vez de al muro.
+* **El régimen modula `d_min`, no el muro.** Con `netGEX < 0` los dealers amplifican y el muro es
+  peor defensa, así que la separación exigida sube. Con `netGEX > 0` el muro es el argumento y
+  puede bajar. Cuánto, sin calibrar.
+
+## 61.4 El muro tiene que ser un objeto antes de ser una referencia
+
+`SelectCallWall` es un **argmax sobre un solo strike**: el de mayor `CallGEX` por encima del spot
+con `NetGEX > 0`. Nada en esa definición pide que sea una concentración. Medido sobre las capturas
+del 25:
+
+| | muro | delta | dist/EM | concentración | dominancia |
+|---|---|---|---|---|---|
+| SPY 09-18 CALL | 790 | 0.136 | 0.96 | 8.9% | 1.4x |
+| SPY 09-18 PUT | 760 | 0.413 | 0.20 | 9.3% | 1.4x |
+| SPY 10-16 CALL | 790 | 0.261 | 0.63 | 7.0% | **1.0x** |
+| QQQ 09-18 CALL | 750 | 0.122 | 1.11 | 7.1% | **1.0x** |
+| QQQ 09-18 PUT | 700 | 0.374 | 0.30 | 19.4% | 2.3x |
+| QQQ 10-16 PUT | 700 | 0.405 | 0.20 | 12.1% | 1.2x |
+| TSLA 09-18 PUT | 340 | 0.359 | 0.30 | 15.4% | 1.5x |
+| TSLA 10-16 CALL | 400 | 0.246 | 0.88 | 11.6% | 1.9x |
+
+**Concentración** es qué fracción del GEX de ese lado está en el strike del muro: nunca pasa del
+19%. **Dominancia** es contra el segundo candidato: va de 1.0x a 2.3x, y con 1.0x el muro y el que
+le sigue están empatados — en QQQ 09-18, empatados y **a $20 de distancia**.
+
+Eso predice que el muro salta, y se verificó sin buscarlo: el call wall de QQQ 09-18 estaba en
+**750 a las 10:12 ET y en 710 a las 11:00 ET** del mismo día.
+
+**Por eso el muro necesita un umbral de dominancia, y si no lo alcanza la respuesta correcta es
+"no hay muro"** — no un argmax inestable. Hoy el sistema siempre devuelve uno. Con "no hay muro"
+la zona queda definida solo por `d_min x EM`, que es una degradación limpia y no un número
+inventado. Es lo que la 66 pide como "calidad de Gamma Wall".
+
+## 61.5 Lo que las mediciones ya contestaron
+
+De las seis preguntas de la versión anterior:
+
+* **"cuánto debe separarse de wall"** — sigue abierta, es el `buffer`.
+* **"relación con Expected Move"** — es `d_min`, y es la condición que hace el trabajo cuando no
+  hay muro confiable.
+* **"relación con ZGL" y "si la zona puede cruzar ZGL"** — ver la 62. La respuesta corta es que
+  hoy la cruzan las seis capturas, así que no puede ser una condición de rechazo.
+* **"cómo tratar wall muy cercana al Spot"** — ya no es un caso especial: si el muro está más
+  cerca que `d_min x EM`, ata `d_min` y el muro no aporta. Es lo que pasa en los put walls, que
+  caen a 0.20–0.38 EM.
+* **"cómo tratar wall muy lejana"** — tampoco: ata el muro, y `d_min` no aporta.
+
+## 61.6 La validación que puede matar todo
+
+**Si la zona resulta ser una función monótona del delta, GOT no agrega nada sobre "vendé delta
+0.15".** Es el mismo riesgo que la 43.2 encontró entre `WD` y el delta, y hay que testearlo antes
+de calibrar ningún parámetro.
+
+La evidencia preliminar es incómoda y hay que decirla: **los put walls caen a delta 0.21–0.41**,
+o sea *más cerca del dinero* que donde la ventana vende. "Vender pasando el put wall" es una
+condición que el corte de delta ya cumple con holgura — **del lado put, el muro no está
+restringiendo nada**. Del lado call es distinto: en el vencimiento corto caen a delta 0.12–0.14,
+más lejos que 0.15, y ahí sí ata.
+
+O sea que hoy la estructura aporta información **en un solo lado**, y hay que medir si eso se
+sostiene antes de construir arriba.
+
+# 62. ZGL y muro: qué hace cada uno
+
+> **Reescrita el 2026-08-25.** Antes pedía "reglas explícitas" para los distintos órdenes
+> posibles de `spot`, `ZGL` y `PutWall`, tratándolos como casos a enumerar. La medición mostró
+> que no son casos: uno de esos órdenes es el estado normal, y el ZGL no estaba haciendo el
+> trabajo que se le atribuía.
+
+## 62.1 El ZGL deja de ser el árbitro del régimen
+
+Con la decisión de la 61.1 —el régimen lo da el signo del `netGEX` del vencimiento— el ZGL deja
+de ser un interruptor y pasa a ser **un nivel**: un precio de la cadena, como los muros.
+
+El motivo es que como interruptor no era confiable. Sobre el agregado, las dos lecturas se
+contradecían en 2 de 3 símbolos. Bajadas al vencimiento, las contradicciones que quedan son
+todas empates técnicos:
+
+| | netGEX | ZGL | spot − ZGL | por signo | por ZGL | |
+|---|---|---|---|---|---|---|
+| SPY 09-18 | −164.8 | 765.94 | −1.35 | negativa | negativa | coinciden |
+| SPY 10-16 | −56.5 | 764.40 | **+0.19** | negativa | positiva | a 0.00 EM |
+| QQQ 09-18 | −67.6 | 709.00 | **+0.20** | negativa | positiva | a 0.01 EM |
+| QQQ 10-16 | −25.9 | 708.85 | **+0.35** | negativa | positiva | a 0.01 EM |
+| TSLA 09-18 | −3.4 | 352.42 | −1.64 | negativa | negativa | coinciden |
+| TSLA 10-16 | −3.2 | 364.07 | −13.29 | negativa | negativa | coinciden |
+
+Las tres discrepancias son casos donde el spot está a **0.00–0.01 EM del ZGL**. Eso no es una
+contradicción entre dos indicadores: es un empate, y el ZGL simplemente no tiene resolución ahí.
+
+**Corolario: hay una banda muerta alrededor del ZGL** donde su lectura no significa nada. Mientras
+`|spot − ZGL| < ε x EM`, el ZGL no dice de qué lado está el mercado. `ε` sin calibrar, pero los
+datos sugieren que es bastante más que 0.01.
+
+Y conviene tener registrado de dónde venía la contradicción grande: **TSLA daba `netGEX` agregado
++13.4 B (positiva) y −3.4 B en su 09-18 (negativa)**. Era un artefacto del agregado, no un
+desacuerdo entre indicadores. La decisión de bajar al vencimiento se lleva puesto el problema.
+
+## 62.2 El orden "muro de put debajo del ZGL" es el estado normal
+
+La versión anterior planteaba `PutWall > ZGL` y `CallWall < ZGL` como casos a resolver. Medido:
+
+| | spot | ZGL | putWall | |
+|---|---|---|---|---|
+| SPY 09-18 | 764.59 | 765.94 | 760.0 | debajo del ZGL, a 0.23 EM |
+| SPY 10-16 | 764.59 | 764.40 | 730.0 | debajo del ZGL, a 0.87 EM |
+| QQQ 09-18 | 709.20 | 709.00 | 700.0 | debajo del ZGL, a 0.25 EM |
+| QQQ 10-16 | 709.20 | 708.85 | 700.0 | debajo del ZGL, a 0.16 EM |
+| TSLA 09-18 | 350.78 | 352.42 | 340.0 | debajo del ZGL, a 0.33 EM |
+| TSLA 10-16 | 350.78 | 364.07 | 330.0 | debajo del ZGL, a 0.61 EM |
+
+**Seis de seis.** Una regla del tipo *"la zona no puede cruzar el ZGL"* rechazaría todos los puts,
+siempre. No es una condición de rechazo: es la geometría normal de la cadena, y era previsible —
+el ZGL tiende a quedar cerca del spot y el muro de put está por definición más abajo.
+
+## 62.3 Lo que el ZGL sí aporta, y es asimétrico entre lados
+
+Con gamma negativa **debajo** del ZGL y positiva **arriba**, el nivel funciona distinto según el
+lado que se vende:
+
+* **Vendiendo puts**, el precio cae *hacia* la gamma negativa. El camino al strike va de la zona
+  amortiguada a la amplificada — el ZGL es una **trampa**, y el muro que está del otro lado es
+  una defensa débil.
+* **Vendiendo calls**, el precio sube *hacia* la gamma positiva. El camino al strike cruza a la
+  zona que amortigua — el ZGL juega **a favor**, y el muro del otro lado es una defensa más
+  creíble.
+
+**Pero eso solo aplica cuando el spot está claramente de un lado.** Con `spot ≤ ZGL` —que es el
+caso de las seis capturas— el mercado ya está en la zona amplificada por abajo y la "trampa" del
+lado put ya se cruzó: el ZGL no agrega nada y lo que ata es `d_min x EM`.
+
+Esta asimetría **apunta en la misma dirección que el sesgo por lado medido en la 43.4** —SPY y QQQ
+pagan más del lado call— y también en la misma dirección que la 61.6, donde el muro solo restringe
+del lado call. Tres cosas apuntando al mismo lado no es una demostración: es una coincidencia que
+hay que testear, porque las tres podrían ser la misma cosa vista de tres ángulos, o dos
+independientes y una casualidad.
+
+## 62.4 Qué queda sin definir
+
+* `ε`, el ancho de la banda muerta del ZGL.
+* Si el régimen `netGEX > 0` merece un tratamiento distinto del actual: **las seis capturas del 25
+  son de gamma negativa**, así que el lado positivo del interruptor no está observado. No hay dato
+  sobre el régimen que la estrategia declararía más favorable.
 
 # 63. Falta definir cuándo evaluar PUT y CALL
 
