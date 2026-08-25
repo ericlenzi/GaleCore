@@ -85,6 +85,22 @@ namespace DataFeed.Application.App.GammaExposure
         /// entre puros ceros.
         /// </remarks>
         /// <summary>
+        /// Elige la expiración del modo de un solo vencimiento.
+        ///
+        /// Sin <paramref name="targetDte"/> mantiene el comportamiento histórico —la de MAYOR DTE
+        /// dentro del rango— porque es el que produjo todos los números que el operador viene
+        /// mirando. Con un objetivo, la más cercana a ese DTE, y a igual distancia gana la más
+        /// corta, para que la regla sea determinística y no dependa del orden de la cadena.
+        /// El porqué del objetivo, en <see cref="GammaExposureRequest.TargetDte"/>.
+        /// </summary>
+        public static Expiration SelectSingleExpiration(List<Expiration> candidates, int targetDte) =>
+            targetDte > 0
+                ? candidates.OrderBy(e => Math.Abs(e.DaysToExpiration - targetDte))
+                            .ThenBy(e => e.DaysToExpiration)
+                            .First()
+                : candidates.OrderByDescending(e => e.DaysToExpiration).First();
+
+        /// <summary>
         /// Recalcula el DTE de cada expiración contra la fecha de hoy en ET y descarta las vencidas.
         ///
         /// El `days-to-expiration` que manda Tastytrade NO es confiable. El 2026-08-25 la cadena de
@@ -350,7 +366,7 @@ namespace DataFeed.Application.App.GammaExposure
                 // Modo global: todas, ordenadas por DTE ascendente.
                 var expirations = request.AllExpirations
                     ? candidateExpirations.OrderBy(e => e.DaysToExpiration).ToList()
-                    : new List<Expiration> { candidateExpirations.OrderByDescending(e => e.DaysToExpiration).First() };
+                    : new List<Expiration> { SelectSingleExpiration(candidateExpirations, request.TargetDte) };
 
                 // La raíz de la respuesta describe la expiración de referencia: la única en modo
                 // histórico, la más cercana en modo global (el agregado abarca todas las de ByExpiry).
