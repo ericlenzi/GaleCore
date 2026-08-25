@@ -22,7 +22,7 @@
 
   "universe": {
     "mode": "whitelist",
-    "tickers": ["SPY", "QQQ", "AAPL", "SKM"],
+    "tickers": ["SPY", "QQQ", "TSLA"],
     "min_avg_daily_volume_underlying": 5000000
   },
 
