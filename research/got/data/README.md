@@ -9,6 +9,12 @@ lados. Se generan con [`research/gex-strikes.ps1`](../../gex-strikes.ps1):
 
 Requiere la API corriendo y la estrategia GEX prendida (si está en OFF responde 409).
 
+**El `-QuoteBandPct` de ese ejemplo es el de SPY, y no se traslada.** La banda está en porcentaje
+de spot, así que la distancia que cubre depende de la IV del símbolo: el ±12% que sobra para un ETF
+de índice al 13% de IV deja afuera la zona vendible de un símbolo al 42%, y la captura sale
+truncada sin decirlo. TSLA va con 35. El script avisa cuando la banda no llega al strike de delta
+0.10; si avisa, hay que subirla y recapturar.
+
 ## Cuidado: el nombre del archivo lleva el vencimiento, no la fecha de captura
 
 `SPY_gex_2026-10-16.csv` es *el vencimiento del 16 de octubre*, capturado cuándo no lo dice.
@@ -20,10 +26,25 @@ su propia carpeta fechada por el día de captura, y el `-OutDir` del script apun
 | Carpeta | Cuándo | Qué tiene | Condiciones |
 |---|---|---|---|
 | [`2026-08-24/`](2026-08-24/) | 24-ago-2026 | TSLA, SPY, QQQ · vencimientos 2026-09-04 (DTE 11, **weekly**), 2026-09-18 (DTE 25, regular, solo SPY y QQQ) y 2026-10-16 (DTE 53–56, regular) | **Mezcladas**: TSLA en sesión (11:57 y 12:35 ET); SPY y QQQ post-cierre (~17:25 ET, y el 09-18 a las ~18:15 ET) |
+| [`2026-08-25/`](2026-08-25/) | 25-ago-2026 | TSLA, SPY, QQQ · vencimientos 2026-09-18 (DTE 24) y 2026-10-16 (DTE 52), **los dos regulares** — son el bucle de la §47.1 mirando desde ese día | **Todas en sesión**, 10:09–10:23 ET. Horarios exactos por captura en [`2026-08-25/capturas.txt`](2026-08-25/capturas.txt) |
+
+La tanda del 25 la generó [`scripts/capturar_2026-08-25.ps1`](../scripts/capturar_2026-08-25.ps1),
+que además **guarda el encabezado** de cada captura en su `log_<SÍMBOLO>_<venc>.txt` — spot, ATM IV,
+muros, ZGL y DTE, que es justamente lo que esta página advierte más abajo que el CSV no lleva.
+
+**Las bandas de quote no son iguales entre tandas, y eso importa.** SPY y QQQ van con
+`-QuoteBandPct 12` los dos días; TSLA se capturó **sin banda** el 24 (la cadena entera, de 50 a 900)
+y con **35** el 25. El promedio de spread relativo de un archivo depende de eso, así que **el ancho
+de book no se compara entre capturas de banda distinta**. El primer intento de TSLA del 25 salió con
+banda 12 y quedó inservible —17 strikes cotizados, los tres objetivos de delta en el mismo strike—;
+está guardado en `2026-08-25/descartado-banda12/` como evidencia, fuera del glob no recursivo de
+`skew_por_lado.py`. Detalle en
+[el hallazgo del 25](../hallazgos/2026-08-25-el-sesgo-aguanta-con-book-vivo.md).
 
 El **2026-09-18 se agregó al final del día**, después de que el hallazgo del weekly mostrara que el
 dataset no tenía ningún vencimiento regular corto. Es la expiración cercana del bucle real de la
-§47.1. Sigue siendo post-cierre, así que **no cierra** el pendiente de recapturar con book vivo.
+§47.1. Sigue siendo post-cierre, así que no cerró el pendiente de recapturar con book vivo — eso
+lo cerró la tanda del 25.
 
 **El 2026-09-04 es un weekly, no un vencimiento regular** — es el primer viernes de septiembre; el
 tercero era el 18. El alcance del bucle definido en la §47.1 recorre solo vencimientos regulares,
@@ -34,8 +55,9 @@ Las capturas nuevas van sobre regulares. Verificable con
 La mezcla de la tanda del 24 está documentada y controlada: el
 [hallazgo del sesgo por lado](../hallazgos/2026-08-24-sesgo-por-lado-spy-qqq.md) §3 muestra
 que recalcular con mid en vez de bid/ask no mueve el resultado, y que el book de SPY/QQQ
-post-cierre estaba **más ajustado** que el de TSLA en sesión. Aun así queda pendiente
-recapturar SPY y QQQ con book vivo.
+post-cierre estaba **más ajustado** que el de TSLA en sesión. La recaptura con book vivo se hizo
+el 25 y confirmó el resultado: ver
+[el hallazgo del 25](../hallazgos/2026-08-25-el-sesgo-aguanta-con-book-vivo.md).
 
 ## Qué hay en cada CSV
 

@@ -67,6 +67,7 @@ flujo desde otro ángulo y quedaron con errata apuntando ahí.
 | [2026-08-24](hallazgos/2026-08-24-credito-call-columna-equivocada.md) | Las tablas de CALL de las §24–28 (Delta Sweep TSLA) | Las §25 y §27 leyeron `pcsCredit_w5` en vez de `ccsCredit_w5`. El Hallazgo 3 se **invierte** | Aplicado — reescritas las §25, §27, §28, §39, §53, §54, §83, §98 y agregada la §43.1 |
 | [2026-08-24](hallazgos/2026-08-24-sesgo-por-lado-spy-qqq.md) | La predicción de la §43.4: el sesgo put-only, ¿es del modelo o de TSLA? | Es de TSLA, y **se invierte**: sobre SPY y QQQ el filtro sesga a CALL (1.8x / 1.6x) | Aplicado — reescritas la §43.4 y la §43.5 |
 | [2026-08-24](hallazgos/2026-08-24-el-4-sep-es-un-weekly.md) | Los vencimientos capturados contra el alcance del bucle recién definido en la §47.1 | El `2026-09-04` es un **weekly**: todo lo que el v5 concluyó sobre DTE corto está medido sobre un contrato que el flujo no recorre | Aplicado — anotado en la §47.1, en el pendiente de la §98 y en `data/README.md`; y `gex-strikes.ps1` ahora registra el tipo (columna `expirationType` + aviso al capturar) |
+| [2026-08-25](hallazgos/2026-08-25-el-sesgo-aguanta-con-book-vivo.md) | El pendiente de la §43.4: el sesgo por lado, ¿es real o es un artefacto de haber cotizado post-cierre? | Es **real** — con book vivo y más ajustado los seis cocientes conservan signo y escala. Trae dos cosas que no se buscaban: un piso de ruido día a día de hasta 0.15, y que `-QuoteBandPct 12` **trunca la cadena** en símbolos de IV alta | Aplicado — la §43.4 lleva la confirmación y la §98 movió el pendiente a validado, con dos pendientes nuevos; `gex-strikes.ps1` avisa cuando la banda no llega al delta 0.10 y `skew_por_lado.py` marca la fila inválida y la deja fuera del agregado; `data/README.md` aclara que el `-QuoteBandPct` del ejemplo es el de SPY |
 
 Los hallazgos no se editan cuando se aplican: la columna **Estado** de este índice es la que
 lleva la cuenta. El hallazgo queda como el registro de qué se encontró y cuándo.
@@ -157,8 +158,10 @@ y **todavía no verificados**:
   probabilidad empírica de ese (lado, delta, DTE). Es el VRP, es lo que RPF ya hace con
   `pop_calibration.json`, y es side-aware por construcción — por eso el skew no lleva tratamiento
   explícito (§43.3).
-* **El sesgo por lado depende del símbolo, no del motor** (§43.5). Medido el 2026-08-24: SPY 1.81
-  y QQQ 1.57 a favor del CALL, TSLA 0.65 a favor del PUT. Es la pendiente local de la superficie
+* **El sesgo por lado depende del símbolo, no del motor** (§43.5). Medido el 2026-08-24, promediando
+  el weekly del 4-sep y el regular del 16-oct: SPY 1.81 y QQQ 1.57 a favor del CALL, TSLA 0.65 a
+  favor del PUT — el detalle por vencimiento, que es lo que reproduce, está en la tabla de la §43.4.
+  Es la pendiente local de la superficie
   atravesando un umbral que no la mira, así que no hay constante que declarar — se mide por lado y
   por símbolo en cada corrida.
 * **Las calibraciones van sobre SPY y QQQ**, que es el universo de la §4. TSLA queda como caso de

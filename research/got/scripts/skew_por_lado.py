@@ -29,6 +29,13 @@ Uso, desde la raiz del repo:
     PYTHONIOENCODING=utf-8 python research/got/scripts/skew_por_lado.py [carpeta]
 
 `carpeta` es un subdirectorio de research/got/data/ (por defecto el mas reciente).
+
+Valida los candidatos antes de promediarlos y sale con codigo 1 si alguna fila resulto
+invalida (ver TOL). Una fila invalida se imprime marcada y NO entra al agregado por simbolo.
+
+El agregado dice sobre cuantos vencimientos promedia, porque ese numero cambia con lo que
+haya en la carpeta: agregar un CSV mueve el promedio sin que ningun dato cambie. Por eso las
+tablas del documento van por vencimiento y no por simbolo (ver la 43.4).
 """
 import csv
 import glob
@@ -38,6 +45,15 @@ import sys
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
 WIDTH = 5.0
 TARGETS = (0.10, 0.15, 0.20)
+
+# Cuanto se le tolera al delta encontrado contra el objetivo. `candidato()` devuelve el mas cercano
+# que haya, no el que se pidio: si la cadena esta truncada se conforma con el borde y no avisa. El
+# 2026-08-25 una captura de TSLA con la banda de quotes de SPY dejo 17 strikes cotizados, los tres
+# objetivos cayeron en el MISMO strike (delta 0.218 del lado put, 0.324 del call) y el cociente
+# salio impreso como cualquier otro -- comparando dos lados a moneyness distinta, que es justo lo
+# que la metrica existe para no hacer. Ver
+# hallazgos/2026-08-25-el-sesgo-aguanta-con-book-vivo.md.
+TOL = 0.03
 
 
 def carpeta_por_defecto():
@@ -129,26 +145,42 @@ def main():
     print('-' * 96)
 
     resumen = {}
+    invalidos = []
     for path in archivos:
         base = os.path.basename(path).replace('.csv', '')
         sym, exp = base.split('_gex_')
         rows, byk = load(path)
         lado = {}
+        motivos = []
         for side in ('PUT', 'CALL'):
-            ba, md = [], []
+            ba, md, strikes = [], [], []
             for t in TARGETS:
                 got = candidato(rows, side, t)
                 if not got:
+                    motivos.append('%s sin candidato para delta %.2f' % (side, t))
                     continue
                 k, d, c = got
+                if abs(d - t) > TOL:
+                    motivos.append('%s objetivo %.2f resuelto con delta %.3f' % (side, t, d))
+                strikes.append(k)
                 ba.append((c / WIDTH) / d)
                 cm = credito_mid(byk, k, side)
                 if cm and cm > 0:
                     md.append((cm / WIDTH) / d)
+            # Dos objetivos distintos en el mismo strike es el sintoma tipico de cadena truncada:
+            # el promedio "sobre tres objetivos" pasa a ser un strike contado varias veces.
+            if len(strikes) > len(set(strikes)):
+                motivos.append('%s repite strike entre objetivos' % side)
             if ba:
                 lado[side] = (sum(ba) / len(ba), sum(md) / len(md) if md else None)
         if len(lado) < 2:
             print('%-6s %-11s | (sin candidatos de los dos lados)' % (sym, exp))
+            continue
+        if motivos:
+            # No se descarta en silencio ni se imprime como si nada: la fila sale marcada, queda
+            # fuera del agregado por simbolo, y el motivo se lista al final.
+            invalidos.append((sym, exp, motivos))
+            print('%-6s %-11s | INVALIDO -- %s' % (sym, exp, motivos[0]))
             continue
         rba = lado['CALL'][0] / lado['PUT'][0]
         rmd = (lado['CALL'][1] / lado['PUT'][1]
@@ -164,8 +196,20 @@ def main():
     print('  < 1  el lado put  paga mas -> el filtro economico sesga a PUT')
     print('=' * 66)
     for sym, v in sorted(resumen.items()):
-        print('  %-6s bid-ask %.2f   mid %.2f' %
-              (sym, sum(x[0] for x in v) / len(v), sum(x[1] for x in v) / len(v)))
+        print('  %-6s bid-ask %.2f   mid %.2f   (%d vencimiento%s)' %
+              (sym, sum(x[0] for x in v) / len(v), sum(x[1] for x in v) / len(v),
+               len(v), '' if len(v) == 1 else 's'))
+
+    if invalidos:
+        print('\nFILAS INVALIDAS, fuera del agregado de arriba')
+        print('  El delta encontrado se aparta mas de %.2f del objetivo, o dos objetivos' % TOL)
+        print('  caen en el mismo strike. Sintoma tipico: la banda de quotes de la captura')
+        print('  (-QuoteBandPct) no llega a la zona que la estrategia vende.')
+        for sym, exp, motivos in invalidos:
+            print('  %-6s %-11s' % (sym, exp))
+            for m in motivos:
+                print('           %s' % m)
+        return 1
     return 0
 
 

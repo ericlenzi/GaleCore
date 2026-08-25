@@ -195,6 +195,27 @@ if ($QuoteBandPct -gt 0) {
     $toQuote = $toQuote | Where-Object { $_.strike -ge $lo -and $_.strike -le $hi }
 }
 
+# La banda esta en PORCENTAJE DE SPOT, pero lo que la estrategia vende esta a una distancia en
+# DELTA, y las dos no son la misma cosa: cuanto cubre un +-X% depende de la IV del simbolo y del
+# DTE. El +-12% que sobra en un ETF de indice al 13% de IV deja afuera el strike de delta 0.10 de
+# un simbolo al 42%, y ahi la captura sale truncada SIN DECIRLO: el CSV se ve normal, pero los
+# objetivos de delta del analisis posterior caen todos en el borde de la banda -- el 2026-08-25 los
+# tres objetivos de TSLA cayeron en el mismo strike y el cociente se leyo 0.67 en vez de 0.56.
+# El aviso va antes del barrido, que es cuando todavia se puede subir la banda sin pagar los
+# minutos dos veces. Ver research\got\hallazgos\2026-08-25-el-sesgo-aguanta-con-book-vivo.md.
+if ($WithQuotes -and $QuoteBandPct -gt 0 -and $toQuote.Count -gt 0) {
+    $bordes = @(
+        @{ lado = 'CALL'; delta = ($toQuote | Measure-Object callDelta -Minimum).Minimum },
+        @{ lado = 'PUT' ; delta = ($toQuote | ForEach-Object { [math]::Abs($_.putDelta) } | Measure-Object -Minimum).Minimum }
+    )
+    foreach ($b in $bordes) {
+        if ($b.delta -gt 0.10) {
+            Warn ("La banda de +-{0}% NO llega al delta 0.10 del lado {1}: el strike mas lejano que entra tiene delta {2:N3}. La captura va a salir truncada justo en la zona que se vende. Subi -QuoteBandPct y volve a capturar." -f `
+                $QuoteBandPct, $b.lado, $b.delta)
+        }
+    }
+}
+
 if ($WithQuotes) {
     # OCC de 21 chars: 6 simbolo (padded), yyMMdd, C/P, strike x 1000 en 8 digitos.
     $expDate = [datetime]::Parse($target.expiration.Substring(0, 10), $inv)

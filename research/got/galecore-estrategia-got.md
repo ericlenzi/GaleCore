@@ -1233,11 +1233,37 @@ Es barato: es el mismo `gex-strikes.ps1` con otro símbolo.
 > Midiendo cuánto paga cada lado por unidad de delta, `(Credit/Width) / |delta|`, sobre los
 > mismos dos vencimientos en los tres símbolos:
 >
-> | Símbolo | PUT | CALL | CALL/PUT |
-> |---|---|---|---|
-> | SPY | 0.51 | 0.92 | **1.81** |
-> | QQQ | 0.55 | 0.86 | **1.57** |
-> | TSLA | 0.84 | 0.54 | **0.65** |
+> | Símbolo | Vencimiento | PUT | CALL | CALL/PUT |
+> |---|---|---|---|---|
+> | SPY | 2026-09-04 · weekly | 0.53 | 0.89 | **1.69** |
+> | SPY | 2026-10-16 · regular | 0.49 | 0.95 | **1.92** |
+> | QQQ | 2026-09-04 · weekly | 0.55 | 0.88 | **1.60** |
+> | QQQ | 2026-10-16 · regular | 0.54 | 0.84 | **1.53** |
+> | TSLA | 2026-09-04 · weekly | 0.78 | 0.61 | **0.79** |
+> | TSLA | 2026-10-16 · regular | 0.90 | 0.46 | **0.51** |
+>
+> Promediando los dos vencimientos de cada símbolo: SPY **1.81**, QQQ **1.57**, TSLA **0.65**.
+> Es el par de números que citan la 43.5 y el README, y sale de esta tabla.
+>
+> **La tabla va por vencimiento y no por símbolo, y eso es el arreglo de un defecto real.**
+> Hasta el 2026-08-25 esta sección mostraba solo los tres promedios, y el promedio **depende de
+> qué archivos hay en la carpeta**: `skew_por_lado.py` levanta todos los CSV que encuentra. El
+> `2026-09-18` se capturó al final del mismo día 24, después de escrita la tabla, así que correr
+> hoy el script sobre su propia carpeta da SPY 1.77 y QQQ 1.54 — no porque cambiara ningún dato,
+> sino porque cambió el denominador. Un número publicado que no se reproduce corriendo lo que dice
+> que lo produjo es un número que nadie puede auditar. Por vencimiento, cada fila es de un archivo
+> y no se mueve.
+>
+> Y de paso deja a la vista lo que el promedio escondía: **la mitad de la muestra es un weekly**,
+> que el bucle de la 47.1 no recorre. La dirección no cambia —los seis cocientes van para el mismo
+> lado— pero el número exacto de SPY y QQQ se apoya mitad y mitad en un tipo de contrato que la
+> estrategia no opera.
+>
+> Reproducible, fila por fila, con:
+>
+> ```bash
+> python research/got/scripts/skew_por_lado.py 2026-08-24
+> ```
 >
 > En el universo declarado el filtro económico simétrico **sesga hacia CALL**, no hacia PUT.
 > Verificado también con mid en vez de bid/ask, para descartar el horario de captura.
@@ -1247,6 +1273,32 @@ Es barato: es el mismo `gex-strikes.ps1` con otro símbolo.
 > Refuerza esta sección más de lo que se esperaba: la salida 2 —un `BaseRR` por lado
 > calibrado sobre TSLA— no habría sido un parámetro subóptimo, habría tenido **el signo
 > cambiado** para los símbolos que la estrategia opera.
+
+> **Recapturado en sesión el 2026-08-25. El sesgo aguanta, y el pendiente queda cerrado.**
+>
+> Quedaba la objeción de que SPY y QQQ se habían cotizado **después del cierre**, con un book más
+> ancho que castiga de manera despareja al crédito conservador. La recaptura va entre las 10:09 y
+> las 10:23 ET, con el mercado abierto, sobre los dos vencimientos **regulares** del bucle:
+>
+> | Símbolo | Vencimiento | 24-ago · post-cierre | 25-ago · en sesión |
+> |---|---|---|---|
+> | SPY | 2026-09-18 | 1.69 | **1.73** |
+> | SPY | 2026-10-16 | 1.92 | **1.87** |
+> | QQQ | 2026-09-18 | 1.47 | **1.36** |
+> | QQQ | 2026-10-16 | 1.53 | **1.38** |
+> | TSLA | 2026-10-16 | 0.51 | **0.56** |
+> | TSLA | 2026-09-18 | — | **0.73** |
+>
+> El book se ajustó en los cuatro casos de SPY y QQQ —4.7% → 4.3%, 3.4% → 2.4%, 1.9% → 1.6%,
+> 1.2% → 1.0%— y el sesgo no se movió de signo ni de escala. **La objeción del horario queda
+> descartada.**
+>
+> Dos cosas más, que no se buscaban. **El cociente oscila hasta 0.15 de un día para el otro** en el
+> mismo símbolo y vencimiento, así que ninguna calibración sobre esta métrica puede reclamar
+> precisión más fina que eso. Y **la banda de quotes truncó la primera captura de TSLA**: con el
+> ±12% que alcanza para SPY, los tres objetivos de delta cayeron en el mismo strike y el cociente
+> se leyó 0.67 en vez de 0.56. Detalle en
+> [el hallazgo](hallazgos/2026-08-25-el-sesgo-aguanta-con-book-vivo.md).
 
 ## 43.5 Estado interino
 
@@ -1258,7 +1310,8 @@ Es barato: es el mismo `gex-strikes.ps1` con otro símbolo.
 Hasta que exista el edge test:
 
 * **GOT tiene un sesgo por lado, y su dirección depende del símbolo.** Sobre SPY y QQQ
-  favorece al CALL (paga ~1.6–1.8x por unidad de delta); sobre TSLA favorece al PUT. No es
+  favorece al CALL (entre 1.5x y 1.9x por unidad de delta según el vencimiento, ver la tabla
+  de la 43.4); sobre TSLA favorece al PUT. No es
   una propiedad del motor: es la pendiente local de la superficie de volatilidad,
   atravesando un umbral que no la mira.
 * **Por eso el sesgo no se declara como constante ni se corrige con un factor.** No hay un
@@ -1523,21 +1576,34 @@ de ese mismo muro, no. Es el mecanismo por el que dos vencimientos con idéntica
 ventanas de delta distintas, que es exactamente lo que mostraron los datasets del 16 Oct y el 4 Sep
 (53 a 55).
 
-**Ojo con la base empírica del v5: el 4 Sep es un weekly.** Los dos vencimientos sobre los que se
-validó todo —`data/2026-08-24/`— son `2026-09-04` (DTE 11) y `2026-10-16` (DTE 53–56). El segundo
-es el tercer viernes de octubre y entra al bucle; **el primero es el primer viernes de septiembre,
-o sea un weekly, y este alcance lo excluye**. El tercer viernes de ese mes era el 18.
+**Ojo con la base empírica del v5: el 4 Sep es un weekly.** El sweep de delta que sostiene las 24
+a 28 corrió sobre `2026-09-04` (DTE 11) y `2026-10-16` (DTE 53–56). El segundo es el tercer viernes
+de octubre y entra al bucle; **el primero es el primer viernes de septiembre, o sea un weekly, y
+este alcance lo excluye**. El tercer viernes de ese mes era el 18.
 
 Eso no invalida nada de lo medido: el contraste DTE 11 contra DTE 53 sigue mostrando lo que muestra
 sobre el crédito requerido, y el error de columna del hallazgo del 24 se corrigió sobre los dos por
 igual. Tampoco deja el DTE corto fuera de alcance —un regular también pasa por DTE 11—. Lo que sí
-significa es que **la mitad de la evidencia del v5 viene de un tipo de contrato que el flujo no
-recorre**, y que un weekly y un mensual al mismo DTE no son intercambiables donde importa: open
-interest, bid/ask y slippage. La afirmación más expuesta es la de la 28, *"con DTE corto no hay
-ventana en absoluto"*, que descansa entera en ese sweep.
+significa es que un weekly y un mensual al mismo DTE no son intercambiables donde importa: open
+interest, bid/ask y slippage.
+
+**Buena parte de eso ya se reparó, y conviene tener claro qué queda.** Desde el 2026-08-25 hay una
+tanda entera sobre vencimientos **regulares** y con el mercado abierto —`data/2026-08-25/`, los dos
+del bucle: `2026-09-18` (DTE 24) y `2026-10-16` (DTE 52), en los tres símbolos—. El sesgo por lado
+de la 43.4, que era lo más apoyado en la muestra contaminada, quedó medido sobre regulares y
+sostuvo signo y escala.
+
+**Lo que sigue colgado del weekly es el extremo corto.** El vencimiento corto de la tanda nueva
+está a DTE 24, no a DTE 11: la afirmación de la 28 —*"con DTE corto no hay ventana en absoluto"*—
+sigue descansando entera en un contrato que el flujo no recorre. Y replicarla tiene una
+particularidad de calendario: como los regulares son mensuales, para verlos a DTE 11 hay que
+capturar once días antes de un tercer viernes. Para el `2026-09-18` eso cae el **7 de septiembre**,
+que es Labor Day y no se opera, así que el tiro más cercano es el 8 (DTE 10) o el 4 (DTE 14). No es
+una captura que se pueda hacer cualquier día: hay que esperar la ventana.
 
 Detalle, alcance de la contaminación y qué medir para separarlo, en
-[el hallazgo](hallazgos/2026-08-24-el-4-sep-es-un-weekly.md).
+[el hallazgo del weekly](hallazgos/2026-08-24-el-4-sep-es-un-weekly.md); la tanda que lo reparó a
+medias, en [el del book vivo](hallazgos/2026-08-25-el-sesgo-aguanta-con-book-vivo.md).
 
 **Lo que el diagrama deja a la vista es cuánto falta.** De los seis niveles hay uno definido
 (el 2), dos provisionales (1 y 3), uno vacío (4), uno reprobado con su calibración actual (5), y
@@ -2775,7 +2841,9 @@ DTE como factor económico;
 diferencias entre vencimientos;
 
 asimetría PUT/CALL por skew, no por estructura, y con signo propio de cada símbolo
-(Hallazgo 8, y el hallazgo del 24/08 sobre SPY/QQQ);
+(Hallazgo 8, y el hallazgo del 24/08 sobre SPY/QQQ) — **confirmada con book vivo el 25/08**, en
+sesión y sobre los dos vencimientos regulares del bucle, con los seis cocientes conservando signo
+y escala;
 
 posibilidad de aceptar créditos nominalmente pequeños en DTE largos;
 
@@ -2801,11 +2869,14 @@ el skew no lleva tratamiento explícito — queda absorbido por el edge test (43
 el sesgo por lado depende del símbolo, no del motor: se mide, no se declara (43.5).
 
 PENDIENTE
-recapturar SPY y QQQ en sesión, para confirmar el sesgo invertido con book vivo (43.4) — y
-**sobre vencimientos regulares**, porque el 2026-09-04 de la captura del 24 es un weekly y queda
-fuera del bucle definido en la 47.1;
-
 la tabla de probabilidad empírica por lado, delta y DTE que alimenta el edge test;
+
+separar el ruido de mercado del efecto de la hora de captura: el mismo símbolo y vencimiento
+movieron el cociente hasta 0.15 en un día, y esa oscilación es el piso de precisión de cualquier
+calibración sobre la métrica (hallazgo del 25/08);
+
+elegir la banda de quotes por símbolo —en múltiplos de EM y no en porcentaje de spot—, porque el
+±12% que alcanza para SPY trunca la zona vendible de un símbolo de IV alta (hallazgo del 25/08);
 
 recalibrar MaxRisk y Width juntos, o pasar a riesgo como % del capital;
 
