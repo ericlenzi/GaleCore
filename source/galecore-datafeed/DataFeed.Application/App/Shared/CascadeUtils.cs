@@ -499,6 +499,15 @@ namespace DataFeed.Application.App.Shared
         }
 
         /// <summary>
+        /// La fecha de HOY en la zona del mercado. Es la referencia contra la que se mide un
+        /// vencimiento: la fecha local de la máquina no sirve —el servidor puede estar en otro
+        /// huso, y de hecho lo está— y la UTC tampoco, porque de 20:00 ET a medianoche ya es el
+        /// día siguiente en UTC mientras el mercado sigue siendo el de hoy.
+        /// </summary>
+        public static DateTime TodayEt(DateTimeOffset? nowUtc = null) =>
+            TimeZoneInfo.ConvertTime(nowUtc ?? DateTimeOffset.UtcNow, EtZone).Date;
+
+        /// <summary>
         /// Años hasta el vencimiento, para el expected move (spot · IV · √T).
         ///
         /// DTE &gt; 0: se mantiene la convención de días calendario (dte/365), que es la que produjo
