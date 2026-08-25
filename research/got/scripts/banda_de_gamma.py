@@ -395,8 +395,11 @@ ENCABEZADOS = {
     ('2026-08-25-t2', 'SPY', '2026-10-16'): dict(spot=765.45, iv=0.1351, dte=52, zgl=764.27),
 }
 
-# Los dos ejemplos trabajados de la 61.7: uno donde la banda ata y otro donde no hay muro.
-EJEMPLOS = (('2026-08-25-t2', 'SPY', '2026-10-16'), ('2026-08-25', 'TSLA', '2026-09-18'))
+# Los tres ejemplos trabajados de la 61.7. El de QQQ va con la tanda del 25 porque la del 24 no
+# tiene log versionado; su movimiento entre tandas lo imprime la seccion 1.
+EJEMPLOS = (('2026-08-25-t2', 'SPY', '2026-10-16'),
+            ('2026-08-25', 'TSLA', '2026-09-18'),
+            ('2026-08-25', 'QQQ', '2026-09-18'))
 
 
 def seccion_5_ejemplos():

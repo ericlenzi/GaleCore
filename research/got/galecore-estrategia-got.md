@@ -2308,10 +2308,24 @@ declara es que el umbral existe y que su ausencia es un resultado válido.
 puntos en SPY. Parte de eso es aritmética —la banda crece hacia afuera— pero no todo, y no hay
 todavía nada que fije su valor.
 
-### Dos defectos del test `xdisj`, encontrados el 2026-08-25 por la noche
+### Los dos tests no son redundantes, y hay una prueba de cada lado
 
-Aparecieron al recalcular el ejemplo de la 61.7 con el Expected Move de la 15 en vez del proxy del
-script. **Los dos afectan al veredicto, no al borde**, que se mantiene estable:
+Los tres ejemplos de la 61.7 dan la evidencia simétrica, y conviene tenerla junta porque es lo que
+justifica pagar el costo de dos tests en vez de uno:
+
+| | `xmed` | `xdisj` | quién avisa |
+|---|---|---|---|
+| TSLA 18-Sep CALL | 8.3x — parece sólido | **1.01x** | `xdisj`: dos muros a $30 |
+| QQQ 18-Sep CALL | **1.4x** | 1.26x — pasaría cualquier umbral | `xmed`: es una meseta |
+
+Y QQQ 18-Sep es además **la única serie del dataset que se movió**: su banda saltó $15 y su argmax
+$40 entre dos tandas, con el spot moviéndose $3.7. El único aviso previo fue su `xmed`.
+
+### Tres defectos de construcción, encontrados el 2026-08-25 por la noche
+
+Los dos primeros aparecieron al recalcular el ejemplo de la 61.7 con el Expected Move de la 15 en
+vez del proxy del script; el tercero, al agregar el ejemplo de QQQ. **Los tres afectan al veredicto,
+no al borde**, que se mantiene estable:
 
 * **La ventana es continua y la grilla de strikes no.** En SPY 16-Oct CALL, con `W = 9.8` la banda
   llega a 799.8 y **deja afuera el strike 800**; con `W = 10.6` llega a 800.5 y lo incluye. Ese
@@ -2322,15 +2336,29 @@ script. **Los dos afectan al veredicto, no al borde**, que se mantiene estable:
   dinero siempre concentran gamma; medir un muro contra eso no dice si el muro es único. **El
   competidor relevante es otra concentración en el ala**, que es lo que sí ocurre en TSLA 18-Sep
   CALL — 367–377 contra 400–409, a $30 de distancia y con el spot lejos de las dos.
+* **El argmax puede ser directamente el strike del dinero.** En QQQ 18-Sep del 24-ago, con el spot
+  en 708.02, `SelectCallWall` devolvió **710** — $2 arriba — con 21.314 de GEX, ganándole a toda la
+  cadena. No es el competidor el contaminado: es el muro. Un argmax que puede caer a $2 del spot no
+  es referencia de nada, y es otra razón por la que **la banda tiene que excluir la zona del
+  dinero**, no solo su competidor.
 
 Ninguno se arregla acá: cambiar cómo se construye la banda es cambiar la definición, y el arreglo
 hay que medirlo antes de escribirlo — que es la disciplina que este research aprendió a los golpes.
 Lo que sí cambia ya es que **el script no imprime un veredicto de "hay muro"**: imprime `xmed`,
 `xdisj` y contra qué banda compite, y avisa cuando el competidor está pegado al spot.
 
-**Consecuencia práctica hasta que se arregle:** un `xdisj` cerca de 1 hay que mirarlo antes de
-creerle. Si el competidor está en el dinero, el test no midió nada; si está en el ala, como en TSLA,
-el empate es real y "no hay muro" es la respuesta correcta.
+**Consecuencia práctica hasta que se arregle: un `xdisj` cerca de 1 significa tres cosas distintas**,
+y hay que mirar dónde cae el competidor antes de creerle:
+
+| El competidor está… | Ejemplo | Qué significa |
+|---|---|---|
+| pegado al spot | SPY 16-Oct CALL — 766–776 con spot 765.45 | el test no midió nada |
+| lejos, en el ala | TSLA 18-Sep CALL — 400–409 contra 367–377 | dos muros reales; "no hay muro" es correcto |
+| contiguo a la banda | QQQ 18-Sep PUT — 681–690 contra 691–700 | una sola losa ancha partida en dos por el tamaño de la ventana |
+
+El tercer caso empuja en la dirección contraria a los otros dos: ahí `xdisj` compara el muro contra
+**su propia cola**, así que da un valor artificialmente **bajo** y castiga a una concentración ancha
+—que es exactamente lo que uno querría encontrar— haciéndola parecer un empate entre dos muros.
 
 ## 61.5 Lo que las mediciones ya contestaron
 
@@ -2513,6 +2541,65 @@ Dos salvedades del caso: es la **única** toma de este vencimiento, así que no 
 temporal; y TSLA no es universo de calibración (4) sino el caso de control — tener un símbolo con la
 superficie invertida es lo que hace visibles estos errores. El sesgo por lado se ve acá también, y al
 revés que en SPY: el put paga 0.150 a delta 0.180 contra 0.120 a delta 0.192 del call.
+
+
+### Ejemplo 3 — QQQ 18-Sep '26: el único que se movió, y por qué
+
+`spot 710.60 · ATM IV 0.1971 · DTE 24 · Net GEX −58.4 B · ZGL 709.00 · EM ±35.9 · W 9.0`
+
+Es la única serie del dataset cuya banda cambió entre tandas, así que es la prueba de si los tests
+avisan. La comparación entre tandas la imprime la sección 1 del script; el detalle del 25, la 5:
+
+| | tanda | argmax | dom | banda | xmed | xdisj | borde | delta |
+|---|---|---|---|---|---|---|---|---|
+| **CALL** | 24-ago | 710 | 1.50x | 710–719 | **1.6x** | 1.28x | 719 | 0.382 |
+| | 25-ago | **750** | **1.01x** | **725–734** | **1.4x** | 1.26x | 734 | 0.258 |
+| PUT | 24-ago | 700 | 2.18x | 691–700 | 5.2x | 1.15x | 691 | 0.326 |
+| | 25-ago | 700 | 2.31x | 691–700 | 5.6x | 1.24x | 691 | 0.292 |
+
+El put no se movió un strike. El call sí: **el argmax saltó $40 y la banda $15**, con el spot
+moviéndose $3.7. **La banda amortigua pero no salva.**
+
+**El aviso lo dio `xmed` — 1.4x, el más bajo del dataset — y `xdisj` no dio ninguno**: 1.26x y 1.28x,
+que cualquier umbral razonable dejaría pasar. Es el caso simétrico del ejemplo 2, donde el que avisó
+fue `xdisj` y `xmed` daba 8.3x. **Ninguno de los dos alcanza solo**, y esto es la evidencia.
+
+**Por qué se movió: no hay muro, hay una meseta.** El GEX de call del 25:
+
+```text
+750   16.349        730   16.184        740   14.224
+725   12.792        720   11.419        760    8.325
+```
+
+De 720 a 750 el gamma es un estante plano. Por eso `xmed` da 1.4x: cualquier ventana de 9 puntos en
+esa zona vale casi lo mismo, y la banda es el argmax de una superficie chata. **La banda 725–734 no
+describe una concentración: describe dónde cayó el máximo del ruido**, y por eso se mueve sin que
+nada estructural cambie.
+
+**Y el "Call Wall 710" del 24 era el strike del dinero.** Con el spot en 708.02, el argmax devolvió
+710 — **$2 arriba del spot** — con 21.314 de GEX. Es la pila de gamma que siempre hay en el dinero
+ganándole al resto de la cadena. Es el mismo defecto que la 61.4 anota para el competidor disjunto,
+pero acá contaminando el argmax directamente: **un muro que puede caer a $2 del spot no es
+referencia de nada.**
+
+La Sell Zone que sale:
+
+```text
+PUT  SELL ZONE   K <= 677      ata el DELTA
+                 banda 691-700 estable, pero a delta 0.292 y con competidor CONTIGUO
+                 delta 0.196 · 0.97 EM · 677/672 credito 0.64 · c/w 0.128
+
+CALL SELL ZONE   K >= 741      ata el DELTA
+                 xmed 1.4x: meseta de 720 a 750, y la banda se movio $15 entre tandas
+                 delta 0.192 · 0.81 EM · 741/746 credito 0.85 · c/w 0.170
+```
+
+Ningún lado ata, consistente con el conteo de 3 de 12. Y el call paga más al mismo delta —0.170
+contra 0.128— que es el sesgo de QQQ de la 43.5: 1.57x a favor del call.
+
+Salvedades: la captura del 24-ago no tiene log versionado, así que su `spot` sale interpolado de la
+curva de delta y la comparación usa el EM del 25 para las dos; y esa tanda es post-cierre, por eso
+los créditos salen todos de la del 25.
 
 
 ## 61.8 Lo que quedó descartado, y por qué

@@ -22,10 +22,10 @@ tal cual a `docs/got/` y se sigue el checklist de "Estrategias — convención" 
 > camino crítico para pasar a ser **el único camino**.
 
 **Las definiciones están cerradas.** La Sell Zone quedó definida en la
-[§61](galecore-estrategia-got.md), con su procedimiento paso a paso en la §61.7, dos ejemplos
-trabajados —SPY 16-Oct y TSLA 18-Sep, que es el caso donde el veredicto es "no hay muro"— y la tabla
-de lo descartado en la §61.8. El corte entre definido, validado, descartado y pendiente está en la
-§98.
+[§61](galecore-estrategia-got.md), con su procedimiento paso a paso en la §61.7, tres ejemplos
+trabajados —SPY 16-Oct, donde se ven los defectos del test; TSLA 18-Sep, el caso de "no hay muro"; y
+QQQ 18-Sep, el único que se movió— y la tabla de lo descartado en la §61.8. El corte entre definido,
+validado, descartado y pendiente está en la §98.
 
 **Queda una sola pregunta abierta, y bloquea a todas las demás** (§61.9):
 
@@ -97,6 +97,7 @@ flujo desde otro ángulo y quedaron con errata apuntando ahí.
 | [2026-08-25](hallazgos/2026-08-25-el-sesgo-aguanta-con-book-vivo.md) | El pendiente de la §43.4: el sesgo por lado, ¿es real o es un artefacto de haber cotizado post-cierre? | Es **real** — con book vivo y más ajustado los seis cocientes conservan signo y escala. Trae dos cosas que no se buscaban: un piso de ruido día a día de hasta 0.15, y que `-QuoteBandPct 12` **trunca la cadena** en símbolos de IV alta | Aplicado — la §43.4 lleva la confirmación y la §98 movió el pendiente a validado, con dos pendientes nuevos; `gex-strikes.ps1` avisa cuando la banda no llega al delta 0.10 y `skew_por_lado.py` marca la fila inválida y la deja fuera del agregado; `data/README.md` aclara que el `-QuoteBandPct` del ejemplo es el de SPY |
 | [2026-08-25](hallazgos/2026-08-25-el-muro-como-banda.md) | El umbral de dominancia que pide la §61.4, y la validación que la §61.6 llama "la que puede matar todo" | La **banda** reemplaza al argmax y es estable (5 de 6 series), fallando sólo donde su propia métrica la marca floja. Pero el borde **restringe en 2 de 12** casos, y **no hay premio de crédito** atribuible al muro (z medio +0.56 ± 0.90). Con `d_min × EM` dando ρ = −1.0000 contra el delta, **la zona de la §61.3 no tiene contenido independiente del delta** | Aplicado — la §61 se reescribió como definición canónica (§61.3 a §61.6 reescritas, §61.7 procedimiento + ejemplo, §61.8 descartes, §61.9 la hipótesis única); erratas en §16, §18, §19, §37, §56.2 y §99; §98 reescrita entera; y este README corrigió el "modo estudio". **Queda pendiente la decisión de universo de su §6.** Su conteo de restricción lo corrigió el hallazgo de esa noche: 3 de 12, no 2 |
 | [2026-08-25 (noche)](hallazgos/2026-08-25-el-test-de-banda-depende-del-EM.md) | El ejemplo de la §61.7 recalculado con el Expected Move de la §15 en vez del proxy `EM*` del script | El proxy difiere 5–8% y **eso mueve un veredicto**: el conteo de restricción pasa de 2 a **3 de 12** (SPY 16-Oct PUT también ata). Y aparecen **dos defectos de `xdisj`** — se decide por si un strike redondo entra en la ventana, y puede estar compitiendo contra la pila de gamma del dinero | Aplicado — la §61.4 lleva los dos defectos, la §61.7 recalculó el ejemplo de SPY y ganó el de TSLA 18-Sep, el conteo quedó corregido en §61.3, §61.6, §61.8, §99 y el encabezado, y el script dejó de imprimir un veredicto de "hay muro" |
+| [2026-08-25 (noche)](hallazgos/2026-08-25-qqq-la-serie-que-se-movio.md) | QQQ 18-Sep, la única serie del dataset cuya banda se movió entre tandas: ¿los tests avisan? | **Avisan, pero avisa uno solo y no siempre el mismo**: acá `xmed` (1.4x) mientras `xdisj` daba 1.26x — espejo de TSLA, donde avisó `xdisj` (1.01x) con `xmed` en 8.3x. Es la evidencia de que **no son redundantes**. La causa del salto es que el call es una **meseta** de 720 a 750, no un muro. Aparecen un tercer defecto —el argmax puede caer en el strike del dinero: devolvió 710 con el spot en 708— y una tercera lectura de `xdisj` bajo: el competidor **contiguo** | Aplicado — §61.7 ganó el ejemplo 3, y la §61.4 la tabla de evidencia simétrica de los dos tests, el tercer defecto y las tres lecturas de `xdisj` |
 
 Los hallazgos no se editan cuando se aplican: la columna **Estado** de este índice es la que
 lleva la cuenta. El hallazgo queda como el registro de qué se encontró y cuándo.
