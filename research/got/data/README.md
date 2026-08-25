@@ -27,6 +27,12 @@ su propia carpeta fechada por el día de captura, y el `-OutDir` del script apun
 |---|---|---|---|
 | [`2026-08-24/`](2026-08-24/) | 24-ago-2026 | TSLA, SPY, QQQ · vencimientos 2026-09-04 (DTE 11, **weekly**), 2026-09-18 (DTE 25, regular, solo SPY y QQQ) y 2026-10-16 (DTE 53–56, regular) | **Mezcladas**: TSLA en sesión (11:57 y 12:35 ET); SPY y QQQ post-cierre (~17:25 ET, y el 09-18 a las ~18:15 ET) |
 | [`2026-08-25/`](2026-08-25/) | 25-ago-2026 | TSLA, SPY, QQQ · vencimientos 2026-09-18 (DTE 24) y 2026-10-16 (DTE 52), **los dos regulares** — son el bucle de la §47.1 mirando desde ese día | **Todas en sesión**, 10:09–10:23 ET. Horarios exactos por captura en [`2026-08-25/capturas.txt`](2026-08-25/capturas.txt) |
+| [`2026-08-25-t2/`](2026-08-25-t2/) | 25-ago-2026 | SPY · los mismos dos vencimientos. **Primera captura con `callIV`/`putIV`** | En sesión, 11:57–12:01 ET. Segunda tanda del mismo día: por eso el sufijo `-t2`, ya que la carpeta se nombra por día de captura y dos tandas se pisarían |
+
+**Dos tandas del mismo día se pisan**, porque el nombre de la carpeta es la fecha y el del archivo
+es el vencimiento. El sufijo `-tN` es la salida. Y tiene un premio: la `-t2` está a **~1h50m** de
+la tanda de la mañana sobre los mismos vencimientos, así que es la primera medición de estabilidad
+intradía de la estructura que hay en el dataset.
 
 La tanda del 25 la generó [`scripts/capturar_2026-08-25.ps1`](../scripts/capturar_2026-08-25.ps1),
 que además **guarda el encabezado** de cada captura en su `log_<SÍMBOLO>_<venc>.txt` — spot, ATM IV,
@@ -63,8 +69,23 @@ el 25 y confirmó el resultado: ver
 
 ```text
 strike, callGEX_musd, putGEX_musd, netGEX_musd, callOI, putOI, callDelta, putDelta,
-callBid, callAsk, putBid, putAsk, pcsCredit_w5, ccsCredit_w5, expirationType
+callBid, callAsk, putBid, putAsk, pcsCredit_w5, ccsCredit_w5, expirationType,
+callIV, putIV
 ```
+
+**`callIV` / `putIV` existen desde el 2026-08-25 por la tarde**, cuando la API empezó a exponer la
+IV por strike (antes la calculaba y la descartaba al mapear). Van al final por la misma razón que
+`expirationType`: no mover las columnas que los scripts ya parsean. Si la API que responde es
+anterior al cambio, las celdas salen vacías y `gex-strikes.ps1` avisa — sin el aviso, un CSV
+válido en todo lo demás con dos columnas vacías es justo la degradación silenciosa que ya costó
+cara dos veces acá.
+
+**No se pueden comparar `callIV` contra `putIV` en el mismo strike.** Por paridad put-call
+deberían coincidir, y no lo hacen: medido sobre SPY, `callIV − putIV` da **+0.019 a +0.024 de
+media cerca del dinero, y nunca es negativo ahí**. Las dos series están en niveles distintos —
+probablemente por el forward/dividendo que asume el proveedor al invertir el precio, más el
+ejercicio temprano del lado put. Cada lado se compara **contra sí mismo a través de strikes**;
+la diferencia entre lados en un mismo strike no significa nada.
 
 **`expirationType` no está en todos los archivos**, y la frontera no es la carpeta sino el momento
 de la captura: se agregó a `gex-strikes.ps1` el 2026-08-24 a raíz del hallazgo del weekly, así que

@@ -276,6 +276,11 @@ if ($SpreadWidth -gt 0) { $header += ",pcsCredit_w$SpreadWidth,ccsCredit_w$Sprea
 # lo que hace que viaje CON el dato -- el encabezado de pantalla se pierde y el nombre del archivo
 # no lo dice. Va al final para no mover las columnas que ya parsean los scripts de research\got.
 $header += ',expirationType'
+# IV por strike y por lado -- la superficie, no un promedio. La API la expone desde el 2026-08-25;
+# antes la calculaba y la descartaba al mapear. Va al final por la misma razon que expirationType:
+# no mover las columnas que ya parsean los scripts. Si la API que responde es anterior al cambio,
+# el campo no viene, las celdas salen vacias y el aviso de mas abajo lo dice.
+$header += ',callIV,putIV'
 $lines.Add($header)
 foreach ($s in ($target.strikes | Sort-Object strike)) {
     $row = '{0},{1},{2},{3},{4},{5},{6},{7}' -f `
@@ -290,9 +295,20 @@ foreach ($s in ($target.strikes | Sort-Object strike)) {
         $row += ',{0},{1}' -f (Num (SpreadCredit $s.strike 'PCS')), (Num (SpreadCredit $s.strike 'CCS'))
     }
     $row += ",$expType"
+    $row += ',{0},{1}' -f (Num $s.callIV), (Num $s.putIV)
     $lines.Add($row)
 }
 Set-Content -Path $csv -Value $lines -Encoding utf8
+
+# Una columna entera vacia es el sintoma de que la API que respondio es anterior a que se
+# expusiera la IV por strike, y el CSV sale igual de valido en todo lo demas -- o sea, es
+# exactamente la clase de degradacion silenciosa que ya costo cara dos veces en este research.
+$conIv = @($target.strikes | Where-Object { $_.callIV -gt 0 -or $_.putIV -gt 0 }).Count
+if ($conIv -eq 0) {
+    Warn 'Ningun strike trajo IV: la API que responde no expone callIV/putIV. Reinicia la API despues de compilar. Las dos columnas del CSV quedan vacias.'
+} elseif ($conIv -lt $target.strikes.Count / 2) {
+    Warn ("Solo {0} de {1} strikes trajeron IV." -f $conIv, $target.strikes.Count)
+}
 
 # ── 5. Lectura en pantalla ────────────────────────────────────────────────────
 $sumCall = ($target.strikes | Measure-Object callGEX -Sum).Sum
