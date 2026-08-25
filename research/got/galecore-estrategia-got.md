@@ -51,7 +51,7 @@
 > Con eso, `WD` (**18**, **19**, **56.2**) y POP como gate de probabilidad (**37**) salen de la
 > definición y llevan errata; la **16** queda superada por la 61; la **98** se reescribió entera; y
 > la **99** lleva la corrección más incómoda: **hoy GOT sí es, casi enteramente, `SELL DELTA X`** —
-> el borde de la banda restringe en 2 de 12 casos.
+> el borde de la banda restringe en 3 de 12 casos, los tres en SPY.
 >
 > Lo que no cambió es que sigue habiendo una hipótesis viva, y ahora es **una sola** (61.9). El muro
 > no restringe, pero tampoco está en el precio: no hay premio de crédito en su borde una vez
@@ -2242,7 +2242,7 @@ sin banda dominante en ese lado:   ZONA = { K : |delta(K)| <= delta_max }
 
 **Ata la más restrictiva de las dos**, y cuál ata **se registra**: es el dato que dice si la
 estructura aportó algo en esta evaluación o si el candidato salió de un corte de delta. Medido
-sobre el dataset, ata la banda en **2 de 12** casos (61.6).
+sobre el dataset, ata la banda en **3 de 12** casos (61.6).
 
 **El régimen modula `delta_max`, no la banda.** Con `netGEX < 0` los dealers amplifican y el muro
 es peor defensa, así que el delta máximo admitido baja. Con `netGEX > 0` puede subir. Cuánto, sin
@@ -2308,6 +2308,30 @@ declara es que el umbral existe y que su ausencia es un resultado válido.
 puntos en SPY. Parte de eso es aritmética —la banda crece hacia afuera— pero no todo, y no hay
 todavía nada que fije su valor.
 
+### Dos defectos del test `xdisj`, encontrados el 2026-08-25 por la noche
+
+Aparecieron al recalcular el ejemplo de la 61.7 con el Expected Move de la 15 en vez del proxy del
+script. **Los dos afectan al veredicto, no al borde**, que se mantiene estable:
+
+* **La ventana es continua y la grilla de strikes no.** En SPY 16-Oct CALL, con `W = 9.8` la banda
+  llega a 799.8 y **deja afuera el strike 800**; con `W = 10.6` llega a 800.5 y lo incluye. Ese
+  strike solo vale 6.5% del lado, y con él el `xdisj` pasa de **1.01x a 1.22x**. Un strike redondo
+  decide si hay muro. **La banda debería anclarse a strikes, no a un ancho continuo.**
+* **El competidor disjunto puede ser la pila del dinero.** El 1.01x de ese mismo caso sale de
+  comparar la banda 790–800 contra **766–776, pegada al spot** (765.45). Los strikes cercanos al
+  dinero siempre concentran gamma; medir un muro contra eso no dice si el muro es único. **El
+  competidor relevante es otra concentración en el ala**, que es lo que sí ocurre en TSLA 18-Sep
+  CALL — 367–377 contra 400–409, a $30 de distancia y con el spot lejos de las dos.
+
+Ninguno se arregla acá: cambiar cómo se construye la banda es cambiar la definición, y el arreglo
+hay que medirlo antes de escribirlo — que es la disciplina que este research aprendió a los golpes.
+Lo que sí cambia ya es que **el script no imprime un veredicto de "hay muro"**: imprime `xmed`,
+`xdisj` y contra qué banda compite, y avisa cuando el competidor está pegado al spot.
+
+**Consecuencia práctica hasta que se arregle:** un `xdisj` cerca de 1 hay que mirarlo antes de
+creerle. Si el competidor está en el dinero, el test no midió nada; si está en el ala, como en TSLA,
+el empate es real y "no hay muro" es la respuesta correcta.
+
 ## 61.5 Lo que las mediciones ya contestaron
 
 De las seis preguntas de la versión original:
@@ -2333,10 +2357,17 @@ De las seis preguntas de la versión original:
 El test era: **si la zona resulta ser una función monótona del delta, GOT no agrega nada sobre
 "vendé delta 0.15"**. Dos mediciones lo contestan.
 
-**Primera: el borde de la banda restringe en 2 de 12 casos**, y los dos son SPY del lado call (delta
-0.126 y 0.174). En los otros diez el borde cae a **delta 0.21–0.32**, o sea *más cerca del dinero*
-que donde la ventana de delta ya vendía. No es sólo que el muro de put no restrinja — casi ningún
-muro restringe.
+**Primera: el borde de la banda restringe en 3 de 12 casos**, y **los tres son SPY** (call a delta
+0.136 y 0.174; put a 0.188). En los otros nueve el borde cae a **delta 0.22–0.33**, o sea *más cerca
+del dinero* que donde la ventana de delta ya vendía. No es sólo que el muro de put no restrinja —
+casi ningún muro restringe.
+
+> **Corregido el 2026-08-25 por la noche.** Este conteo decía **2 de 12**, "los dos SPY del lado
+> call". Estaba medido con el proxy `EM*` del script y no con el Expected Move de la 15, que es el
+> que manda el paso 3 del procedimiento. Con el EM correcto, SPY 16-Oct PUT también ata —su banda
+> pasa de 729–740 a 724–734, y el borde de delta 0.211 a 0.188— y el conteo es 3. Once de doce no se
+> mueven y la lectura no cambia. Detalle en
+> [el hallazgo de esa noche](hallazgos/2026-08-25-el-test-de-banda-depende-del-EM.md).
 
 Y la fuerza del muro no tiene nada que ver con eso: TSLA 16-Oct PUT es la pared más nítida de todo
 el dataset —43% del GEX del lado, `xmed` 15.8x, `xdisj` 2.46x, estable entre dos días— y no ata,
@@ -2396,29 +2427,93 @@ candidato que salió de la estructura de uno que salió de un corte de delta.
 **9 · Lo que la zona NO afirma.** Distancia, sí. Cuál condición ata, sí. Cuánto paga cada lado, sí.
 **Probabilidad estructuralmente favorable, no** — eso depende de la 61.9 y hoy no está medido.
 
-### El ejemplo trabajado — SPY 16-Oct '26, capturado el 2026-08-25
+### Ejemplo 1 — SPY 16-Oct '26: el borde es estable, el veredicto todavía no
 
-`spot 765.45 · ATM IV 0.1351 · DTE 52 · Net GEX −54.7 B · ZGL 764.27 · EM ±39.0`
+> **Corregido el 2026-08-25 por la noche.** La primera versión de este ejemplo daba el lado call
+> como *"ata la ESTRUCTURA"* con `xdisj 1.31x`, y ese número estaba calculado con el `EM*` del
+> script —el proxy de 1 sigma— en vez de con el Expected Move de la 15, que es el que este mismo
+> procedimiento manda usar en el paso 3. Con el EM real el `xdisj` de ese lado da **1.01x**. La
+> conclusión se invierte y el ejemplo pasa a ilustrar otra cosa: los dos defectos del test de banda
+> que la 61.4 tiene ahora anotados.
+
+`spot 765.45 · ATM IV 0.1351 · DTE 52 · Net GEX −54.7 B · ZGL 764.27 · EM ±39.0 · W 9.8`
 
 ```text
-CALL SELL ZONE    K >= 800        ata la ESTRUCTURA
-                  banda 790-800 (33.1% del lado, xmed 2.0x, xdisj 1.31x), borde 800
-                  delta 0.172 · 0.89 EM · 800/805 credito 0.82 · credito/width 0.164
+PUT    banda 724.2-734.0   19.5% del lado   xmed 3.4x   xdisj 1.23x contra 748-758
+       borde 724.2 -> delta 0.184, 1.06 EM        delta_max 0.20 -> K 727 (delta 0.197)
 
-PUT  SELL ZONE    K <= 728        ata el DELTA - no hay muro util
-                  banda 730-740 (22.9%) pero xdisj 1.25x contra 720-730: no domina
-                  delta 0.200 · 0.96 EM · 730/725 credito 0.58 · credito/width 0.116
+CALL   banda 790.0-799.8   26.6% del lado   xmed 1.6x   xdisj 1.01x contra 766-776 (!)
+       borde 799.8 -> delta 0.172, 0.88 EM        delta_max 0.20 -> K 800 (delta 0.172)
 ```
 
-Las dos etiquetas de la derecha son el producto. Del lado call la estructura empuja de 796 (delta
-0.20) a 800: son $4, o 0.10 EM — modesto, pero es un número que el delta no daba. Del lado put el
-borde cae a delta 0.211 y el corte de delta a 728: el muro queda **$2 adentro** de donde ya se
-vendía, así que no aporta.
+**El borde del lado call es sólido: 800.** Barriendo el ancho de banda de 0.15 a 0.40 EM se mueve
+entre 798.6 y 800.9 — el paso 6 devuelve el mismo número siempre.
 
-Y hay un segundo argumento apuntando al mismo lado: el call paga **0.164** de crédito por unidad de
-ancho a delta 0.172, contra **0.116** a delta 0.211 del put. Más lejos y paga más. Es el sesgo por
-lado de la 43.4 —SPY 1.81x a favor del call— apareciendo concreto en este vencimiento, y coincide
-con lo que dice la estructura y con la asimetría del ZGL de la 62.3.
+**Lo que no es sólido es el paso 5**, y este caso muestra por qué. El `xdisj` del lado call salta de
+**1.01x a 1.22x** con un cambio del 8% en `W`, porque a `W = 9.8` la banda llega a 799.8 y **deja
+afuera el strike 800**, que solo vale un 6.5% del lado. Un strike redondo decide el veredicto.
+
+Y el competidor que produce ese 1.01x es la banda **766–776, pegada al spot**. Comparar un muro
+contra la pila de gamma que siempre hay en el dinero no mide lo que el test quiere medir.
+
+Los dos defectos están anotados en la 61.4 y **no se arreglan acá**: arreglarlos es cambiar la
+definición, y hay que medir el arreglo antes de escribirlo.
+
+Lo que el ejemplo sí deja, y no depende del test:
+
+* El lado call paga **0.164** de crédito por unidad de ancho a delta 0.172, contra **0.108** a delta
+  0.197 del put. Más lejos y paga más — el sesgo por lado de la 43.4 (SPY 1.81x a favor del call)
+  apareciendo concreto, y coincidiendo con la asimetría del ZGL de la 62.3.
+* El `spot − ZGL` es `+0.030 EM`: banda muerta, el ZGL no dice nada acá.
+
+### Ejemplo 2 — TSLA 18-Sep '26: no hay muro de un lado, y del otro el muro no restringe
+
+`spot 351.11 · ATM IV 0.4152 · DTE 24 · Net GEX −3.0 B · ZGL 352.42 · EM ±37.4 · W 9.3`
+
+```text
+PUT    banda 335.7-345.0   28.8% del lado   xmed 6.1x   xdisj 1.93x contra 321-330
+       borde 335.7 -> delta 0.308, 0.41 EM        delta_max 0.20 -> K 320 (delta 0.180)
+       -> ata el DELTA
+
+CALL   banda 367.5-376.8   16.9% del lado   xmed 8.3x   xdisj 1.01x contra 400-409
+       -> NO HAY MURO: dos concentraciones empatadas, a $30 una de otra
+       -> ata el DELTA
+```
+
+**A diferencia del ejemplo 1, acá los dos veredictos son robustos:** con `W` de 9.3 o de 9.95 las
+bandas, los `xmed` y los `xdisj` no se mueven ni en el segundo decimal. Es el caso limpio.
+
+**El lado call es el primer "no hay muro" del dataset trabajado de punta a punta.** La pantalla
+muestra `Call Wall 400` y eso es un empate, no una pared:
+
+```text
+400    1.296 M    OI 18.945     banda 400.0-409.3  =  16.8% del lado
+370    1.115 M    OI  9.628     banda 367.5-376.8  =  16.9% del lado
+```
+
+El argmax eligió 400 porque le gana a 370 por un 16%. Si hubiera elegido 370, la zona se corría $30.
+Es también el caso que la 61.4 usa para justificar los **dos** tests: `xmed` da 8.3x —parece muy
+concentrado— y sólo `xdisj` delata que la concentración está en dos lugares. Con "no hay muro" la
+zona degrada limpio a `delta_max`: **K ≥ 390**, delta 0.192.
+
+**El lado put tiene un muro real que igual no sirve de cota.** `xdisj 1.93x` y `xmed 6.1x`: pasa los
+dos tests con holgura, y el competidor está afuera en el ala, no pegado al spot. Pero su borde cae en
+**335.7, delta 0.308**, y el corte de delta 0.20 cae en **320**: el muro queda $16 *adentro* de donde
+ya se vendía. Ata el delta.
+
+Es la ilustración exacta de lo que mide la 61.6: **la fuerza del muro y su capacidad de restringir no
+tienen relación.** Este put wall es de los más nítidos del dataset y no restringe nada.
+
+Y es el mejor candidato que produjo cualquiera de los dos ejemplos **bajo la lectura de permiso** que
+la 61.6 deja sin implementar: vender el 335 con esos 9 puntos de gamma encima paga **0.280** por
+unidad de ancho, contra 0.120 a delta 0.147. Más del doble. Es exactamente el trade que no se puede
+tomar hasta que la 61.9 esté medida, porque es ahí donde equivocarse cuesta plata.
+
+Dos salvedades del caso: es la **única** toma de este vencimiento, así que no hay test de estabilidad
+temporal; y TSLA no es universo de calibración (4) sino el caso de control — tener un símbolo con la
+superficie invertida es lo que hace visibles estos errores. El sesgo por lado se ve acá también, y al
+revés que en SPY: el put paga 0.150 a delta 0.180 contra 0.120 a delta 0.192 del call.
+
 
 ## 61.8 Lo que quedó descartado, y por qué
 
@@ -2430,7 +2525,7 @@ costo de este research fue redescubrir cuatro veces la misma cosa:
 | `WD` y `WD_min = 0.20` | 18, 19 | Dentro de un vencimiento es una cota de delta (43.2). El muro solo aporta un offset constante |
 | `d_min × EM` como condición | 61.3, versión de la mañana | ρ = −1.0000 contra el delta en las 12 combinaciones. Es un corte de delta |
 | El muro como argmax de un strike | 13, 61.4 versión de la mañana | No es una concentración (≤19% del lado) y salta. Reemplazado por la banda |
-| `PUT < PutWall` / `CALL > CallWall` a secas | 16 | Con el muro como argmax no restringe nada; con la banda, restringe en 2 de 12 |
+| `PUT < PutWall` / `CALL > CallWall` a secas | 16 | Con el muro como argmax no restringe nada; con la banda, restringe en 3 de 12 |
 | El ZGL como borde o condición de rechazo | 61 versión original | Las seis capturas lo cruzan del lado put: rechazaría todo, siempre (62.2) |
 | Un "borde externo estructural" | — | No existe. La estructura fija el borde interno; el externo lo pone el crédito (61.2) |
 | El crédito como evidencia de que el muro paga | — | No hay premio: z medio +0.56 ± 0.90 descontando el delta |
@@ -3386,7 +3481,7 @@ Independientes de esa decisión, y siguen abiertos:
 > sistemático"*. Las mediciones del 25 dicen lo contrario en las dos cosas:
 >
 > * **Hoy sí es, casi enteramente, `SELL DELTA X`.** `WD`, `d_min × EM`, `RequiredCredit` y POP
->   resultaron ser todos el mismo eje, y el borde de la banda de gamma restringe en **2 de 12**
+>   resultaron ser todos el mismo eje, y el borde de la banda de gamma restringe en **3 de 12**
 >   casos. Lo que la estrategia agrega sobre un corte de delta es, medido, dos casos de SPY del lado
 >   call.
 > * **El backtest no es la etapa que sigue: es la única etapa.** No queda ninguna otra pregunta

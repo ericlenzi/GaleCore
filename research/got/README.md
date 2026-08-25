@@ -22,9 +22,10 @@ tal cual a `docs/got/` y se sigue el checklist de "Estrategias — convención" 
 > camino crítico para pasar a ser **el único camino**.
 
 **Las definiciones están cerradas.** La Sell Zone quedó definida en la
-[§61](galecore-estrategia-got.md), con su procedimiento paso a paso en la §61.7, un ejemplo
-trabajado sobre SPY 16-Oct, y la tabla de lo descartado en la §61.8. El corte entre definido,
-validado, descartado y pendiente está en la §98.
+[§61](galecore-estrategia-got.md), con su procedimiento paso a paso en la §61.7, dos ejemplos
+trabajados —SPY 16-Oct y TSLA 18-Sep, que es el caso donde el veredicto es "no hay muro"— y la tabla
+de lo descartado en la §61.8. El corte entre definido, validado, descartado y pendiente está en la
+§98.
 
 **Queda una sola pregunta abierta, y bloquea a todas las demás** (§61.9):
 
@@ -94,7 +95,8 @@ flujo desde otro ángulo y quedaron con errata apuntando ahí.
 | [2026-08-24](hallazgos/2026-08-24-sesgo-por-lado-spy-qqq.md) | La predicción de la §43.4: el sesgo put-only, ¿es del modelo o de TSLA? | Es de TSLA, y **se invierte**: sobre SPY y QQQ el filtro sesga a CALL (1.8x / 1.6x) | Aplicado — reescritas la §43.4 y la §43.5 |
 | [2026-08-24](hallazgos/2026-08-24-el-4-sep-es-un-weekly.md) | Los vencimientos capturados contra el alcance del bucle recién definido en la §47.1 | El `2026-09-04` es un **weekly**: todo lo que el v5 concluyó sobre DTE corto está medido sobre un contrato que el flujo no recorre | Aplicado — anotado en la §47.1, en el pendiente de la §98 y en `data/README.md`; y `gex-strikes.ps1` ahora registra el tipo (columna `expirationType` + aviso al capturar) |
 | [2026-08-25](hallazgos/2026-08-25-el-sesgo-aguanta-con-book-vivo.md) | El pendiente de la §43.4: el sesgo por lado, ¿es real o es un artefacto de haber cotizado post-cierre? | Es **real** — con book vivo y más ajustado los seis cocientes conservan signo y escala. Trae dos cosas que no se buscaban: un piso de ruido día a día de hasta 0.15, y que `-QuoteBandPct 12` **trunca la cadena** en símbolos de IV alta | Aplicado — la §43.4 lleva la confirmación y la §98 movió el pendiente a validado, con dos pendientes nuevos; `gex-strikes.ps1` avisa cuando la banda no llega al delta 0.10 y `skew_por_lado.py` marca la fila inválida y la deja fuera del agregado; `data/README.md` aclara que el `-QuoteBandPct` del ejemplo es el de SPY |
-| [2026-08-25](hallazgos/2026-08-25-el-muro-como-banda.md) | El umbral de dominancia que pide la §61.4, y la validación que la §61.6 llama "la que puede matar todo" | La **banda** reemplaza al argmax y es estable (5 de 6 series), fallando sólo donde su propia métrica la marca floja. Pero el borde **restringe en 2 de 12** casos, y **no hay premio de crédito** atribuible al muro (z medio +0.56 ± 0.90). Con `d_min × EM` dando ρ = −1.0000 contra el delta, **la zona de la §61.3 no tiene contenido independiente del delta** | Aplicado — la §61 se reescribió como definición canónica (§61.3 a §61.6 reescritas, §61.7 procedimiento + ejemplo, §61.8 descartes, §61.9 la hipótesis única); erratas en §16, §18, §19, §37, §56.2 y §99; §98 reescrita entera; y este README corrigió el "modo estudio". **Queda pendiente la decisión de universo de su §6** |
+| [2026-08-25](hallazgos/2026-08-25-el-muro-como-banda.md) | El umbral de dominancia que pide la §61.4, y la validación que la §61.6 llama "la que puede matar todo" | La **banda** reemplaza al argmax y es estable (5 de 6 series), fallando sólo donde su propia métrica la marca floja. Pero el borde **restringe en 2 de 12** casos, y **no hay premio de crédito** atribuible al muro (z medio +0.56 ± 0.90). Con `d_min × EM` dando ρ = −1.0000 contra el delta, **la zona de la §61.3 no tiene contenido independiente del delta** | Aplicado — la §61 se reescribió como definición canónica (§61.3 a §61.6 reescritas, §61.7 procedimiento + ejemplo, §61.8 descartes, §61.9 la hipótesis única); erratas en §16, §18, §19, §37, §56.2 y §99; §98 reescrita entera; y este README corrigió el "modo estudio". **Queda pendiente la decisión de universo de su §6.** Su conteo de restricción lo corrigió el hallazgo de esa noche: 3 de 12, no 2 |
+| [2026-08-25 (noche)](hallazgos/2026-08-25-el-test-de-banda-depende-del-EM.md) | El ejemplo de la §61.7 recalculado con el Expected Move de la §15 en vez del proxy `EM*` del script | El proxy difiere 5–8% y **eso mueve un veredicto**: el conteo de restricción pasa de 2 a **3 de 12** (SPY 16-Oct PUT también ata). Y aparecen **dos defectos de `xdisj`** — se decide por si un strike redondo entra en la ventana, y puede estar compitiendo contra la pila de gamma del dinero | Aplicado — la §61.4 lleva los dos defectos, la §61.7 recalculó el ejemplo de SPY y ganó el de TSLA 18-Sep, el conteo quedó corregido en §61.3, §61.6, §61.8, §99 y el encabezado, y el script dejó de imprimir un veredicto de "hay muro" |
 
 Los hallazgos no se editan cuando se aplican: la columna **Estado** de este índice es la que
 lleva la cuenta. El hallazgo queda como el registro de qué se encontró y cuándo.
@@ -156,7 +158,7 @@ Python 3.10+, sin dependencias externas. En consola Windows correr con `PYTHONIO
 | [`recheck_econ.py`](scripts/recheck_econ.py) | Recalcula el filtro económico del v5 (`RRreq`, `RequiredCredit`, `Cushion`, `WD_min`, `MaxRisk`) sobre los dos datasets de TSLA, mostrando el crédito correcto contra el que usó el v5 | [crédito CALL](hallazgos/2026-08-24-credito-call-columna-equivocada.md) |
 | [`skew_por_lado.py`](scripts/skew_por_lado.py) | Mide cuánto paga cada lado de la cadena por unidad de delta, por símbolo y vencimiento | [sesgo por lado](hallazgos/2026-08-24-sesgo-por-lado-spy-qqq.md) |
 | [`vencimientos_regulares.py`](scripts/vencimientos_regulares.py) | Cuántos vencimientos regulares entran en el bucle de la §47 según el día, y si una fecha dada es regular o weekly | §47.1 |
-| [`banda_de_gamma.py`](scripts/banda_de_gamma.py) | El muro como banda en vez de argmax: si `d_min × EM` es delta, si la banda es estable, si su borde restringe, y si paga un premio que sobreviva a descontar el delta | [el muro como banda](hallazgos/2026-08-25-el-muro-como-banda.md) |
+| [`banda_de_gamma.py`](scripts/banda_de_gamma.py) | El muro como banda en vez de argmax: si `d_min × EM` es delta, si la banda es estable, si su borde restringe, y si paga un premio que sobreviva a descontar el delta. Su **sección 5** corre los dos ejemplos de la §61.7 con el EM real, que es la única parte que sigue el procedimiento tal como está definido | [el muro como banda](hallazgos/2026-08-25-el-muro-como-banda.md) · [el test depende del EM](hallazgos/2026-08-25-el-test-de-banda-depende-del-EM.md) |
 
 ```bash
 PYTHONIOENCODING=utf-8 python research/got/scripts/skew_por_lado.py
@@ -198,7 +200,7 @@ pena calibrar. El detalle, en la §98 del documento.
 * **Solapamiento con RPF.** Los dos son venta de prima de riesgo definido, alerts-only, sobre
   GEX/ZGL/walls, con push por socket. La diferencia real es el eje de decisión. Conviene decidir si
   GOT es una tercera estrategia o la evolución del motor de RPF antes de duplicar la maquinaria.
-  **Revisado el 2026-08-25:** con el borde de la banda restringiendo en 2 de 12 casos y sin premio
+  **Revisado el 2026-08-25:** con el borde de la banda restringiendo en 3 de 12 casos y sin premio
   de crédito, la diferencia de eje se achicó bastante. Si la §61.9 no se mide, no queda diferencia.
 
 ### Decidido el 2026-08-25, falta implementar

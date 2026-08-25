@@ -145,6 +145,8 @@ def medir(rows, spot, em, lado, frac=FRAC_EM):
         pct=mejor[0] / total * 100,
         xmed=mejor[0] / mediana if mediana else 0.0,
         xdisj=mejor[0] / disjunta[0] if disjunta and disjunta[0] else float('inf'),
+        disj_lo=disjunta[1] if disjunta else float('nan'),
+        disj_hi=disjunta[2] if disjunta else float('nan'),
         em=em, spot=spot,
     )
 
@@ -375,6 +377,77 @@ def seccion_4_sensibilidad(carpeta):
     print('  CALL, y las dos estaban marcadas por xdisj ~ 1.0x.')
 
 
+# Encabezado de cada captura, tal como lo imprime gex-strikes.ps1 en pantalla. NO va al CSV, asi
+# que se transcribe -- mismo criterio que recheck_econ.py. Sirve para el EM de la 15
+# (`spot * atmIv * sqrt(dte/365)`), que es el que usa el procedimiento de la 61.7; el EM* de las
+# secciones 0-4 es otro numero y no se mezclan (ver DEFINICIONES).
+#
+# El DTE es el REAL mirando desde el dia de captura, no el que imprime el encabezado: en la tanda
+# del 2026-08-25 los de SPY y TSLA salieron corridos un dia (ver data/README.md).
+ENCABEZADOS = {
+    ('2026-08-25', 'TSLA', '2026-09-18'): dict(spot=351.105, iv=0.4152, dte=24, zgl=352.42),
+    ('2026-08-25', 'TSLA', '2026-10-16'): dict(spot=351.105, iv=0.4206, dte=52, zgl=364.08),
+    ('2026-08-25', 'SPY', '2026-09-18'): dict(spot=765.23, iv=0.1306, dte=24, zgl=765.94),
+    ('2026-08-25', 'SPY', '2026-10-16'): dict(spot=765.23, iv=0.1367, dte=52, zgl=764.39),
+    ('2026-08-25', 'QQQ', '2026-09-18'): dict(spot=710.595, iv=0.1971, dte=24, zgl=709.00),
+    ('2026-08-25', 'QQQ', '2026-10-16'): dict(spot=710.595, iv=0.2032, dte=52, zgl=708.85),
+    ('2026-08-25-t2', 'SPY', '2026-09-18'): dict(spot=765.45, iv=0.1288, dte=24, zgl=765.94),
+    ('2026-08-25-t2', 'SPY', '2026-10-16'): dict(spot=765.45, iv=0.1351, dte=52, zgl=764.27),
+}
+
+# Los dos ejemplos trabajados de la 61.7: uno donde la banda ata y otro donde no hay muro.
+EJEMPLOS = (('2026-08-25-t2', 'SPY', '2026-10-16'), ('2026-08-25', 'TSLA', '2026-09-18'))
+
+
+def seccion_5_ejemplos():
+    """Los ejemplos de la 61.7, corridos con el EM de la 15 y no con el EM* de las secciones 0-4.
+
+    Es el unico lugar del script que sigue el procedimiento tal como esta definido: el resto mide
+    la banda con un proxy para poder recorrer capturas que no traen encabezado.
+    """
+    print('\n' + '=' * 100)
+    print('5. EJEMPLOS TRABAJADOS -- el procedimiento de la 61.7, con el EM real')
+    print('=' * 100)
+    for tanda, sym, exp in EJEMPLOS:
+        h = ENCABEZADOS[(tanda, sym, exp)]
+        spot, zgl = h['spot'], h['zgl']
+        em = spot * h['iv'] * (h['dte'] / 365.0) ** 0.5
+        path = os.path.join(ROOT, tanda, f'{sym}_gex_{exp}.csv')
+        rows = list(csv.DictReader(open(path, encoding='utf-8-sig')))
+        print(f'\n  {sym} {exp} [{tanda}]  spot {spot:.2f}  atmIv {h["iv"]:.4f}  DTE {h["dte"]}'
+              f'  ->  EM {em:.1f}   W = {FRAC_EM * em:.1f}')
+        print(f'    paso 2 · spot - ZGL = {spot - zgl:+.2f} = {(spot - zgl) / em:+.3f} EM')
+        for lado in ('PUT', 'CALL'):
+            m = medir(rows, spot, em, lado)
+            if not m:
+                continue
+            dcol = 'putDelta' if lado == 'PUT' else 'callDelta'
+            tabla = sorted([(num(r, 'strike'), abs(num(r, dcol) or 0)) for r in rows
+                            if num(r, 'strike') is not None and num(r, dcol) is not None])
+            d_borde = delta_en(tabla, m['borde'])
+            venta = [x for x in vendibles(rows, lado)
+                     if ((x[0] < spot) if lado == 'PUT' else (x[0] > spot))]
+            dmax = min((x for x in venta if x[1] <= DELTA_REF),
+                       key=lambda x: abs(x[1] - DELTA_REF), default=None)
+            # de que lado esta el competidor disjunto: pegado al spot, o afuera en el ala
+            comp = m['disj_lo'] if lado == 'CALL' else m['disj_hi']
+            atm = abs(comp - spot) / em < 0.15
+            print(f'    {lado:4s} paso 4 · banda {m["lo"]:.1f}-{m["hi"]:.1f}  {m["pct"]:.1f}% del lado')
+            print(f'         paso 5 · xmed {m["xmed"]:.1f}x  xdisj {m["xdisj"]:.2f}x'
+                  f'  contra {m["disj_lo"]:.0f}-{m["disj_hi"]:.0f}'
+                  f'{"  [PEGADA AL SPOT: ver 61.4]" if atm else ""}')
+            print(f'         paso 6 · borde {m["borde"]:.1f}  delta {d_borde:.3f}'
+                  f'  {abs(m["borde"] - spot) / em:.2f} EM')
+            if dmax:
+                print(f'         paso 7 · delta_max {DELTA_REF:.2f}  ->  K {dmax[0]:.0f}'
+                      f'  delta {dmax[1]:.3f}  credito {dmax[2]:.2f}  c/w {dmax[2] / WIDTH:.3f}')
+            print(f'         paso 8 · con muro ata {"la BANDA" if d_borde < DELTA_REF else "el DELTA"}'
+                  f'; sin muro ata el DELTA')
+    print('\n  NO se imprime un veredicto de "hay muro": el umbral de xmed y xdisj todavia no esta')
+    print('  declarado (61.4), y con SPY 10-16 CALL se ve por que -- su xdisj salta de 1.01x a 1.22x')
+    print('  con un cambio del 8% en el ancho de banda, porque el strike 800 entra o no entra.')
+
+
 def main():
     pedida = sys.argv[1] if len(sys.argv) > 1 else '2026-08-25'
     carpeta = os.path.join(ROOT, pedida)
@@ -386,6 +459,7 @@ def main():
     seccion_2_restriccion(carpeta)
     seccion_3_premio(carpeta)
     seccion_4_sensibilidad(carpeta)
+    seccion_5_ejemplos()
     return 0
 
 
