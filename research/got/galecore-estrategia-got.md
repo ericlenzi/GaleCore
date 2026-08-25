@@ -979,6 +979,35 @@ si el MaxRisk se mantiene como límite absoluto.
 > el recálculo nadie lo había notado porque se lo evaluaba después del económico y sobre
 > candidatos que ya venían filtrados. Ver el Hallazgo 9.
 
+> **Extendido el 2026-08-25: no es de TSLA, y no es un problema de calibración.**
+>
+> Sobre la tanda en sesión —tres símbolos, los dos vencimientos regulares del bucle, los dos
+> lados, los tres objetivos de delta— **pasa 1 de 36 candidatos**. El maxloss va de $395 a
+> $480. El único que entra es SPY `2026-10-16` del lado CALL, con $395 y **delta 0.215**: o
+> sea que el único candidato que sobrevive a `MaxRisk` es uno que el techo de `WD` ya había
+> descartado. Reproducible con
+> [`scripts/maxloss_por_candidato.py`](scripts/maxloss_por_candidato.py).
+>
+> Y la aritmética muestra que **el umbral no tiene un valor bueno**, solo anchos donde es
+> vacuo y anchos donde es letal. Con un ancho `w`, la pérdida máxima posible es `w × 100`:
+>
+> | Width | Qué hace `MaxRisk = $400` |
+> |---|---|
+> | 1.0 | maxloss máximo posible $100 — **no puede rechazar nada** |
+> | 2.5 | maxloss máximo posible $250 — **no puede rechazar nada** |
+> | 5.0 | exige `Credit/Width ≥ 0.20` → delta del short **≥ ~0.20** |
+> | 10.0 | exige `Credit/Width ≥ 0.60` → delta del short **≥ ~0.60** |
+>
+> El paso de "no rechaza nada" a "exige delta 0.20" ocurre en `w = 4`, sin nada gradual en el
+> medio. Y del lado donde corta, lo que impone es **un piso de delta** —porque `Credit/Width`
+> no supera aproximadamente el delta del short leg— que compite de frente con el techo que le
+> pone `WD`. Los dos filtros terminan pidiendo cosas contrarias sobre la misma variable, que
+> es el mismo error de estructura que la 43.2 encontró entre `RequiredCredit` y `WD`.
+>
+> Por eso `MaxRisk` no se recalibra: **un límite en dólares absolutos no expresa el riesgo que
+> uno quiere tomar**, es una consecuencia del ancho y del precio del subyacente. La salida es
+> la de la 72 — riesgo como porcentaje del capital.
+
 # 40. Liquidez
 
 Todavía falta cerrar formalmente el filtro de liquidez.
@@ -1491,10 +1520,14 @@ Marcas del diagrama: `[OK]` definido · `[~]` provisional o sin calibrar · `[ ]
         OI   bid/ask   liquidez   slippage                [ ] sin definir (40, 41, 69)
                               |
                               v
-   NIVEL 5 - RIESGO Y ANCHO                     Width y MaxRisk se calibran JUNTOS
-        MaxLoss = (Width - Credit) x 100                  [X] MaxRisk 400 con width 5
-        MaxLoss <= MaxRisk                                    elimina el 100% (39)
-                              |                           [ ] o pasar a % del capital
+   NIVEL 5 - RIESGO Y ANCHO                     el limite en dolares es funcion
+        MaxLoss = (Width - Credit) x 100         del ancho, no del riesgo que
+        MaxLoss <= MaxRisk                       uno quiere tomar
+                              |                           [OK] la formula del MaxLoss
+                              |                           [X] MaxRisk 400: con width 5
+                              |                               pasa 1 de 36, con width
+                              |                               <= 4 no rechaza nada (39)
+                              |                           [ ] riesgo como % del capital (72)
                               v
    NIVEL 6 - EDGE TEST                          ¿la operación tiene ventaja?
                                                           <-- EL GATE ECONÓMICO
@@ -2455,7 +2488,7 @@ Los parámetros se calibran en un período y se prueban en otro.
 | WDFactor | Provisional |
 | Cushion | Definido |
 | POP >= 80% | Provisional |
-| MaxRisk $400 | **Reprobado con width 5** — elimina el 100% de los candidatos (39) |
+| MaxRisk $400 | **Reprobado, y no por su valor** — con width 5 pasa 1 de 36 candidatos, y ese cae fuera de la ventana de delta; con width ≤ 4 no puede rechazar nada (39) |
 | Width | Pendiente de optimización — **acoplado a MaxRisk**, no se calibra solo |
 | Liquidity | Pendiente |
 | Slippage | Pendiente |
@@ -2852,7 +2885,10 @@ rechazo de créditos mayores cuando no compensan el riesgo.
 REPROBADO O INVALIDADO
 0.10–0.20 como región robusta — era el rango barrido, no un resultado (28);
 
-MaxRisk $400 con width 5 — elimina el 100% de los candidatos (39, Hallazgo 9);
+MaxRisk $400 como límite en dólares absolutos — con width 5 pasa 1 de 36 candidatos y ese cae
+fuera de la ventana de delta; con width ≤ 4 no puede rechazar nada. No es un problema de
+calibración: el umbral impone un piso de delta que compite con el techo de WD (39, Hallazgo 9, y
+la extensión del 25/08);
 
 RequiredCredit como gate económico — es un piso de riesgo, no un test de ventaja (43.2);
 
@@ -2878,7 +2914,8 @@ calibración sobre la métrica (hallazgo del 25/08);
 elegir la banda de quotes por símbolo —en múltiplos de EM y no en porcentaje de spot—, porque el
 ±12% que alcanza para SPY trunca la zona vendible de un símbolo de IV alta (hallazgo del 25/08);
 
-recalibrar MaxRisk y Width juntos, o pasar a riesgo como % del capital;
+pasar el riesgo a un porcentaje del capital (72). Ya no es "recalibrar MaxRisk y Width juntos":
+la extensión del 25/08 a la 39 muestra que en dólares absolutos no hay par de valores que sirva;
 
 calibración estadística de RequiredCredit;
 
