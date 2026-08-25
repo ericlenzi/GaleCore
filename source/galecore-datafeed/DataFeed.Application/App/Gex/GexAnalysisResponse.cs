@@ -95,7 +95,11 @@ namespace DataFeed.Application.App.Gex
         public List<GexStrike> Strikes { get; set; } = new();
     }
 
-    /// <summary>Fila de strike. Mismo shape que ValidationGexStrike para que el frontend reuse el chart.</summary>
+    /// <summary>
+    /// Fila de strike. Era el mismo shape que ValidationGexStrike —el de la cascada v1.4.0— para
+    /// que el frontend reusara el chart; desde que se expone la IV por strike es un SUPERCONJUNTO
+    /// de aquel. El chart sigue andando porque solo lee los campos que ya estaban.
+    /// </summary>
     public class GexStrike
     {
         public double Strike { get; set; }
@@ -106,6 +110,22 @@ namespace DataFeed.Application.App.Gex
         public long PutOI { get; set; }
         public double CallDelta { get; set; }
         public double PutDelta { get; set; }
+
+        /// <summary>
+        /// IV por strike y por lado — la superficie de volatilidad, no un promedio.
+        ///
+        /// Se calculaba en cada barrido y se descartaba en el mapeo hasta 2026-08-25. Es el dato
+        /// que gobierna la asimetría entre lados que la investigación de GOT midió (research/got,
+        /// sección 43.4): dos strikes al MISMO delta pueden tener IV muy distinta según la forma
+        /// del smile, y esa pendiente es la que le resta crédito a un vertical y se lo suma al
+        /// otro. Sin la IV por strike, esa asimetría solo se puede inferir de los precios.
+        ///
+        /// La gamma por strike sigue sin exponerse a propósito: es una función suave del
+        /// moneyness, o sea que el delta ya la contiene. Lo que agrega información es lo
+        /// irregular — el open interest y la superficie de IV.
+        /// </summary>
+        public double CallIV { get; set; }
+        public double PutIV { get; set; }
     }
 
     public class GexScanConfig

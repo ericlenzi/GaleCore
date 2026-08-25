@@ -17,7 +17,10 @@ import { GexStrike, MacroRegimeResult, StructureInputs } from './api';
  */
 export const GLOBAL_SCOPE = 'global';
 
-/** Strike tal como llega de la API (mismo shape que ValidationGexStrike). */
+/**
+ * Strike tal como llega de la API. Era el mismo shape que `ValidationGexStrike`; desde que la
+ * API expone la IV por strike (2026-08-25) es un superconjunto de aquel.
+ */
 export interface GexStrikeApi {
   strike: number;
   callGEX: number;
@@ -27,6 +30,13 @@ export interface GexStrikeApi {
   putOI: number;
   callDelta: number;
   putDelta: number;
+  /**
+   * IV por strike y por lado — la superficie, no un promedio. Expuesta el 2026-08-25;
+   * antes se calculaba en el backend y se descartaba al mapear. Opcional porque una
+   * respuesta cacheada de antes de ese cambio no la trae.
+   */
+  callIV?: number;
+  putIV?: number;
 }
 
 export interface GexScopeApi {

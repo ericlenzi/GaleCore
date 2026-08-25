@@ -256,6 +256,8 @@ namespace DataFeed.Application.App.Gex
             PutOI = s.PutOI,
             CallDelta = s.CallDelta,
             PutDelta = s.PutDelta,
+            CallIV = s.CallIV,
+            PutIV = s.PutIV,
         };
 
         // ═══════════════════════════════════════════════════════════════════════
