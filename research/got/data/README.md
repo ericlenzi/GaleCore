@@ -34,6 +34,23 @@ es el vencimiento. El sufijo `-tN` es la salida. Y tiene un premio: la `-t2` est
 la tanda de la mañana sobre los mismos vencimientos, así que es la primera medición de estabilidad
 intradía de la estructura que hay en el dataset.
 
+### El DTE de la tanda de la mañana está corrido un día en SPY y TSLA
+
+Los encabezados de esa tanda dicen **DTE 25 y 53 para SPY y TSLA**, cuando mirando desde el
+2026-08-25 son **24 y 52**. Los de QQQ, capturados en el mismo minuto, están bien.
+
+La causa era el `days-to-expiration` de Tastytrade, que el backend tomaba tal cual: ese día venía
+corrido para SPY y TSLA y correcto para QQQ **a la vez**, y arrastraba un contrato ya vencido
+(`2026-08-24`) al barrido como si fuera el 0DTE. Arreglado el mismo día —
+`GammaExposureHandler.NormalizeExpirations` ahora recalcula el DTE contra la fecha de hoy en ET y
+descarta los vencidos.
+
+**Qué significa para estos archivos:** el `Expected Move` que figura en los logs de SPY y TSLA de
+la mañana se calculó con un día de más, o sea que está **sobreestimado ~2%** (`√(25/24)`). Todo lo
+que se mide en unidades de EM —`WD`, `d_min × EM`— lleva ese sesgo. Es chico y no cambia la
+dirección de ninguna conclusión, pero está. Los CSV en sí no lo llevan: el EM no es una columna.
+La tanda `-t2` y todo lo capturado después están bien.
+
 La tanda del 25 la generó [`scripts/capturar_2026-08-25.ps1`](../scripts/capturar_2026-08-25.ps1),
 que además **guarda el encabezado** de cada captura en su `log_<SÍMBOLO>_<venc>.txt` — spot, ATM IV,
 muros, ZGL y DTE, que es justamente lo que esta página advierte más abajo que el CSV no lleva.

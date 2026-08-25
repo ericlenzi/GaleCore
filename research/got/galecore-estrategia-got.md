@@ -1602,8 +1602,10 @@ la captura periódica antes que de la captura puntual.
 > `/App/Gex/Analysis` —muros, ZGL y GEX— y que eso era deliberado: el muro como propiedad del
 > mercado y no del vencimiento. La medición del día siguiente lo tumbó. **Los muros del agregado
 > están pegados al spot**: en SPY, con spot 764.59, el call wall del agregado cae en 766.0 y el
-> put wall en 764.0, porque el 0DTE aporta −462.8 B de los −1253.6 B totales y concentra su open
-> interest en el dinero. El agregado no describe las paredes del mes, describe el pin de hoy.
+> put wall en 765.0 con spot 765.17, porque los vencimientos cercanos concentran su open interest
+> en el dinero y en el agregado son mayoría. El agregado no describe las paredes del mes, describe
+> el pin de hoy. (Las cifras de la primera versión de esta nota salían de una cadena que incluía un
+> contrato vencido; ver la corrección en la 61.1.)
 >
 > **La estructura sale del vencimiento**, entonces, igual que el Expected Move. Detalle y decisión
 > en la 61.1; qué queda haciendo el ZGL, en la 62.
@@ -2088,15 +2090,34 @@ había fijado el día anterior, y lo fuerza la medición: los muros del agregado
 spot.
 
 ```text
-SPY   spot 764.59   callWall 766.0   putWall 764.0   (15 vencimientos agregados)
-QQQ   spot 709.20   callWall 710.0   putWall 700.0
-TSLA  spot 350.78   callWall 365.0   putWall 340.0
+SPY   spot 765.17   callWall 766.0   putWall 765.0   (15 vencimientos agregados)
+QQQ   spot 709.39   callWall 710.0   putWall 700.0
+TSLA  spot 352.05   callWall 360.0   putWall 340.0
 ```
 
-En SPY el muro de call queda **$1.41 arriba** del spot y el de put **$0.59 abajo**: una zona
-construida sobre eso no separa nada. La causa está en el desglose — el 0DTE aporta **−462.8 B de
-los −1253.6 B** del agregado y concentra su open interest en el dinero. **El agregado no describe
-dónde están las paredes del mes; describe dónde está el pin de hoy.**
+En SPY el muro de call queda **$0.83 arriba** del spot y el de put **$0.17 abajo**: una zona
+construida sobre eso no separa nada. Los vencimientos cercanos concentran su open interest en el
+dinero, y en el agregado son mayoría —quince vencimientos, de los cuales once están dentro de los
+20 DTE—, así que el argmax cae ahí. **El agregado no describe dónde están las paredes del mes;
+describe dónde está el pin de hoy.**
+
+> **Corregido el 2026-08-25 por la tarde.** La primera versión de este párrafo decía que el muro de
+> call quedaba a $1.41 y el de put a $0.59, y atribuía la causa a que *"el 0DTE aporta −462.8 B de
+> los −1253.6 B del agregado"*. Esos números salieron de una cadena que **incluía un contrato
+> vencido**: Tastytrade devolvía el `2026-08-24` —un weekly de lunes que ya había expirado— con
+> `days-to-expiration: 0`, y el backend le creía. Ese "0DTE" era el contrato muerto, y su gamma
+> entraba al agregado.
+>
+> Con la cadena corregida el 0DTE verdadero de SPY aporta **+130.3 B**, o sea que el signo del
+> aporte también estaba invertido: la explicación de la primera versión no era una imprecisión, era
+> otra cosa. **La conclusión no cambia** —los muros del agregado siguen pegados al spot, ahora
+> incluso más— pero el mecanismo es la concentración de OI en el dinero de los cercanos, y no un
+> 0DTE que arrastra el neto hacia abajo.
+>
+> El defecto está arreglado: `GammaExposureHandler.NormalizeExpirations` recalcula el DTE contra la
+> fecha de hoy en ET y descarta los vencidos, congelado por `GammaExposureExpirationTests`. Detalle
+> de por qué el campo del proveedor no es confiable —estaba mal en SPY y TSLA y bien en QQQ **en el
+> mismo minuto**— en el comentario de esa función.
 
 Sigue valiendo lo que la 47.1 dice sobre el `Expected Move` —no está definido para el agregado,
 que no tiene un `t`—, y ahora hay una segunda razón, más fuerte, para bajar todo al vencimiento:
