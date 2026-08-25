@@ -1,7 +1,8 @@
 # GOT Studio V5
 ## Estado integral de la estrategia de opciones — TSLA / SPY / QQQ / SKM
 
-> **Versión:** 5.0 · **Recibido:** 2026-08-24 · **Estado:** diseño avanzado, validación en curso
+> **Versión:** 5.0 · **Recibido:** 2026-08-24 · **Estado:** Sell Zone definida (61); una sola
+> hipótesis abierta, y bloqueante (61.9)
 >
 > Documento **vivo**: se edita en el lugar y la historia la guarda git. Las versiones 1 a 4 están
 > congeladas en [versiones/](versiones/).
@@ -31,6 +32,35 @@
 > Verificación completa, tablas recalculadas y consecuencias en
 > [el hallazgo del 2026-08-24](hallazgos/2026-08-24-credito-call-columna-equivocada.md).
 > Reproducible con [`scripts/recheck_econ.py`](scripts/recheck_econ.py).
+>
+> ---
+>
+> **La Sell Zone quedó definida el 2026-08-25, y el camino para llegar a ella cambió de fondo.** La
+> **61** es ahora la definición canónica: el procedimiento paso a paso está en la **61.7**, un
+> ejemplo trabajado sobre SPY 16-Oct al final de esa misma sección, lo que se descartó y por qué en
+> la **61.8**, y lo único que falta para poder afirmar ventaja en la **61.9**.
+>
+> Lo que cambió: **la zona tenía dos condiciones y una no era estructural.** `d_min × EM` da
+> ρ = −1.0000 contra el delta sobre las doce combinaciones del dataset, o sea que era un corte de
+> delta escrito de otra manera — el mismo defecto que la 43.2 le encontró a `WD`, sobre la variable
+> que lo había reemplazado. Y el muro de la otra condición **no era un objeto medible**: un argmax
+> sobre un strike no es una concentración, nunca pasa del 19% del GEX de su lado y salta $40 en 48
+> minutos. Pasa a ser una **banda** con dos tests de dominancia, y **"no hay muro" es un resultado
+> válido**.
+>
+> Con eso, `WD` (**18**, **19**, **56.2**) y POP como gate de probabilidad (**37**) salen de la
+> definición y llevan errata; la **16** queda superada por la 61; la **98** se reescribió entera; y
+> la **99** lleva la corrección más incómoda: **hoy GOT sí es, casi enteramente, `SELL DELTA X`** —
+> el borde de la banda restringe en 2 de 12 casos.
+>
+> Lo que no cambió es que sigue habiendo una hipótesis viva, y ahora es **una sola** (61.9). El muro
+> no restringe, pero tampoco está en el precio: no hay premio de crédito en su borde una vez
+> descontado el delta. Si frena el precio, es ventaja no cotizada; y eso solo se mide observando
+> `t → t+Δ`, con del orden de 300 observaciones independientes.
+>
+> Evidencia, tablas y reproducción en
+> [el hallazgo del 2026-08-25](hallazgos/2026-08-25-el-muro-como-banda.md).
+> Reproducible con [`scripts/banda_de_gamma.py`](scripts/banda_de_gamma.py).
 >
 > *Fuera de esas secciones, el texto es el recibido el 2026-08-24 sin cambios de contenido. Se
 > repararon además defectos de transcripción del archivo original: un fence sin cerrar que
@@ -386,6 +416,13 @@ Es una referencia probabilística derivada de la volatilidad implícita.
 
 # 16. Sell Zones
 
+> **Superada el 2026-08-25.** La definición vigente es la **61**, y el procedimiento paso a paso la
+> **61.7**. Lo de acá abajo quedó en dos cosas: `Strike < Put Wall` / `Strike > Call Wall` con el
+> muro entendido como **un strike**, que no es un objeto medible (61.4), y una lista de siete
+> validaciones "posteriores" que trataba como etapas en serie lo que resultó ser una sola variable
+> —`WD`, delta, `d_min × EM` y `RequiredCredit` acotan todas el mismo eje (43.2, 61.3)—. Se
+> conserva como historia del diseño.
+
 Las Sell Zones convierten la estructura de mercado en zonas candidatas.
 
 ## 16.1 PUT Sell Zone
@@ -426,6 +463,12 @@ Esto llevó al desarrollo de Wall Distance.
 
 # 18. Wall Distance — definición
 
+> **Descartada el 2026-08-25.** `WD` **no es una variable independiente**: dentro de un vencimiento
+> es una cota de delta. Lo mostró la 43.2 comparándola con la ventana de delta, y lo confirmó la
+> medición de ρ sobre `distancia/EM` — **−1.0000 exacto en las doce combinaciones** del dataset
+> ([hallazgo del 2026-08-25](hallazgos/2026-08-25-el-muro-como-banda.md), §0). El muro solo aporta
+> un offset constante. La zona ya no la usa: ver 61.3 y la tabla de descartes de la 61.8.
+
 Wall Distance mide la separación del strike respecto de la gamma wall correspondiente, normalizada por Expected Move.
 
 PUT
@@ -443,6 +486,11 @@ Expected Move = 59.7
 WD = (330 - 315) / 59.7
    = 0.251
 # 19. WD mínimo
+
+> **Descartado el 2026-08-25**, junto con `WD` (ver la errata de la 18). `WD_min = 0.20` era un
+> corte de delta con otro nombre, y por eso "todavía necesita validación histórica" nunca iba a
+> poder cumplirse: no hay nada propio que validar. Lo que la zona declara hoy es un `delta_max`
+> único, en delta, y una sola vez (61.3).
 
 En los tests recientes se utilizó:
 
@@ -898,6 +946,14 @@ Por eso:
 Cushion es un indicador económico, no el criterio único de selección.
 
 # 37. POP
+
+> **Acotada el 2026-08-25.** La sección ya avisaba que delta y "probabilidad real de éxito" no son
+> lo mismo. La medición del 25 va más lejos y conviene dejarlo escrito acá: **POP, delta, Expected
+> Move y densidad risk-neutral son el mismo objeto** — la distribución implícita en los precios, que
+> es por construcción aquella bajo la cual ningún strike es favorable. Un `POP >= 80%` es un
+> `delta <= 0.20` con otro nombre, y **no puede ser el gate de "probabilidad estructuralmente
+> favorable"**: eso solo puede salir de la brecha contra la probabilidad **empírica** (el edge test
+> de la 43.3) o del open interest, que no es un precio (61.8, 61.9).
 
 POP continúa siendo una validación.
 
@@ -1952,6 +2008,11 @@ WD.
 
 ## 56.2 WD mínimo
 
+> **Sin objeto desde el 2026-08-25.** El sweep que pide esta sección no se puede correr: `WD_min` y
+> `Delta_max` son cotas de la misma variable (43.2), así que barrerlos por separado da una
+> superficie degenerada. `WD` salió de la definición — ver la errata de la 18 y la tabla de la 61.8.
+> Lo que hoy se barre es un `delta_max` único, y no antes de resolver la 61.9.
+
 Actualmente:
 
 WD_min = 0.20
@@ -2079,9 +2140,23 @@ si debe usarse EM implícito puro o una medida ajustada.
 
 # 61. Sell Zones
 
-> **Reescrita el 2026-08-25.** Antes decía que `PUT < PutWall` / `CALL > CallWall` era
+**Esta sección es la definición canónica de la Sell Zone.** La 16 es su versión original y quedó
+superada; la 18 y la 19 definen `WD`, que salió de la zona. El procedimiento paso a paso está en la
+**61.7**, lo que se descartó y por qué en la **61.8**, y lo único que falta para poder afirmar
+ventaja en la **61.9**.
+
+> **Reescrita el 2026-08-25 a la mañana.** Antes decía que `PUT < PutWall` / `CALL > CallWall` era
 > "demasiado simple para ser la versión definitiva" y listaba seis preguntas abiertas. Las
 > mediciones de ese día contestaron tres y reformularon las otras.
+>
+> **Reescrita otra vez el 2026-08-25 a la tarde**, y esta vez el cambio es de fondo: de las dos
+> condiciones que la versión de la mañana puso en la 61.3, **una no era estructural** —`d_min × EM`
+> tiene ρ = −1.0000 contra el delta— y el muro de la otra **no era un objeto medible**, porque un
+> argmax sobre un strike no es una concentración. La zona pasa a definirse por una **banda** de
+> gamma con dos tests de dominancia, más un `delta_max` que se declara por lo que es: un piso de
+> riesgo, no una segunda lectura de la estructura. Las 61.3 a 61.6 están reescritas y las 61.7 a
+> 61.9 son nuevas. Evidencia y reproducción en
+> [el hallazgo del 2026-08-25](hallazgos/2026-08-25-el-muro-como-banda.md).
 
 ## 61.1 Las dos decisiones de alcance
 
@@ -2137,80 +2212,268 @@ Buscar un "borde externo estructural" es buscar algo que no existe.
 
 ## 61.3 La definición
 
-Para un `(vencimiento, lado)`, con `EM` el Expected Move de ese vencimiento:
+> **Reescrita el 2026-08-25 por la tarde.** La versión de la mañana ponía **dos** condiciones sobre
+> el mismo eje —pasar el muro y separarse `d_min × EM`— y advertía contra tratarlas como etapas en
+> serie. El defecto era más grave: **la segunda no es una condición estructural**. Medida sobre las
+> doce combinaciones símbolo × vencimiento × lado, `distancia/EM` tiene **ρ = −1.0000 exacto**
+> contra el delta. Dentro de un vencimiento `EM` es una constante, así que `distancia/EM` es una
+> transformación afín del strike y ordena la cadena igual que el delta, al revés. `d_min × EM` es
+> un corte de delta escrito de otra manera. Ver
+> [el hallazgo del 2026-08-25](hallazgos/2026-08-25-el-muro-como-banda.md), §0.
+
+Para un `(vencimiento, lado)`:
 
 ```text
-ZONA PUT   =  { K  :  K <= PutWall - buffer     Y   (spot - K) >= d_min x EM }
-ZONA CALL  =  { K  :  K >= CallWall + buffer    Y   (K - spot) >= d_min x EM }
+ZONA PUT   =  { K  :  K <= bordeExterno(bandaPut)  - buffer   Y   |delta(K)| <= delta_max }
+ZONA CALL  =  { K  :  K >= bordeExterno(bandaCall) + buffer   Y   |delta(K)| <= delta_max }
+
+sin banda dominante en ese lado:   ZONA = { K : |delta(K)| <= delta_max }
 ```
 
-Dos condiciones sobre el mismo eje, y **ata la más restrictiva de las dos**. No son etapas en
-serie: es el mismo error que la 43.2 encontró entre `WD` y el delta, y no hay que repetirlo.
+**Y las dos condiciones no son de la misma naturaleza, aunque vivan sobre el mismo eje:**
 
-* `buffer` — cuánto hay que pasarse del muro. Sin calibrar.
-* `d_min` — separación mínima en unidades de Expected Move. Es lo que hoy hace `WD_min = 0.20`,
-  aplicado al strike en vez de al muro.
-* **El régimen modula `d_min`, no el muro.** Con `netGEX < 0` los dealers amplifican y el muro es
-  peor defensa, así que la separación exigida sube. Con `netGEX > 0` el muro es el argumento y
-  puede bajar. Cuánto, sin calibrar.
+* **La banda de gamma es la única condición estructural.** Sale del open interest, que es
+  posicionamiento y no precio, y por eso puede contener información que la cadena no tiene. Es lo
+  que define la 61.4.
+* **`delta_max` no es estructura: es el piso de riesgo.** Es lo que hacían `WD_min`, `d_min × EM` y
+  la ventana de delta — las tres son la misma variable (43.2 y el hallazgo del 25). Se declara una
+  sola vez, en delta, y no se disfraza de tres cosas distintas.
+* **`buffer`** — cuánto hay que pasarse del borde de la banda. Sin calibrar.
 
-## 61.4 El muro tiene que ser un objeto antes de ser una referencia
+**Ata la más restrictiva de las dos**, y cuál ata **se registra**: es el dato que dice si la
+estructura aportó algo en esta evaluación o si el candidato salió de un corte de delta. Medido
+sobre el dataset, ata la banda en **2 de 12** casos (61.6).
+
+**El régimen modula `delta_max`, no la banda.** Con `netGEX < 0` los dealers amplifican y el muro
+es peor defensa, así que el delta máximo admitido baja. Con `netGEX > 0` puede subir. Cuánto, sin
+calibrar — y sin observar: las capturas del dataset son **todas** de gamma negativa (62.4).
+
+## 61.4 El muro es una banda, no un strike
+
+> **Reescrita el 2026-08-25 por la tarde.** La versión de la mañana medía la calidad del argmax
+> —concentración y dominancia contra el segundo candidato— y pedía **un umbral de dominancia sobre
+> el argmax**. La medición de la tarde dice que el problema no es el umbral sino el argmax:
+> preguntarle a una distribución cuál es su strike más alto es la pregunta equivocada cuando lo que
+> importa es dónde está acumulado el gamma. Ver
+> [el hallazgo del 2026-08-25](hallazgos/2026-08-25-el-muro-como-banda.md), §1.
 
 `SelectCallWall` es un **argmax sobre un solo strike**: el de mayor `CallGEX` por encima del spot
-con `NetGEX > 0`. Nada en esa definición pide que sea una concentración. Medido sobre las capturas
-del 25:
+con `NetGEX > 0`. Nada en esa definición pide que sea una concentración, y no lo es — nunca pasa
+del 19% del GEX de su lado, y la dominancia contra el segundo candidato baja hasta **1.00x**. En
+SPY 16-Oct el "Call Wall 790" le gana al 797 por un 2%, con los dos a $7 de distancia. Eso predice
+que salta, y salta: el call wall de QQQ 09-18 estuvo en 750 a las 10:12 ET y en 710 a las 11:00 ET
+del mismo día.
 
-| | muro | delta | dist/EM | concentración | dominancia |
+**La banda arregla eso.** El muro de un lado es la ventana de strikes de ancho `W` que maximiza la
+suma de `|GEX|` de ese lado, y la referencia para la zona es su **borde externo** — el más lejos
+del spot.
+
+Con `W = 0.25 × EM`, el mismo SPY 16-Oct del ejemplo de arriba:
+
+| | argmax | dominancia | banda | % del lado | borde |
 |---|---|---|---|---|---|
-| SPY 09-18 CALL | 790 | 0.136 | 0.96 | 8.9% | 1.4x |
-| SPY 09-18 PUT | 760 | 0.413 | 0.20 | 9.3% | 1.4x |
-| SPY 10-16 CALL | 790 | 0.261 | 0.63 | 7.0% | **1.0x** |
-| QQQ 09-18 CALL | 750 | 0.122 | 1.11 | 7.1% | **1.0x** |
-| QQQ 09-18 PUT | 700 | 0.374 | 0.30 | 19.4% | 2.3x |
-| QQQ 10-16 PUT | 700 | 0.405 | 0.20 | 12.1% | 1.2x |
-| TSLA 09-18 PUT | 340 | 0.359 | 0.30 | 15.4% | 1.5x |
-| TSLA 10-16 CALL | 400 | 0.246 | 0.88 | 11.6% | 1.9x |
+| CALL | 790 | **1.02x** | 790–800 | 33.1% | 800 |
+| PUT | 730 | 1.32x | 730–740 | 22.9% | 730 |
 
-**Concentración** es qué fracción del GEX de ese lado está en el strike del muro: nunca pasa del
-19%. **Dominancia** es contra el segundo candidato: va de 1.0x a 2.3x, y con 1.0x el muro y el que
-le sigue están empatados — en QQQ 09-18, empatados y **a $20 de distancia**.
+El argmax es inservible y la banda concentra un tercio del gamma del lado. Y es **estable donde el
+argmax no lo era**: en tres tomas repartidas en dos días —24-ago al cierre, 25-ago a las 10:12 y a
+las 12:00— la banda de call se movió entre 34.5% y 36.7% sin cambiar de lugar.
 
-Eso predice que el muro salta, y se verificó sin buscarlo: el call wall de QQQ 09-18 estaba en
-**750 a las 10:12 ET y en 710 a las 11:00 ET** del mismo día.
+### La banda tiene que pasar dos tests para contar como muro
 
-**Por eso el muro necesita un umbral de dominancia, y si no lo alcanza la respuesta correcta es
-"no hay muro"** — no un argmax inestable. Hoy el sistema siempre devuelve uno. Con "no hay muro"
-la zona queda definida solo por `d_min x EM`, que es una degradación limpia y no un número
-inventado. Es lo que la 66 pide como "calidad de Gamma Wall".
+Que sea la ventana más densa no la hace una concentración. Hacen falta los dos:
+
+* **`xmed`** — la banda contra la ventana **mediana** del mismo lado. Si es ~1x, la "banda más
+  densa" es una banda cualquiera y no hay nada acumulado.
+* **`xdisj`** — la banda contra la mejor ventana **disjunta**. Si es ~1x, hay dos concentraciones
+  empatadas y no hay *un* muro.
+
+Los dos, porque se rompen distinto: TSLA 09-18 CALL da `xmed` 8.6x y `xdisj` 1.01x — muy
+concentrado, en dos lugares a la vez.
+
+**Y detectan las dos formas de inestabilidad.** La única serie del dataset que cambió de banda entre
+tandas (QQQ 09-18 CALL) es también la única con `xmed` de 1.3–1.5x, contra 2.0x–14.8x en SPY. Las
+dos series cuya banda se muda al cambiar el ancho `W` (QQQ 10-16 PUT y TSLA 09-18 CALL) son las dos
+con `xdisj` ~1.0x. La métrica se autodenuncia antes de fallar.
+
+**Cuando no pasan, la respuesta correcta es "no hay muro"** — no un argmax inestable. La zona queda
+definida solo por `delta_max`, que es una degradación limpia. Hoy el sistema siempre devuelve un
+muro; eso es lo que hay que cambiar.
+
+**El umbral numérico todavía no se declara.** Hay **un solo** evento de inestabilidad en el dataset,
+y fijar un corte sobre una observación es exactamente el error del 0.10–0.20 de la 28. Lo que sí se
+declara es que el umbral existe y que su ausencia es un resultado válido.
+
+`W` queda como parámetro libre, y mueve el borde: barrido de 0.15 a 0.40 EM corre el borde hasta ~7
+puntos en SPY. Parte de eso es aritmética —la banda crece hacia afuera— pero no todo, y no hay
+todavía nada que fije su valor.
 
 ## 61.5 Lo que las mediciones ya contestaron
 
-De las seis preguntas de la versión anterior:
+De las seis preguntas de la versión original:
 
 * **"cuánto debe separarse de wall"** — sigue abierta, es el `buffer`.
-* **"relación con Expected Move"** — es `d_min`, y es la condición que hace el trabajo cuando no
-  hay muro confiable.
-* **"relación con ZGL" y "si la zona puede cruzar ZGL"** — ver la 62. La respuesta corta es que
-  hoy la cruzan las seis capturas, así que no puede ser una condición de rechazo.
-* **"cómo tratar wall muy cercana al Spot"** — ya no es un caso especial: si el muro está más
-  cerca que `d_min x EM`, ata `d_min` y el muro no aporta. Es lo que pasa en los put walls, que
-  caen a 0.20–0.38 EM.
-* **"cómo tratar wall muy lejana"** — tampoco: ata el muro, y `d_min` no aporta.
+* **"relación con Expected Move"** — **cerrada, y negativa.** El EM no aporta un eje: normalizar por
+  EM da el mismo orden que el delta (61.3). El EM se sigue usando, pero como **escala del ancho de
+  banda**, no como condición.
+* **"relación con ZGL" y "si la zona puede cruzar ZGL"** — ver la 62. La respuesta corta es que hoy
+  la cruzan las seis capturas, así que no puede ser una condición de rechazo.
+* **"cómo tratar wall muy cercana al Spot"** — ya no es un caso especial: si el borde de la banda
+  cae a delta mayor que `delta_max`, ata `delta_max` y la banda no aporta. Es lo que pasa en 10 de
+  12 casos.
+* **"cómo tratar wall muy lejana"** — tampoco: ata la banda, y `delta_max` no aporta.
 
-## 61.6 La validación que puede matar todo
+## 61.6 La validación que podía matar todo — corrida, y el resultado mueve la hipótesis
 
-**Si la zona resulta ser una función monótona del delta, GOT no agrega nada sobre "vendé delta
-0.15".** Es el mismo riesgo que la 43.2 encontró entre `WD` y el delta, y hay que testearlo antes
-de calibrar ningún parámetro.
+> **Reescrita el 2026-08-25 por la tarde.** La versión de la mañana planteaba el test y adelantaba
+> evidencia preliminar "incómoda" del lado put. El test está corrido sobre las doce combinaciones y
+> el resultado es más fuerte y menos malo de lo que parecía. Ver
+> [el hallazgo del 2026-08-25](hallazgos/2026-08-25-el-muro-como-banda.md), §2 y §3.
 
-La evidencia preliminar es incómoda y hay que decirla: **los put walls caen a delta 0.21–0.41**,
-o sea *más cerca del dinero* que donde la ventana vende. "Vender pasando el put wall" es una
-condición que el corte de delta ya cumple con holgura — **del lado put, el muro no está
-restringiendo nada**. Del lado call es distinto: en el vencimiento corto caen a delta 0.12–0.14,
-más lejos que 0.15, y ahí sí ata.
+El test era: **si la zona resulta ser una función monótona del delta, GOT no agrega nada sobre
+"vendé delta 0.15"**. Dos mediciones lo contestan.
 
-O sea que hoy la estructura aporta información **en un solo lado**, y hay que medir si eso se
-sostiene antes de construir arriba.
+**Primera: el borde de la banda restringe en 2 de 12 casos**, y los dos son SPY del lado call (delta
+0.126 y 0.174). En los otros diez el borde cae a **delta 0.21–0.32**, o sea *más cerca del dinero*
+que donde la ventana de delta ya vendía. No es sólo que el muro de put no restrinja — casi ningún
+muro restringe.
+
+Y la fuerza del muro no tiene nada que ver con eso: TSLA 16-Oct PUT es la pared más nítida de todo
+el dataset —43% del GEX del lado, `xmed` 15.8x, `xdisj` 2.46x, estable entre dos días— y no ata,
+porque está a delta 0.28.
+
+**Segunda: no hay premio de crédito en el borde.** Vender en el borde de la banda paga entre 1.33x y
+2.57x lo que paga delta 0.15 — pero el borde *está* a delta más alto. Descontando el delta con un
+ajuste de la eficiencia `(crédito/width)/delta` construido con los strikes lejos de la banda, el
+residuo del borde da **z medio +0.56 ± 0.90 sobre 11 casos**, indistinguible de cero. El mercado
+cobra en el muro exactamente lo mismo que en cualquier strike del mismo delta.
+
+**Las dos juntas mueven la hipótesis, no la matan.** Si el muro estuviera restringiendo, sería un
+filtro; si el mercado le cobrara un premio, ya estaría descontado. Lo que dicen los datos es otra
+cosa:
+
+> El muro no es un filtro que empuja más afuera. Si sirve para algo, es un **permiso para vender más
+> cerca** — hay una pared entre el spot y el strike — y ese permiso **no está en el precio**.
+
+Un muro que frena el precio y que nadie cotiza distinto es ventaja. Uno cotizado no serviría de
+nada. Pero el permiso **invierte el costo de equivocarse**: como filtro, un muro inexistente sólo
+te hacía vender más lejos de lo necesario; como permiso, un muro que no aguanta es plata perdida.
+
+**Por eso la definición de la 61.3 se queda con la lectura conservadora** —la banda como cota, `ata
+la más restrictiva`— y la lectura de permiso queda declarada como hipótesis **no implementada**. Lo
+que la habilita está en la 61.9.
+
+## 61.7 El procedimiento
+
+Cómo se llega a una Sell Zone, en orden. Cada paso dice de dónde sale y qué pasa si falla.
+
+**1 · Elegir el vencimiento.** Regular, DTE ≤ 60 (47.1). **Nunca el agregado**: sus muros quedan
+pegados al spot —$0.83 y $0.17 en SPY— porque el argmax cae donde el open interest de los cercanos
+se concentra en el dinero, y además el agregado no tiene un `t` con el cual definir el EM (61.1).
+
+**2 · Leer el régimen.** Signo del `netGEX` **de ese vencimiento**. Si contradice la lectura de
+`spot` contra `ZGL`, gana el signo; el ZGL es un nivel, no un interruptor (62.1). Con
+`|spot − ZGL| < ε × EM` el ZGL no dice nada — banda muerta, `ε` sin calibrar.
+
+**3 · Calcular el EM del vencimiento.** `spot × atmIv × sqrt(dte/365)` (15). Se usa **solo** para
+fijar el ancho de banda del paso 4. No es una condición de la zona (61.3).
+
+**4 · Encontrar la banda de gamma, por lado.** Ventana de ancho `W = 0.25 × EM` que maximiza la suma
+de `|GEX|` del lado, sobre los strikes del lado correspondiente del spot.
+
+**5 · Decidir si esa banda es un muro.** `xmed` y `xdisj` (61.4). Si no pasan, **el resultado es "no
+hay muro" en ese lado** y se salta al paso 7 con la zona definida solo por `delta_max`. Umbrales sin
+declarar.
+
+**6 · Tomar el borde externo de la banda** — el extremo más lejos del spot — y correrlo por
+`buffer`. Ese es el borde estructural de la zona. Sin calibrar.
+
+**7 · Aplicar `delta_max`**, el piso de riesgo, modulado por el régimen del paso 2. Sin calibrar.
+
+**8 · La zona es la intersección, y se registra cuál condición ató.** Es el dato que distingue un
+candidato que salió de la estructura de uno que salió de un corte de delta.
+
+**9 · Lo que la zona NO afirma.** Distancia, sí. Cuál condición ata, sí. Cuánto paga cada lado, sí.
+**Probabilidad estructuralmente favorable, no** — eso depende de la 61.9 y hoy no está medido.
+
+### El ejemplo trabajado — SPY 16-Oct '26, capturado el 2026-08-25
+
+`spot 765.45 · ATM IV 0.1351 · DTE 52 · Net GEX −54.7 B · ZGL 764.27 · EM ±39.0`
+
+```text
+CALL SELL ZONE    K >= 800        ata la ESTRUCTURA
+                  banda 790-800 (33.1% del lado, xmed 2.0x, xdisj 1.31x), borde 800
+                  delta 0.172 · 0.89 EM · 800/805 credito 0.82 · credito/width 0.164
+
+PUT  SELL ZONE    K <= 728        ata el DELTA - no hay muro util
+                  banda 730-740 (22.9%) pero xdisj 1.25x contra 720-730: no domina
+                  delta 0.200 · 0.96 EM · 730/725 credito 0.58 · credito/width 0.116
+```
+
+Las dos etiquetas de la derecha son el producto. Del lado call la estructura empuja de 796 (delta
+0.20) a 800: son $4, o 0.10 EM — modesto, pero es un número que el delta no daba. Del lado put el
+borde cae a delta 0.211 y el corte de delta a 728: el muro queda **$2 adentro** de donde ya se
+vendía, así que no aporta.
+
+Y hay un segundo argumento apuntando al mismo lado: el call paga **0.164** de crédito por unidad de
+ancho a delta 0.172, contra **0.116** a delta 0.211 del put. Más lejos y paga más. Es el sesgo por
+lado de la 43.4 —SPY 1.81x a favor del call— apareciendo concreto en este vencimiento, y coincide
+con lo que dice la estructura y con la asimetría del ZGL de la 62.3.
+
+## 61.8 Lo que quedó descartado, y por qué
+
+Lo que estuvo dentro de la definición de Sell Zone y **ya no entra**. Se deja escrito porque el
+costo de este research fue redescubrir cuatro veces la misma cosa:
+
+| Descartado | Dónde vivía | Por qué |
+|---|---|---|
+| `WD` y `WD_min = 0.20` | 18, 19 | Dentro de un vencimiento es una cota de delta (43.2). El muro solo aporta un offset constante |
+| `d_min × EM` como condición | 61.3, versión de la mañana | ρ = −1.0000 contra el delta en las 12 combinaciones. Es un corte de delta |
+| El muro como argmax de un strike | 13, 61.4 versión de la mañana | No es una concentración (≤19% del lado) y salta. Reemplazado por la banda |
+| `PUT < PutWall` / `CALL > CallWall` a secas | 16 | Con el muro como argmax no restringe nada; con la banda, restringe en 2 de 12 |
+| El ZGL como borde o condición de rechazo | 61 versión original | Las seis capturas lo cruzan del lado put: rechazaría todo, siempre (62.2) |
+| Un "borde externo estructural" | — | No existe. La estructura fija el borde interno; el externo lo pone el crédito (61.2) |
+| El crédito como evidencia de que el muro paga | — | No hay premio: z medio +0.56 ± 0.90 descontando el delta |
+| El agregado de la cadena como fuente de muros | 47.1 | Sus muros quedan pegados al spot y no tiene `t` para el EM (61.1) |
+| POP / probabilidad implícita como "probabilidad favorable" | 37 | EM, delta, POP y densidad risk-neutral son **el mismo objeto**: la distribución bajo la cual ningún strike es favorable |
+
+La última fila es la que más ordena, y conviene tenerla explícita: **ninguna métrica derivada de los
+precios de las opciones puede producir una probabilidad favorable.** Sólo quedan dos fuentes
+posibles de ventaja — el open interest, que es posicionamiento y no precio, y la brecha entre la
+distribución implícita y la empírica, que es el edge test de la 43.3 y ya pertenece a RPF.
+
+## 61.9 Lo único que falta, y qué cuesta
+
+Con lo anterior, toda la estrategia se reduce a **una sola afirmación falsable**, y no queda ninguna
+otra en pie:
+
+> La probabilidad empírica de que el precio cruce el borde externo de una banda de gamma dominante
+> es menor que el delta de ese borde.
+
+Si es cierta, se vende a precio de delta 0.25 un riesgo de delta 0.18 y GOT tiene razón de existir.
+Si es falsa, se vende delta 0.25 a precio justo y GOT es el edge test de la 43.3 con más pasos.
+
+**Ninguna captura transversal puede contestarla.** Toda la información de estructura que hay en una
+foto —distancia, EM, ZGL, crédito— resultó ser delta medido de cuatro formas, y los precios de la
+foto no saben del muro. Hace falta observar `t → t+Δ`.
+
+**Y el tamaño de muestra decide el alcance del proyecto, no al revés.** El borde cae a delta
+0.21–0.32; distinguir una probabilidad real de 0.20 de una de 0.25 con dos errores estándar pide del
+orden de **300 observaciones independientes**, donde una observación es un camino de precio —un par
+(símbolo, vencimiento) sin solapamiento— y no un strike. Con el universo de la 4 son unos 48 al
+año: **seis años**. Acumular capturas propias sobre dos símbolos no es lento, es imposible.
+
+Las tres salidas, y hay que elegir una antes de calibrar `buffer`, `delta_max`, `W` o los umbrales
+de `xmed` y `xdisj` — porque ninguno de esos números significa nada si la afirmación de arriba es
+falsa:
+
+1. **Ensanchar el universo** a ~20 símbolos líquidos: ~480 observaciones al año, cierra en menos de
+   un año. Choca con el universo de la 4.
+2. **Comprar historia de cadenas con open interest** sobre un universo ancho: contesta en semanas,
+   cuesta dinero.
+3. **Aceptar el negativo** y plegar GOT al edge test de RPF. Es el resultado por defecto si no se
+   elige ninguna de las otras dos.
+
 
 # 62. ZGL y muro: qué hace cada uno
 
@@ -3021,127 +3284,118 @@ prioridad dentro del flujo.
 
 Después de eso, podemos implementar un backtest engine de V5 y empezar a medir la estrategia de manera objetiva.
 
-# 98. Estado final al 24/08/2026
+# 98. Estado final al 25/08/2026
 
-YA DEFINIDO
-filosofía;
+> **Actualizada el 2026-08-25 por la tarde.** La versión anterior era el corte al 24/08. Las cuatro
+> mediciones sobre la banda de gamma movieron ítems entre las listas, agregaron una categoría
+> —lo **descartado por medición**, que antes se mezclaba con lo reprobado— y, sobre todo, cambiaron
+> la naturaleza del pendiente: dejó de ser una lista de calibraciones para pasar a ser **una sola
+> pregunta**, con un costo de muestra que decide el alcance del proyecto. Ver
+> [el hallazgo del 2026-08-25](hallazgos/2026-08-25-el-muro-como-banda.md).
 
-estructura general;
+## Definido
 
-Market Diagnostic;
+Filosofía; estructura general; Market Diagnostic; GEX y su lectura por vencimiento; ZGL como nivel
+(62.1); Expected Move; **la Sell Zone (61), con su procedimiento en la 61.7**; el muro como banda
+con dos tests de dominancia (61.4); delta como variable de búsqueda y como piso de riesgo único;
+Max Risk conceptual; Cushion; alerts-only; arquitectura de streaming y alertas; eliminación de
+`MinCredit` fijo.
 
-GEX / gamma walls;
+## Validado
 
-ZGL;
+* La **banda de gamma es estable** donde el argmax no lo era: 5 de 6 series con dos o más tomas
+  conservan banda, incluso cruzando el cierre con el open interest actualizado. La única que falla
+  es la única marcada floja por su propio `xmed` (1.3x contra 2.0–14.8x).
+* **`xmed` y `xdisj` detectan las dos formas de falla** — inestabilidad temporal y sensibilidad al
+  ancho de banda — antes de que ocurran.
+* La **asimetría PUT/CALL por skew**, no por estructura, con signo propio de cada símbolo
+  (Hallazgo 8, hallazgo del 24/08, confirmado con book vivo el 25/08 sobre los dos vencimientos
+  regulares del bucle, con los seis cocientes conservando signo y escala).
+* `RequiredCredit` dinámico; DTE como factor económico; diferencias entre vencimientos; posibilidad
+  de aceptar créditos nominalmente pequeños en DTE largos; rechazo de créditos mayores que no
+  compensan el riesgo.
 
-Expected Move;
+## Descartado por medición
 
-Sell Zones;
+Lo que estaba en la definición y salió porque se midió que no aportaba. La tabla completa, con
+dónde vivía cada uno, está en la **61.8**:
 
-Wall Distance;
+* **`WD` y `WD_min`** — cota de delta, no variable propia (43.2, y ρ = −1.0000 el 25/08).
+* **`d_min × EM` como condición de zona** — ρ = −1.0000 contra el delta en las doce combinaciones.
+  El EM sobrevive como **escala del ancho de banda**, no como condición.
+* **El muro como argmax de un strike** — no es una concentración (≤19% del lado, dominancia hasta
+  1.00x) y salta. Reemplazado por la banda.
+* **El ZGL como condición de rechazo** — las seis capturas lo cruzan del lado put (62.2).
+* **El crédito como evidencia de que el muro paga** — no hay premio: descontando el delta, el
+  residuo del borde da z medio **+0.56 ± 0.90**, indistinguible de cero.
+* **POP como gate de probabilidad favorable** — es delta con otro nombre (37).
 
-Delta como variable de búsqueda;
+## Reprobado o invalidado
 
-POP;
+* `0.10–0.20` como región robusta de delta: era el rango barrido, no un resultado (28).
+* `MaxRisk` $400 como límite en dólares absolutos: con width 5 pasa 1 de 36 candidatos y ese cae
+  fuera de la ventana de delta; con width ≤ 4 no puede rechazar nada (39, Hallazgo 9, extensión del
+  25/08).
+* `RequiredCredit` como gate económico: es un piso de riesgo, no un test de ventaja (43.2).
+* Structural Gate y Economic Gate como niveles independientes: dentro de un vencimiento son las dos
+  cotas de la misma variable, el delta (43.2).
 
-Max Risk conceptual;
+## Decidido, falta implementar
 
-RequiredCredit;
+* `RequiredCredit` baja a piso de viabilidad y se queda simétrico entre lados (43.3).
+* El gate económico real es un **edge test**: probabilidad implícita contra empírica (43.3).
+* El skew no lleva tratamiento explícito — queda absorbido por el edge test (43.3).
+* El sesgo por lado depende del símbolo, no del motor: se mide, no se declara (43.5).
+* **"No hay muro" como resultado válido** de la evaluación de un lado (61.4). Hoy el sistema siempre
+  devuelve uno.
+* **Registrar cuál condición ató** en cada candidato — banda o `delta_max` (61.3). Es lo que
+  distingue un candidato estructural de un corte de delta.
 
-Cushion;
+## Pendiente
 
-alerts-only;
+**Uno solo bloquea a todos los demás**, y está en la 61.9:
 
-streaming/alert architecture;
+> La probabilidad empírica de que el precio cruce el borde externo de una banda de gamma dominante
+> es menor que el delta de ese borde.
 
-eliminación de MinCredit fijo.
+Ninguna captura transversal puede contestarlo y hacen falta del orden de **300 observaciones
+independientes**, que con el universo de la 4 son seis años. **Antes de calibrar nada hay que
+elegir** entre ensanchar el universo, comprar historia de cadenas con open interest, o aceptar el
+negativo y plegar GOT al edge test de RPF.
 
-VALIDADO PRELIMINARMENTE
-WD como corte superior de la ventana de delta (0.22 cae por WD en los cuatro sweeps);
+Lo que depende de esa decisión y hoy no tiene sentido calibrar: los umbrales de `xmed` y `xdisj`,
+el ancho de banda `W`, el `buffer`, el `delta_max` y su modulación por régimen, `RequiredCredit`,
+`Width`, el candidate ranking, Selective Mode, No Operate, exit, persistence y portfolio risk.
 
-RequiredCredit dinámico;
+Independientes de esa decisión, y siguen abiertos:
 
-DTE como factor económico;
+* la tabla de probabilidad empírica por lado, delta y DTE que alimenta el edge test (43.3);
+* separar el ruido de mercado del efecto de la hora de captura: el mismo símbolo y vencimiento
+  movieron el cociente de skew hasta 0.15 en un día, y esa oscilación es el piso de precisión de
+  cualquier calibración sobre esa métrica (hallazgo del 25/08);
+* elegir la banda de quotes por símbolo, en múltiplos de EM y no en porcentaje de spot (ídem);
+* pasar el riesgo a un porcentaje del capital (72);
+* el régimen `netGEX > 0` **no está observado**: las seis capturas son de gamma negativa (62.4);
+* liquidez y slippage.
 
-diferencias entre vencimientos;
-
-asimetría PUT/CALL por skew, no por estructura, y con signo propio de cada símbolo
-(Hallazgo 8, y el hallazgo del 24/08 sobre SPY/QQQ) — **confirmada con book vivo el 25/08**, en
-sesión y sobre los dos vencimientos regulares del bucle, con los seis cocientes conservando signo
-y escala;
-
-posibilidad de aceptar créditos nominalmente pequeños en DTE largos;
-
-rechazo de créditos mayores cuando no compensan el riesgo.
-
-REPROBADO O INVALIDADO
-0.10–0.20 como región robusta — era el rango barrido, no un resultado (28);
-
-MaxRisk $400 como límite en dólares absolutos — con width 5 pasa 1 de 36 candidatos y ese cae
-fuera de la ventana de delta; con width ≤ 4 no puede rechazar nada. No es un problema de
-calibración: el umbral impone un piso de delta que compite con el techo de WD (39, Hallazgo 9, y
-la extensión del 25/08);
-
-RequiredCredit como gate económico — es un piso de riesgo, no un test de ventaja (43.2);
-
-Structural Gate y Economic Gate como niveles independientes — dentro de un vencimiento son
-las dos cotas de la misma variable, el delta (43.2).
-
-DECIDIDO EL 24/08, FALTA IMPLEMENTAR
-RequiredCredit baja a piso de viabilidad, y se queda simétrico entre lados (43.3);
-
-el gate económico real es un edge test: probabilidad implícita contra empírica (43.3);
-
-el skew no lleva tratamiento explícito — queda absorbido por el edge test (43.3);
-
-el sesgo por lado depende del símbolo, no del motor: se mide, no se declara (43.5).
-
-PENDIENTE
-la tabla de probabilidad empírica por lado, delta y DTE que alimenta el edge test;
-
-separar el ruido de mercado del efecto de la hora de captura: el mismo símbolo y vencimiento
-movieron el cociente hasta 0.15 en un día, y esa oscilación es el piso de precisión de cualquier
-calibración sobre la métrica (hallazgo del 25/08);
-
-elegir la banda de quotes por símbolo —en múltiplos de EM y no en porcentaje de spot—, porque el
-±12% que alcanza para SPY trunca la zona vendible de un símbolo de IV alta (hallazgo del 25/08);
-
-pasar el riesgo a un porcentaje del capital (72). Ya no es "recalibrar MaxRisk y Width juntos":
-la extensión del 25/08 a la 39 muestra que en dólares absolutos no hay par de valores que sirva;
-
-calibración estadística de RequiredCredit;
-
-WD mínimo definitivo;
-
-Delta máximo;
-
-Width;
-
-liquidity;
-
-slippage;
-
-candidate ranking;
-
-Selective Mode;
-
-No Operate definitivo;
-
-exit;
-
-persistence;
-
-portfolio risk;
-
-backtest;
-
-walk-forward;
-
-out-of-sample;
-
-stress tests.
 
 # 99. Conclusión
+
+> **Corregida el 2026-08-25.** Esta sección afirmaba que *"GOT ya no es SELL DELTA 0.15"* y que la
+> estrategia estaba *"suficientemente madura para pasar a formalización matemática + backtesting
+> sistemático"*. Las mediciones del 25 dicen lo contrario en las dos cosas:
+>
+> * **Hoy sí es, casi enteramente, `SELL DELTA X`.** `WD`, `d_min × EM`, `RequiredCredit` y POP
+>   resultaron ser todos el mismo eje, y el borde de la banda de gamma restringe en **2 de 12**
+>   casos. Lo que la estrategia agrega sobre un corte de delta es, medido, dos casos de SPY del lado
+>   call.
+> * **El backtest no es la etapa que sigue: es la única etapa.** No queda ninguna otra pregunta
+>   abierta que una captura pueda contestar, y calibrar cualquier parámetro antes de la 61.9 es
+>   afinar números que no significan nada si esa hipótesis es falsa.
+>
+> Lo que sí sobrevive de esta sección es su última frase, y ahora con evidencia detrás: los
+> parámetros tienen que ser consecuencia de la estructura y de la economía. El problema es que
+> **falta demostrar que la estructura tiene alguna consecuencia.**
 
 GOT ya no es simplemente:
 
