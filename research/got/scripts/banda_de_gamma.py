@@ -199,6 +199,80 @@ def separacion(v, mejor):
     return 0.0
 
 
+def paso_gamma(c):
+    """Separacion tipica entre los strikes que cargan gamma de verdad -- los que estan por
+    encima de la mediana del lado. En SPY y QQQ da ~$5 aunque se listen strikes de $1: el gamma
+    vive en una empalizada de $5. Se usa para probar el crecimiento con una resolucion
+    DESACOPLADA de `W` (seccion 8b)."""
+    med = statistics.median([g for _, g in c])
+    ks = sorted(k for k, g in c if g > med)
+    if len(ks) < 3:
+        return None
+    return statistics.median([b - a for a, b in zip(ks, ks[1:])])
+
+
+def crecer_banda_por_strike(c, mejor, ancho, lado, f, res=None):
+    """Igual que `crecer_banda`, pero absorbiendo de a UN STRIKE en vez de una rebanada entera,
+    y midiendo la densidad del tramo de ancho `W` mas externo de la banda ya crecida.
+
+    El paso es todo. Absorber de a una rebanada de ancho `W` es una decision gruesa que se da
+    vuelta entre dos fotos de la misma cadena --por eso la version por rebanadas se rechazo el
+    27, con el movimiento del borde oscilando 1.3 / 29.8 / 20.4 / 1.6 / 11.2 al barrer `f`--.
+    De a un strike la decision es fina y el borde se queda quieto: 0.3 con `f` entre 0.65 y
+    0.45, mejor que los 1.3 de no crecer.
+
+    No alcanza igual, y el motivo esta en la seccion 8: crecer AMPLIFICA lo que el borde le debe
+    a `W`, que es un parametro sin calibrar."""
+    lo, hi, masa = mejor[1], mejor[2], mejor[0]
+    r = res or ancho
+    if res:
+        # con resolucion propia, la referencia es el tramo `res` mas denso DE la semilla
+        dentro = [x for x in c if lo - 1e-9 <= x[0] <= hi + 1e-9]
+        ref = max((sum(y[1] for y in dentro if k - 1e-9 <= y[0] <= k + r + 1e-9) / r)
+                  for k, _ in dentro) if dentro else 0.0
+    else:
+        ref = mejor[0] / ancho
+    ks = [k for k, _ in c]
+    while True:
+        fuera = [k for k in ks if k > hi + 1e-9] if lado == 'CALL' \
+            else [k for k in ks if k < lo - 1e-9]
+        if not fuera:
+            return lo, hi, masa
+        k = min(fuera) if lado == 'CALL' else max(fuera)
+        nlo, nhi = (lo, k) if lado == 'CALL' else (k, hi)
+        a, b = (nhi - r, nhi) if lado == 'CALL' else (nlo, nlo + r)
+        if sum(x[1] for x in c if a - 1e-9 <= x[0] <= b + 1e-9) / r < f * ref:
+            return lo, hi, masa
+        lo, hi = nlo, nhi
+        masa = sum(x[1] for x in c if lo - 1e-9 <= x[0] <= hi + 1e-9)
+
+
+def banda_dual(c, p, lado):
+    """La construccion DUAL: en vez de fijar el ancho y maximizar la masa, fija la masa y
+    minimiza el ancho. Es la unica candidata que no necesita `W`, y por eso valia probarla: el
+    ancho lo pondria la cadena y una concentracion ancha no quedaria truncada.
+
+    Medida el 2026-08-28 y RECHAZADA: el borde entre tandas se mueve 16 a 43 dolares segun `p`,
+    contra 1.3 de la construccion de hoy. Cambia el filo de lugar --de "que strike entra en la
+    ventana" a "que strike completa la masa"-- y el segundo es peor."""
+    tot = sum(x[1] for x in c)
+    objetivo = p * tot
+    mejor, j, acum = None, 0, 0.0
+    for i in range(len(c)):
+        if j < i:
+            j, acum = i, 0.0
+        while j < len(c) and acum < objetivo:
+            acum += c[j][1]
+            j += 1
+        if acum < objetivo:
+            break
+        lo, hi = c[i][0], c[j - 1][0]
+        if mejor is None or (hi - lo) < (mejor[1] - mejor[0]) - 1e-9:
+            mejor = (lo, hi, acum)
+        acum -= c[i][1]
+    return mejor
+
+
 def crecer_banda(c, mejor, ancho, lado, f):
     """Extiende la banda hacia AFUERA mientras la rebanada contigua de ancho `W` tenga al menos
     `f` de la densidad de la banda ORIGINAL.
@@ -247,7 +321,7 @@ def calcular_xvalle(c, lo, hi, d_lo, d_hi):
 
 
 def medir(rows, spot, em, lado, frac=FRAC_EM, excl=0.0, anclar=False,
-          hueco=0.0, crecer=0.0):
+          hueco=0.0, crecer=0.0, crecer_modo='rebanada', crecer_res=False):
     """`excl` y `anclar` son los dos arreglos que la 61.4 pedia para sus tres defectos,
     apagados por defecto para que las secciones 0-5 sigan reproduciendo los numeros
     publicados. Medidos el 2026-08-26: `excl` arregla los defectos 2 y 3 y se adopta;
@@ -277,7 +351,11 @@ def medir(rows, spot, em, lado, frac=FRAC_EM, excl=0.0, anclar=False,
     mejor = ventanas[0]
 
     if crecer:
-        lo, hi, masa = crecer_banda(c, mejor, ancho, lado, crecer)
+        if crecer_modo == 'strike':
+            lo, hi, masa = crecer_banda_por_strike(
+                c, mejor, ancho, lado, crecer, paso_gamma(c) if crecer_res else None)
+        else:
+            lo, hi, masa = crecer_banda(c, mejor, ancho, lado, crecer)
         if hi - lo > ancho + 1e-9:
             # La banda crecio, asi que los tests tienen que medirse AL ANCHO CRECIDO: un
             # competidor de ancho W contra una banda de 2W no es una comparacion.
@@ -1082,6 +1160,157 @@ def seccion_7f_restriccion(carpeta):
     print('  dos fotos es peor que un borde que restringe poco.')
 
 
+# ---------------------------------------------------------------- 8. el borde y el ancho W
+
+"""El defecto que quedo abierto el 27, y que resulto ser la punta de otro: si la concentracion
+es mas ancha que `W`, la ventana la parte y el BORDE queda adentro del muro.
+
+  8a  Crecer de a un strike en vez de por rebanadas -- arregla la inestabilidad que hundio al
+      parche del 27, y por un margen grande.
+  8b  Pero AMPLIFICA lo que el borde le debe a `W`.
+  8c  La construccion DUAL --masa fija, ancho minimo--, que es la unica que no necesita `W`.
+  8d  LA QUE DECIDE -- cuanto le debe a `W` el borde DE HOY, medido en delta, que es la unidad
+      en la que se compara contra `delta_max`.
+"""
+
+CRECER_STRIKE = 0.60     # densidad minima al crecer de a un strike (8a)
+
+
+def seccion_8a_por_strike():
+    """El paso del crecimiento es todo: por rebanada la decision se da vuelta entre fotos."""
+    print('\n' + '=' * 100)
+    print('8a. CRECER DE A UN STRIKE -- el borde entre tandas, contra crecer por rebanadas')
+    print('=' * 100)
+    fs = (0.90, 0.80, 0.70, 0.65, 0.60, 0.55, 0.50, 0.45)
+    modos = [('sin crecer', dict())]
+    modos += [(f'reb {f:.2f}', dict(crecer=f)) for f in (0.80, 0.70, 0.60, 0.55)]
+    modos += [(f'str {f:.2f}', dict(crecer=f, crecer_modo='strike')) for f in fs]
+    serie = {}
+    for carpeta in capturas():
+        for sym, exp, rows, spot, em, call, put in casos(carpeta):
+            for lado in ('PUT', 'CALL'):
+                for etiqueta, kw in modos:
+                    m = medir(rows, spot, em, lado, FRAC_EM, excl=EXCL, **kw)
+                    if m:
+                        serie.setdefault((sym, exp, lado, etiqueta), []).append(m['borde'])
+    claves = sorted({k[:3] for k in serie if len(serie[k]) > 1})
+    total = {e: 0.0 for e, _ in modos}
+    for clave in claves:
+        for etiqueta, _ in modos:
+            b = serie.get(clave + (etiqueta,), [])
+            total[etiqueta] += (max(b) - min(b)) if len(b) > 1 else 0.0
+    print(f'  {"construccion":>14} | movimiento total del borde entre tandas, 10 series')
+    for etiqueta, _ in modos:
+        barra = '#' * min(60, int(total[etiqueta] * 2))
+        print(f'  {etiqueta:>14} | {total[etiqueta]:6.1f}  {barra}')
+    print('\n  Por REBANADA el numero sube y baja sin orden al mover `f`; de a un STRIKE se va a')
+    print('  0.3 en toda la franja 0.65-0.45, mejor que no crecer. El defecto del parche del 27 no')
+    print('  era la idea: era el tamano del paso.')
+
+
+def seccion_8b_borde_vs_w(carpeta):
+    """Y sin embargo crecer no sirve, porque lo que el borde le debe a `W` empeora."""
+    print('\n' + '=' * 100)
+    print(f'8b. EL PRECIO DE CRECER -- cuanto se corre el borde al barrer W'
+          f'   [{os.path.basename(carpeta)}, EM real]')
+    print('=' * 100)
+    fracs = (0.15, 0.20, 0.25, 0.30, 0.40)
+    print(f'  {"caso":>17} | {"hoy":>7} | {"crecida":>8} | {"+ res propia":>12} |'
+          f'  rango del borde barriendo W de 0.15 a 0.40 EM')
+    a, b, d = [], [], []
+    for sym, exp, rows, spot, em, call, put in casos_em_real(carpeta):
+        for lado in ('PUT', 'CALL'):
+            bh = [medir(rows, spot, em, lado, fr, excl=EXCL)['borde'] for fr in fracs]
+            bc = [medir(rows, spot, em, lado, fr, excl=EXCL, crecer=CRECER_STRIKE,
+                        crecer_modo='strike')['borde'] for fr in fracs]
+            br = [medir(rows, spot, em, lado, fr, excl=EXCL, crecer=0.35,
+                        crecer_modo='strike', crecer_res=True)['borde'] for fr in fracs]
+            a.append(max(bh) - min(bh))
+            b.append(max(bc) - min(bc))
+            d.append(max(br) - min(br))
+            print(f'  {sym + " " + exp[5:] + " " + lado:>17} | {a[-1]:7.1f} | {b[-1]:8.1f} | '
+                  f'{d[-1]:12.1f} |')
+    print(f'\n  hoy            medio {statistics.mean(a):5.1f}   maximo {max(a):5.1f}')
+    print(f'  crecida        medio {statistics.mean(b):5.1f}   maximo {max(b):5.1f}')
+    print(f'  + res propia   medio {statistics.mean(d):5.1f}   maximo {max(d):5.1f}')
+    print('  Crecer no libera al borde de `W`: lo ata mas fuerte, porque `W` entra dos veces --')
+    print('  la semilla es una ventana de ancho `W` y la referencia de densidad tambien.')
+    print('  Desacoplar la resolucion (medir la densidad sobre el paso del gamma en vez de sobre')
+    print('  `W`) saca una de las dos y deja el borde a la par de hoy, no mejor: lo que queda')
+    print('  moviendose es la SEMILLA, que sigue siendo una ventana de ancho `W`.')
+
+
+def seccion_8c_dual(carpeta):
+    """La unica construccion sin `W`, y tambien se cae."""
+    print('\n' + '=' * 100)
+    print('8c. LA DUAL -- masa fija p, ancho minimo: la unica que no necesita W')
+    print('=' * 100)
+    ps = (0.30, 0.40, 0.50, 0.60)
+    serie = {}
+    for carp in capturas():
+        for sym, exp, rows, spot, em, call, put in casos(carp):
+            for lado in ('PUT', 'CALL'):
+                c = gex_del_lado(rows, spot, lado)
+                c = sorted(x for x in c if abs(x[0] - spot) >= EXCL * em)
+                if len(c) < 6:
+                    continue
+                serie.setdefault((sym, exp, lado, 'hoy'), []).append(
+                    medir(rows, spot, em, lado, FRAC_EM, excl=EXCL)['borde'])
+                for p in ps:
+                    d = banda_dual(c, p, lado)
+                    if d:
+                        serie.setdefault((sym, exp, lado, p), []).append(
+                            d[1] if lado == 'CALL' else d[0])
+    claves = sorted({k[:3] for k in serie if len(serie[k]) > 1})
+    cols = ['hoy'] + list(ps)
+    total = {x: 0.0 for x in cols}
+    for clave in claves:
+        for x in cols:
+            v = serie.get(clave + (x,), [])
+            total[x] += (max(v) - min(v)) if len(v) > 1 else 0.0
+    print(f'  {"construccion":>14} | movimiento total del borde entre tandas, 10 series')
+    for x in cols:
+        etiqueta = 'hoy (W fijo)' if x == 'hoy' else f'dual p={x:.2f}'
+        print(f'  {etiqueta:>14} | {total[x]:6.1f}  ' + '#' * min(60, int(total[x] * 2)))
+    print('\n  Sacar `W` no sale gratis: la dual cambia el filo de lugar --de "que strike entra en')
+    print('  la ventana" a "que strike completa la masa"-- y el segundo es mucho peor.')
+
+
+def seccion_8d_w_manda(carpeta):
+    """LA QUE DECIDE. El borde nunca fue solido, y `W` no esta calibrado."""
+    print('\n' + '=' * 100)
+    print(f'8d. LA QUE DECIDE -- cuanto le debe el borde DE HOY a un parametro sin calibrar'
+          f'   [{os.path.basename(carpeta)}, EM real]')
+    print('=' * 100)
+    rangos = (('0.15-0.40 EM', (0.15, 0.20, 0.25, 0.30, 0.40)),
+              ('0.20-0.30 EM', (0.20, 0.225, 0.25, 0.275, 0.30)),
+              ('0.225-0.275', (0.225, 0.2375, 0.25, 0.2625, 0.275)))
+    print(f'  {"caso":>17} |' + '|'.join(f'{n:^21}' for n, _ in rangos))
+    print(f'  {"":>17} |' + '|'.join(f'{"rango $   en delta":^21}' for _ in rangos))
+    acum = {n: [] for n, _ in rangos}
+    for sym, exp, rows, spot, em, call, put in casos_em_real(carpeta):
+        for lado in ('PUT', 'CALL'):
+            tabla = put if lado == 'PUT' else call
+            fila = f'  {sym + " " + exp[5:] + " " + lado:>17} |'
+            for n, fracs in rangos:
+                bs = [medir(rows, spot, em, lado, fr, excl=EXCL)['borde'] for fr in fracs]
+                ds = [delta_en(tabla, x) for x in bs]
+                acum[n].append((max(bs) - min(bs), max(ds) - min(ds)))
+                fila += '{:^21}|'.format('{:6.1f}     {:.3f}'.format(
+                    max(bs) - min(bs), max(ds) - min(ds)))
+            print(fila.rstrip('|'))
+    print()
+    for n, _ in rangos:
+        rs = [x[0] for x in acum[n]]
+        ds = [x[1] for x in acum[n]]
+        print(f'  {n:>14} -> borde: medio ${statistics.mean(rs):5.1f}  max ${max(rs):5.1f}'
+              f'   |   delta: medio {statistics.mean(ds):.3f}  max {max(ds):.3f}')
+    print('\n  El corte de riesgo es delta_max = 0.20. Mover `W` un +/-20% --dentro de lo que la')
+    print('  61.4 declara como rango libre-- corre el delta del borde hasta 0.174: casi todo el')
+    print('  presupuesto. `W` no es el ancho de una ventana: es quien decide si la banda ata.')
+    print('  Y no esta calibrado, ni se puede calibrar antes de la 61.9.')
+
+
 def main():
     global EXCL
     pedida = sys.argv[1] if len(sys.argv) > 1 else '2026-08-25'
@@ -1109,6 +1338,10 @@ def main():
     seccion_7d_estabilidad()
     seccion_7e_xvalle(carpeta)
     seccion_7f_restriccion(carpeta)
+    seccion_8a_por_strike()
+    seccion_8b_borde_vs_w(carpeta)
+    seccion_8c_dual(carpeta)
+    seccion_8d_w_manda(carpeta)
     return 0
 
 

@@ -40,6 +40,12 @@ no tiene ningún positivo verdadero, y **el ejemplo de TSLA deja de ser "no hay 
 muros a $30 son un estante. En su lugar queda anotado un defecto **de borde y no de veredicto**: si
 la concentración es más ancha que `W`, el borde cae adentro del muro.
 
+**Cerrado el 2026-08-28, con un negativo que ordena el resto.** Las tres salidas a ese defecto de
+borde fallan, y por la misma razón: **el borde nunca fue sólido**. Mover `W` un ±20% corre el delta
+del borde hasta **0.174**, contra un `delta_max` de **0.20** — o sea que `W` no es el ancho de una
+ventana, **es quien decide si la banda ata**. El borde no se cierra antes de calibrar `W`, y `W`
+está del otro lado de la §61.9.
+
 **Queda una sola pregunta abierta, y bloquea a todas las demás** (§61.9):
 
 > La probabilidad empírica de que el precio cruce el borde externo de una banda de gamma dominante
@@ -81,10 +87,10 @@ La 1 tiene además un costo que antes no estaba anotado: poner una Sell Zone en 
 strikes; una banda dibujada sobre el chart se lee como recomendación aunque el texto diga que no.
 Se puede hacer, pero reescribiendo esa definición a propósito y no de arrastre.
 
-Estado al 2026-08-27: **Sell Zone definida (§61); la banda construida y sus tests depurados
-(§61.4) — queda abierto su borde cuando la concentración es más ancha que `W`—, con una sola
-hipótesis abierta y bloqueante (§61.9)**. El corte entre lo definido, lo validado, lo descartado y
-lo pendiente está en la §98.
+Estado al 2026-08-28: **Sell Zone definida (§61), la banda construida y sus tests depurados (§61.4),
+y una sola hipótesis abierta y bloqueante (§61.9) — que ahora bloquea también al borde, porque
+`W` decide si la banda ata y no se puede calibrar antes.** El corte entre lo definido, lo validado,
+lo descartado y lo pendiente está en la §98.
 
 El **flujo del proceso** —uno de los tres ejes— se redibujó el 2026-08-24 en la sección 47: seis
 niveles en vez de cuatro filtros en serie, la ventana de delta como una sola variable con dos cotas
@@ -115,6 +121,7 @@ flujo desde otro ángulo y quedaron con errata apuntando ahí.
 | [2026-08-25 (noche)](hallazgos/2026-08-25-qqq-la-serie-que-se-movio.md) | QQQ 18-Sep, la única serie del dataset cuya banda se movió entre tandas: ¿los tests avisan? | **Avisan, pero avisa uno solo y no siempre el mismo**: acá `xmed` (1.4x) mientras `xdisj` daba 1.26x — espejo de TSLA, donde avisó `xdisj` (1.01x) con `xmed` en 8.3x. Es la evidencia de que **no son redundantes**. La causa del salto es que el call es una **meseta** de 720 a 750, no un muro. Aparecen un tercer defecto —el argmax puede caer en el strike del dinero: devolvió 710 con el spot en 708— y una tercera lectura de `xdisj` bajo: el competidor **contiguo** | Aplicado — §61.7 ganó el ejemplo 3, y la §61.4 la tabla de evidencia simétrica de los dos tests, el tercer defecto y las tres lecturas de `xdisj`. **Su diagnóstico del salto lo corrigió el hallazgo del 26**: no era la meseta, era el dinero |
 | [2026-08-26](hallazgos/2026-08-26-los-tres-defectos-de-la-banda.md) | Los tres defectos de construcción que la §61.4 dejó anotados sin arreglar, con la condición que ella misma puso: medir el arreglo antes de escribirlo | **Dos de los tres son el mismo defecto** —la pila de gamma del dinero— y se arreglan excluyendo `\|K − spot\| < 0.15 × EM` del pool: el borde entre tandas pasa de **$16.1 a $1.3** y el `xdisj` del ejemplo 1 de 1.01x a **1.49x**, sin mover ningún borde. **El tercero se rechaza**: anclar la ventana a la grilla muda el redondeo en vez de sacarlo (swing 3.8% → 13.5%). Y cae una conclusión del 25: el único evento de inestabilidad del dataset **era el defecto, no una meseta**, así que no queda ninguna falla contra la cual calibrar `xmed` y `xdisj` | Aplicado — §61.4 reescrita en sus tres últimos nodos, §61.7 (pasos 4 y 5 + ejemplos 1 y 3), §61.6, §61.8, §98 y el encabezado del documento |
 | [2026-08-27](hallazgos/2026-08-27-el-competidor-contiguo-y-xdisj.md) | El defecto que quedaba abierto: el competidor disjunto puede ser la cola de la propia banda | **No es un caso de borde: es el normal** —8 de 12 competidores a menos de un ancho, dos a un dólar—. Los dos parches se rechazan (el hueco no mide nada nuevo; crecer la banda arregla el borde pero su parámetro tiene acantilados: 1.3 / 29.8 / 20.4 / 1.6 / 11.2 barriendo `f`). Y buscando por qué fallan los dos aparece el fondo: **`xdisj` compara masas y la pregunta es el valle**. Medido con `xvalle`, **cero valles en 12 casos** — `xdisj` no tiene un solo positivo verdadero, y se cae el "no hay muro" de TSLA 18-Sep CALL. Queda anotado un defecto nuevo, **de borde y no de veredicto**: si la concentración es más ancha que `W`, el borde cae adentro del muro (hasta $28) | Aplicado — §61.4 (nodo del competidor contiguo reescrito + errata en los dos tests), §61.7 (paso 5 y ejemplo 2), §61.8 con tres descartes nuevos, y §98 |
+| [2026-08-28](hallazgos/2026-08-28-el-borde-le-debe-todo-a-W.md) | El defecto de borde que quedó: la concentración más ancha que `W`. Las tres salidas posibles | **Ninguna cierra, y la razón es que el borde nunca fue sólido.** Crecer de a un strike sí arregla la inestabilidad del parche del 27 —el problema era el tamaño del paso— pero ata el borde a `W` más fuerte ($16.6 contra $9.6); desacoplar la resolución lo deja a la par ($8.0); la **dual**, única construcción sin `W`, es mucho peor (16 a 43 contra 1.3). El fondo: **mover `W` un ±20% corre el delta del borde hasta 0.174 con un `delta_max` de 0.20** — `W` decide si la banda ata. Se cae el *"el borde es sólido"* de la §61.7 | Aplicado — §61.4 (nodo del borde reescrito + errata sobre `W`), §61.7 (ejemplo 1), §61.8 con dos descartes nuevos, §98 y el encabezado |
 
 Los hallazgos no se editan cuando se aplican: la columna **Estado** de este índice es la que
 lleva la cuenta. El hallazgo queda como el registro de qué se encontró y cuándo.
@@ -176,7 +183,7 @@ Python 3.10+, sin dependencias externas. En consola Windows correr con `PYTHONIO
 | [`recheck_econ.py`](scripts/recheck_econ.py) | Recalcula el filtro económico del v5 (`RRreq`, `RequiredCredit`, `Cushion`, `WD_min`, `MaxRisk`) sobre los dos datasets de TSLA, mostrando el crédito correcto contra el que usó el v5 | [crédito CALL](hallazgos/2026-08-24-credito-call-columna-equivocada.md) |
 | [`skew_por_lado.py`](scripts/skew_por_lado.py) | Mide cuánto paga cada lado de la cadena por unidad de delta, por símbolo y vencimiento | [sesgo por lado](hallazgos/2026-08-24-sesgo-por-lado-spy-qqq.md) |
 | [`vencimientos_regulares.py`](scripts/vencimientos_regulares.py) | Cuántos vencimientos regulares entran en el bucle de la §47 según el día, y si una fecha dada es regular o weekly | §47.1 |
-| [`banda_de_gamma.py`](scripts/banda_de_gamma.py) | El muro como banda en vez de argmax: si `d_min × EM` es delta, si la banda es estable, si su borde restringe, y si paga un premio que sobreviva a descontar el delta. Su **sección 5** corre los tres ejemplos de la §61.7 con el EM real, su **sección 6** mide los tres defectos de construcción de la §61.4 y la **7** el competidor contiguo — las secciones 0 a 5 quedan como estaban a propósito, reproduciendo los números publicados | [el muro como banda](hallazgos/2026-08-25-el-muro-como-banda.md) · [el test depende del EM](hallazgos/2026-08-25-el-test-de-banda-depende-del-EM.md) · [los tres defectos](hallazgos/2026-08-26-los-tres-defectos-de-la-banda.md) · [el competidor contiguo](hallazgos/2026-08-27-el-competidor-contiguo-y-xdisj.md) |
+| [`banda_de_gamma.py`](scripts/banda_de_gamma.py) | El muro como banda en vez de argmax: si `d_min × EM` es delta, si la banda es estable, si su borde restringe, y si paga un premio que sobreviva a descontar el delta. Su **sección 5** corre los tres ejemplos de la §61.7 con el EM real, sus secciones **6**, **7** y **8** miden los defectos de construcción de la §61.4 — los tres del 26, el competidor contiguo y el borde contra `W` —, y las 0 a 5 quedan como estaban a propósito, reproduciendo los números publicados | [el muro como banda](hallazgos/2026-08-25-el-muro-como-banda.md) · [el test depende del EM](hallazgos/2026-08-25-el-test-de-banda-depende-del-EM.md) · [los tres defectos](hallazgos/2026-08-26-los-tres-defectos-de-la-banda.md) · [el competidor contiguo](hallazgos/2026-08-27-el-competidor-contiguo-y-xdisj.md) |
 
 ```bash
 PYTHONIOENCODING=utf-8 python research/got/scripts/skew_por_lado.py

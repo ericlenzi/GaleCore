@@ -104,6 +104,27 @@
 > [El hallazgo del 2026-08-27](hallazgos/2026-08-27-el-competidor-contiguo-y-xdisj.md), sección 7 del
 > mismo script.
 >
+> ---
+>
+> **El 2026-08-28 se cerró la serie, y con un negativo que ordena todo lo demás.** El defecto de
+> borde que había quedado —la concentración más ancha que `W`— se probó por las tres salidas
+> posibles y ninguna cierra: crecer de a un strike **sí** arregla la inestabilidad que hundió al
+> parche del 27 (el problema era el tamaño del paso, no la idea) pero ata el borde a `W` más fuerte;
+> desacoplar la resolución lo deja a la par de hoy; y la **dual** —masa fija, ancho mínimo, la única
+> construcción sin `W`— es mucho peor.
+>
+> Las tres fallan por lo mismo, y es lo que no estaba escrito: **el borde nunca fue sólido.** Sobre
+> las 12 combinaciones, mover `W` un ±20% corre el delta del borde hasta **0.174**, con un
+> `delta_max` de **0.20**. `W` no es el ancho de una ventana: **es quien decide si la banda ata**. Y
+> con eso se corrige el *"el borde es sólido: 800"* de la **61.7**, que era una generalización desde
+> el único ejemplo trabajado hasta ese momento.
+>
+> **El borde no se cierra antes de calibrar `W`, y `W` está del otro lado de la 61.9.** Secciones
+> tocadas: **61.4**, **61.7**, **61.8** y **98**.
+>
+> [El hallazgo del 2026-08-28](hallazgos/2026-08-28-el-borde-le-debe-todo-a-W.md), sección 8 del
+> mismo script.
+>
 > *Fuera de esas secciones, el texto es el recibido el 2026-08-24 sin cambios de contenido. Se
 > repararon además defectos de transcripción del archivo original: un fence sin cerrar que
 > aplanaba los headings de las secciones 5.2 a 99, las tablas que habían quedado separadas por
@@ -2356,6 +2377,11 @@ declara es que el umbral existe y que su ausencia es un resultado válido.
 puntos en SPY. Parte de eso es aritmética —la banda crece hacia afuera— pero no todo, y no hay
 todavía nada que fije su valor.
 
+> **Medido sobre las 12 combinaciones el 2026-08-28, y es mucho peor que ese "~7 puntos en SPY":**
+> el borde se corre **$9.6 en promedio y hasta $30.6**, y en delta hasta **0.174** con sólo ±20% de
+> `W`. Con `delta_max = 0.20`, eso significa que `W` decide si la banda ata. Ver "El borde es una
+> función de `W`" más abajo.
+
 ### Los dos tests no son redundantes, y hay una prueba de cada lado
 
 Los tres ejemplos de la 61.7 dan la evidencia simétrica, y conviene tenerla junta porque es lo que
@@ -2478,20 +2504,50 @@ Las tres lecturas de un `xdisj` bajo quedan así:
 | contiguo a la banda | QQQ 18-Sep PUT — 681–690 contra 691–700 | una losa ancha partida en dos por el tamaño de la ventana |
 | lejos, en el ala | TSLA 18-Sep CALL — 400–409 contra 367–377 | **tampoco son dos muros**: `xvalle` 0.64, no hay valle |
 
-### Lo que sigue roto: el borde, cuando la concentración es más ancha que `W`
+### El borde es una función de `W`, y `W` no está calibrado
 
-Es lo que apareció al probar el segundo parche, y es más incómodo que el defecto original: **si la
-concentración es más ancha que `W`, la ventana la parte y se queda con la mitad de adentro, así que
-el borde cae DENTRO del muro** — justo lo que la 17 dice que no se hace. No es un veredicto mal
-medido: es dónde se vende, y vale hasta **$28 de strike** (TSLA 18-Sep CALL: borde 377 contra 405).
+> **Anotado el 2026-08-27 como "la concentración es más ancha que `W`"; medido el 2026-08-28, y el
+> defecto resultó ser más grande que su enunciado.** Se probaron las tres salidas —arreglar el
+> crecimiento, desacoplarlo de `W`, y una construcción sin `W`— y ninguna cierra, por la misma
+> razón: **el borde nunca fue sólido**. Evidencia en
+> [el hallazgo del 2026-08-28](hallazgos/2026-08-28-el-borde-le-debe-todo-a-W.md).
 
-Dejar crecer la banda sobre la masa contigua lo arregla, y de paso **movería la restricción de 3 a 5
-de 12** — que es justo lo que la 99 le reclama a GOT. **Se rechazó igual, por el parámetro:**
-barriendo la densidad mínima `f` de la rebanada que se absorbe, el movimiento del borde entre tandas
-da 1.3 / **29.8** / **20.4** / 1.6 / 1.6 / **11.2** / 2.0 / 2.0 para `f` de 0.90 a 0.45. Sube y baja
-sin orden — `f = 0.60` no es bueno, está entre dos acantilados, y cinco centésimas más abajo la
-inestabilidad se multiplica por siete. Es el mismo motivo por el que se rechazó el anclaje a la
-grilla.
+El enunciado sigue siendo cierto: **si la concentración es más ancha que `W`, la ventana la parte y
+el borde cae DENTRO del muro** —lo que la 17 dice que no se hace—, y vale hasta **$28 de strike**
+(TSLA 18-Sep CALL: 377 contra 405). Pero es un caso particular de algo más general:
+
+**El borde de hoy, sin ningún parche, es una función del ancho de banda.** Barriendo `W` sobre las
+12 combinaciones, y medido en delta —que es la unidad en la que el borde se compara contra
+`delta_max = 0.20`—:
+
+| rango de `W` | borde: medio | máximo | delta: medio | máximo |
+|---|---|---|---|---|
+| 0.15 – 0.40 EM (el rango que esta sección declara libre) | $9.6 | $30.6 | 0.062 | **0.154** |
+| 0.20 – 0.30 EM (±20%) | $6.2 | $31.6 | 0.042 | **0.174** |
+| 0.225 – 0.275 EM (±10%) | $2.7 | $6.9 | 0.019 | 0.072 |
+
+**Mover `W` un ±20% corre el delta del borde hasta 0.174, con un presupuesto de 0.20.** `W` no es el
+ancho de una ventana: **es quien decide si la banda ata**, que es el número con el que la 61.6 juzga
+si la estructura aporta algo.
+
+**Las tres salidas, medidas:**
+
+* **Crecer de a un strike** en vez de por rebanadas **arregla la inestabilidad** que hundió al parche
+  del 27 — el borde entre tandas se mueve **0.3** con `f` entre 0.65 y 0.45, contra 1.3 de no crecer.
+  El defecto de ese parche no era la idea: era el tamaño del paso. **Pero ata el borde a `W` más
+  fuerte** ($16.6 contra $9.6), porque `W` entra dos veces: la semilla y la referencia de densidad.
+* **Desacoplar la resolución** —medir la densidad sobre el paso de la grilla donde vive el gamma—
+  saca una de las dos y deja el borde **a la par de hoy, no mejor** ($8.0). Lo que sigue moviéndose
+  es la **semilla**, que es una ventana de ancho `W`: en un estante de $35 cae en otro lugar según
+  `W`. Ningún refinamiento del crecimiento arregla una semilla que se muda.
+* **La dual** —masa fija `p`, ancho mínimo—, que es la única construcción que no necesita `W`, es
+  **mucho peor**: el borde entre tandas se mueve de 16 a 43 según `p`, contra 1.3. Sacar `W` cambia
+  el filo de lugar, de "qué strike entra en la ventana" a "qué strike completa la masa", y el segundo
+  es peor.
+
+**Conclusión: el borde no se cierra antes de calibrar `W`, y `W` está del otro lado de la 61.9.** La
+receta del crecimiento queda escrita para cuando se pueda —de a un strike, `f` 0.65–0.45, resolución
+desacoplada— y no se aplica hasta entonces.
 
 ## 61.5 Lo que las mediciones ya contestaron
 
@@ -2624,6 +2680,11 @@ CALL   banda 790.0-799.8   26.6% del lado   xmed 1.6x   xdisj 1.01x contra 766-7
 
 **El borde del lado call es sólido: 800.** Barriendo el ancho de banda de 0.15 a 0.40 EM se mueve
 entre 798.6 y 800.9 — el paso 6 devuelve el mismo número siempre.
+
+> **Corregido el 2026-08-28: eso vale para este lado, no para el dataset.** Es el tercero más estable
+> de los doce ($3.0 de rango). El promedio es **$9.6** y TSLA 18-Sep CALL se corre **$30.6** con el
+> mismo barrido. La solidez del borde se generalizó desde el único ejemplo trabajado hasta ese
+> momento; medida, no se sostiene (61.4).
 
 **Lo que no era sólido es el paso 5**, y este caso es el que lo mostró. El `xdisj` del lado call
 saltaba de **1.01x a 1.22x** con un cambio del 8% en `W`, porque a `W = 9.8` la banda llega a 799.8 y
@@ -3692,7 +3753,11 @@ dónde vivía cada uno, está en la **61.8**:
   Con él se cae el "no hay muro" de TSLA 18-Sep CALL, que era el único del dataset.
 * **El hueco mínimo al competidor** y **el crecimiento de la banda sobre la masa contigua** — los
   dos parches al competidor contiguo. El primero no mide nada nuevo; el segundo arregla el borde
-  pero su parámetro tiene acantilados entre valores vecinos (ídem).
+  pero su parámetro tiene acantilados entre valores vecinos (ídem). **Revisado el 28/08:** el
+  crecimiento **de a un strike** sí es estable —el defecto era el tamaño del paso, no la idea— pero
+  ata el borde a `W` más fuerte, así que tampoco entra.
+* **La banda dual** —masa fija, ancho mínimo—, que era la única construcción sin `W`: el borde entre
+  tandas se mueve de 16 a 43 contra 1.3 (hallazgo del 28/08).
 * **El ZGL como condición de rechazo** — las seis capturas lo cruzan del lado put (62.2).
 * **El crédito como evidencia de que el muro paga** — no hay premio: descontando el delta, el
   residuo del borde da z medio **+0.56 ± 0.90**, indistinguible de cero.
@@ -3733,16 +3798,22 @@ independientes**, que con el universo de la 4 son seis años. **Antes de calibra
 elegir** entre ensanchar el universo, comprar historia de cadenas con open interest, o aceptar el
 negativo y plegar GOT al edge test de RPF.
 
-Lo que depende de esa decisión y hoy no tiene sentido calibrar: los umbrales de `xmed` y `xdisj`,
-el ancho de banda `W`, el `buffer`, el `delta_max` y su modulación por régimen, `RequiredCredit`,
-`Width`, el candidate ranking, Selective Mode, No Operate, exit, persistence y portfolio risk.
+Lo que depende de esa decisión y hoy no tiene sentido calibrar: los umbrales de `xmed` y `xvalle`,
+**el ancho de banda `W`**, el `buffer`, el `delta_max` y su modulación por régimen,
+`RequiredCredit`, `Width`, el candidate ranking, Selective Mode, No Operate, exit, persistence y
+portfolio risk.
+
+**`W` está primero en esa lista desde el 2026-08-28, y no por prolijidad:** no es un parámetro sin
+afinar, es el que manda sobre el resultado. Mover `W` un ±20% corre el delta del borde hasta 0.174
+con un presupuesto de 0.20, o sea que decide si la banda ata — que es el número con el que se juzga
+si la estructura aporta algo. Mientras `W` no se pueda calibrar, el borde no se puede cerrar.
 
 Independientes de esa decisión, y siguen abiertos:
 
-* **el borde cuando la concentración es más ancha que `W`** — la ventana la parte y el borde queda
-  *adentro* del muro, contra lo que dice la 17. Vale hasta $28 de strike en el dataset, y es un
-  problema de dónde se vende y no de veredicto. Es lo que quedó del competidor contiguo después de
-  medirlo: el test se reemplazó, el borde sigue abierto (61.4, hallazgo del 27/08);
+* **el borde**, que **no se puede cerrar antes de calibrar `W`** — y `W` está del otro lado de la
+  61.9. Medido el 28/08, el borde de hoy se corre $9.6 en promedio y hasta 0.174 de delta con ±20%
+  de `W`, contra un `delta_max` de 0.20: `W` decide si la banda ata. Las tres salidas probadas
+  fallan, y la receta del crecimiento queda escrita para cuando se pueda aplicar (61.4);
 * **el umbral de `xvalle`**, que no se puede fijar hasta observar un valle — cero en 12 (ídem);
 * la tabla de probabilidad empírica por lado, delta y DTE que alimenta el edge test (43.3);
 * separar el ruido de mercado del efecto de la hora de captura: el mismo símbolo y vencimiento
