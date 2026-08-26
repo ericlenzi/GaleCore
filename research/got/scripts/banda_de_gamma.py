@@ -178,7 +178,76 @@ def ancho_anclado(ks, k0, ancho, lado):
 
 # ---------------------------------------------------------------- la banda
 
-def medir(rows, spot, em, lado, frac=FRAC_EM, excl=0.0, anclar=False):
+def barrer(c, ks, ancho, lado, anclar):
+    """Todas las ventanas del lado, ordenadas por masa. Cada una arranca en un strike."""
+    out = []
+    for k0, _ in c:
+        w = ancho_anclado(ks, k0, ancho, lado) if anclar else ancho
+        lo, hi = (k0, k0 + w) if lado == 'CALL' else (k0 - w, k0)
+        dentro = frozenset(x[0] for x in c if lo - 1e-9 <= x[0] <= hi + 1e-9)
+        out.append((sum(x[1] for x in c if x[0] in dentro), lo, hi, dentro))
+    out.sort(key=lambda x: -x[0])
+    return out
+
+
+def separacion(v, mejor):
+    """Dolares de cadena vacia entre el intervalo del competidor y el de la banda."""
+    if v[1] > mejor[2]:
+        return v[1] - mejor[2]
+    if v[2] < mejor[1]:
+        return mejor[1] - v[2]
+    return 0.0
+
+
+def crecer_banda(c, mejor, ancho, lado, f):
+    """Extiende la banda hacia AFUERA mientras la rebanada contigua de ancho `W` tenga al menos
+    `f` de la densidad de la banda ORIGINAL.
+
+    Es la otra salida al competidor contiguo, y la unica que toca el BORDE: si una concentracion
+    es mas ancha que `W`, la ventana la parte y se queda con la mitad de adentro -- entonces el
+    borde cae DENTRO del muro, que es justo lo que la 17 dice que no hay que hacer.
+
+    La referencia es la densidad ORIGINAL a proposito. Comparando contra la banda ya crecida el
+    criterio se afloja solo: cada rebanada absorbida baja el promedio y hace mas facil absorber
+    la siguiente. Con referencia movil el crecimiento se dispara (bandas de 5 a 9 anchos) y el
+    borde se vuelve inestable entre tandas."""
+    lo, hi, masa = mejor[1], mejor[2], mejor[0]
+    ref = mejor[0] / ancho
+    while True:
+        nlo, nhi = (hi, hi + ancho) if lado == 'CALL' else (lo - ancho, lo)
+        rebanada = [x[1] for x in c if nlo - 1e-9 <= x[0] <= nhi + 1e-9
+                    and not (lo - 1e-9 <= x[0] <= hi + 1e-9)]
+        if not rebanada or sum(rebanada) / ancho < f * ref:
+            return lo, hi, masa
+        masa += sum(rebanada)
+        lo, hi = (lo, nhi) if lado == 'CALL' else (nlo, hi)
+
+
+def calcular_xvalle(c, lo, hi, d_lo, d_hi):
+    """Densidad de la rebanada mas vacia que entra ENTERA entre la banda y su competidor,
+    relativa a la densidad de la banda. La rebanada mide lo mismo que la banda.
+
+    Es lo que `xdisj` cree que mide y no mide. "Hay un muro o hay dos" es una pregunta sobre lo
+    que hay EN EL MEDIO, no sobre el cociente de dos masas: dos masas iguales sin nada entre
+    ellas son una losa ancha, y dos masas iguales con un valle son dos muros. `xdisj` no puede
+    distinguirlas porque no mira el medio.
+
+    Devuelve None cuando no hay lugar para la rebanada -- la banda y su competidor son contiguos
+    o casi--, que no es un valle de cero: es que no hay valle, y son un solo objeto."""
+    if d_lo != d_lo:
+        return None
+    ancho = hi - lo
+    a, b = (hi, d_lo) if d_lo > hi else (d_hi, lo)
+    if b - a < ancho:
+        return None
+    dens = sum(x[1] for x in c if lo - 1e-9 <= x[0] <= hi + 1e-9) / ancho
+    rebanadas = [sum(x[1] for x in c if k - 1e-9 <= x[0] <= k + ancho + 1e-9) / ancho
+                 for k, _ in c if k >= a - 1e-9 and k + ancho <= b + 1e-9]
+    return (min(rebanadas) / dens) if rebanadas and dens else None
+
+
+def medir(rows, spot, em, lado, frac=FRAC_EM, excl=0.0, anclar=False,
+          hueco=0.0, crecer=0.0):
     """`excl` y `anclar` son los dos arreglos que la 61.4 pedia para sus tres defectos,
     apagados por defecto para que las secciones 0-5 sigan reproduciendo los numeros
     publicados. Medidos el 2026-08-26: `excl` arregla los defectos 2 y 3 y se adopta;
@@ -191,7 +260,10 @@ def medir(rows, spot, em, lado, frac=FRAC_EM, excl=0.0, anclar=False):
     708.02). Se excluyen del POOL, asi que no entran ni a la banda, ni al competidor, ni a
     la mediana, ni al total del lado.
 
-    `anclar` -- ver `ancho_anclado`."""
+    `anclar` -- ver `ancho_anclado`.
+
+    `hueco` y `crecer` son las dos salidas al COMPETIDOR CONTIGUO, el defecto que quedo abierto
+    el 26 y se midio el 27. Ver `separacion` y `crecer_banda`."""
     c = gex_del_lado(rows, spot, lado)
     if excl:
         c = [x for x in c if abs(x[0] - spot) >= excl * em]
@@ -201,21 +273,32 @@ def medir(rows, spot, em, lado, frac=FRAC_EM, excl=0.0, anclar=False):
     ancho = frac * em
     ks = grilla(rows)
 
-    ventanas = []
-    for k0, _ in c:
-        w = ancho_anclado(ks, k0, ancho, lado) if anclar else ancho
-        lo, hi = (k0, k0 + w) if lado == 'CALL' else (k0 - w, k0)
-        dentro = frozenset(x[0] for x in c if lo - 1e-9 <= x[0] <= hi + 1e-9)
-        ventanas.append((sum(x[1] for x in c if x[0] in dentro), lo, hi, dentro))
-    ventanas.sort(key=lambda x: -x[0])
+    ventanas = barrer(c, ks, ancho, lado, anclar)
     mejor = ventanas[0]
+
+    if crecer:
+        lo, hi, masa = crecer_banda(c, mejor, ancho, lado, crecer)
+        if hi - lo > ancho + 1e-9:
+            # La banda crecio, asi que los tests tienen que medirse AL ANCHO CRECIDO: un
+            # competidor de ancho W contra una banda de 2W no es una comparacion.
+            ventanas = barrer(c, ks, hi - lo, lado, False)
+            dentro = frozenset(x[0] for x in c if lo - 1e-9 <= x[0] <= hi + 1e-9)
+            mejor = (masa, lo, hi, dentro)
+
     mediana = statistics.median(v[0] for v in ventanas)
     # Disjunta = sin NINGUN strike en comun, no "sin solapamiento de intervalos". Comparar los
     # intervalos deja pasar al competidor que toca la banda en su borde y por lo tanto comparte
     # ese strike -- con la banda anclada a la grilla los bordes caen sobre strikes y eso pasa
     # siempre. En QQQ 18-Sep PUT el "competidor" 700-708 contenia el 700, que es el strike mas
     # grande de la banda 692-700: el test comparaba el muro contra si mismo.
-    disjunta = next((v for v in ventanas if not (v[3] & mejor[3])), None)
+    #
+    # `hueco` va mas lejos: exige que el competidor este separado de la banda por al menos
+    # `hueco` anchos de banda. Sin eso, el competidor tipico es la COLA de la propia banda --
+    # 8 de 12 estan a menos de un ancho, y dos a un dolar-- y `xdisj` termina castigando a una
+    # concentracion ancha por ser ancha (61.4).
+    disjunta = next((v for v in ventanas
+                     if not (v[3] & mejor[3])
+                     and separacion(v, mejor) >= hueco * (mejor[2] - mejor[1]) - 1e-9), None)
 
     orden = sorted(c, key=lambda x: -x[1])
     return dict(
@@ -228,6 +311,9 @@ def medir(rows, spot, em, lado, frac=FRAC_EM, excl=0.0, anclar=False):
         xdisj=mejor[0] / disjunta[0] if disjunta and disjunta[0] else float('inf'),
         disj_lo=disjunta[1] if disjunta else float('nan'),
         disj_hi=disjunta[2] if disjunta else float('nan'),
+        xvalle=calcular_xvalle(c, mejor[1], mejor[2],
+                               disjunta[1] if disjunta else float('nan'),
+                               disjunta[2] if disjunta else float('nan')),
         em=em, spot=spot,
     )
 
@@ -793,6 +879,209 @@ def seccion_6f_restriccion(carpeta):
           f'{cuenta["fix"]} de 12')
 
 
+# ---------------------------------------------------------------- 7. el competidor contiguo
+
+"""El unico defecto de la 61.4 que quedo abierto el 2026-08-26: cuando el competidor disjunto
+es la COLA DE LA PROPIA BANDA, `xdisj` compara el muro contra si mismo, da bajo, y castiga a
+una concentracion ancha por ser ancha.
+
+Medido el 2026-08-27, no es un caso de borde: es el caso NORMAL. Y los dos parches obvios
+fallan, cada uno por su lado, hasta que aparece que el problema no es el competidor sino el
+test.
+
+  7a  Cuanto pasa -- la separacion entre la banda y el competidor que define `xdisj`.
+  7b  PARCHE A -- exigirle al competidor un hueco de `g` anchos de banda.
+  7c  PARCHE B -- dejar crecer la banda sobre la masa contigua. Es el unico que toca el BORDE,
+      que es la parte del problema que la 61.4 no habia visto.
+  7d  LA QUE DECIDE -- el borde entre tandas, con el barrido fino de `f`.
+  7e  EL DIAGNOSTICO -- `xvalle`: lo que `xdisj` cree que mide y no mide.
+  7f  Lo que el parche B habria movido en el conteo de restriccion, y no se cobra.
+"""
+
+HUECO = 1.0          # separacion minima del competidor, en anchos de banda. Se barre en 7b
+CRECER = 0.60        # densidad minima de la rebanada contigua, en fraccion de la banda (7c)
+
+
+def seccion_7a_hueco(carpeta):
+    print('\n' + '=' * 100)
+    print(f'7a. EL COMPETIDOR CONTIGUO -- a que distancia esta el que define xdisj'
+          f'   [{os.path.basename(carpeta)}, EM real]')
+    print('=' * 100)
+    print(f'  {"caso":>17} | {"banda":>15} {"competidor":>15} {"hueco":>7} {"en W":>6} | {"xdisj":>7}')
+    pegados = total = 0
+    for sym, exp, rows, spot, em, call, put in casos_em_real(carpeta):
+        for lado in ('PUT', 'CALL'):
+            m = medir(rows, spot, em, lado, FRAC_EM, excl=EXCL)
+            if not m or m['disj_lo'] != m['disj_lo']:
+                continue
+            h = min(abs(m['disj_lo'] - m['hi']), abs(m['lo'] - m['disj_hi']))
+            w = m['hi'] - m['lo']
+            total += 1
+            pegados += 1 if h < w else 0
+            print(f'  {sym + " " + exp[5:] + " " + lado:>17} | {m["lo"]:7.1f}-{m["hi"]:<7.1f} '
+                  f'{m["disj_lo"]:7.1f}-{m["disj_hi"]:<7.1f} {h:7.1f} '
+                  f'{h / w:6.2f}{"!" if h < w else " "}| {m["xdisj"]:6.2f}x')
+    print(f'\n  ! = el competidor esta a menos de UN ancho de banda. Pasa en {pegados} de {total}:')
+    print('  el competidor tipico no es otro muro, es el borde de afuera del mismo.')
+
+
+def seccion_7b_parche_a(carpeta):
+    """PARCHE A -- el competidor tiene que estar separado de la banda por `g` anchos.
+
+    Sube `xdisj` en casi todos los casos, que es lo que se le pide. Lo que hay que preguntarle es
+    otra cosa: si lo que sube es informacion o es aritmetica. Ver 7e.
+    """
+    print('\n' + '=' * 100)
+    print(f'7b. PARCHE A -- exigir un hueco de g anchos de banda'
+          f'   [{os.path.basename(carpeta)}, EM real]')
+    print('=' * 100)
+    gs = (0.0, 0.25, 0.5, 1.0, 2.0)
+    print(f'  {"caso":>17} |' + ' '.join(f'{"g=" + f"{g:.2f}":>9}' for g in gs))
+    for sym, exp, rows, spot, em, call, put in casos_em_real(carpeta):
+        for lado in ('PUT', 'CALL'):
+            fila = f'  {sym + " " + exp[5:] + " " + lado:>17} |'
+            for g in gs:
+                m = medir(rows, spot, em, lado, FRAC_EM, excl=EXCL, hueco=g)
+                if not m:
+                    fila += f' {"--":>9}'
+                elif m['xdisj'] == float('inf'):
+                    fila += f' {"sin comp":>9}'
+                else:
+                    fila += f' {m["xdisj"]:8.2f}x'
+            print(fila)
+    print('\n  TSLA 18-Sep CALL no se mueve con ningun hueco: su competidor esta a 2.5 anchos. Es el')
+    print('  unico "no hay muro" que el dataset tiene -- y la 7e muestra que tampoco lo es.')
+
+
+def seccion_7c_parche_b(carpeta):
+    """PARCHE B -- la banda crece sobre la masa contigua, y sus tests se miden al ancho crecido."""
+    print('\n' + '=' * 100)
+    print(f'7c. PARCHE B -- dejar crecer la banda sobre la masa contigua'
+          f'   [{os.path.basename(carpeta)}, EM real]')
+    print('=' * 100)
+    fs = (0.75, 0.60, 0.50, 0.35)
+    print(f'  {"caso":>17} |{"sin crecer":^24}|' + '|'.join(f'{"f=" + f"{f:.2f}":^24}' for f in fs))
+    print(f'  {"":>17} |{"banda    xW xmed xdisj":^24}|' +
+          '|'.join(f'{"banda    xW xmed xdisj":^24}' for _ in fs))
+    for sym, exp, rows, spot, em, call, put in casos_em_real(carpeta):
+        for lado in ('PUT', 'CALL'):
+            fila = f'  {sym + " " + exp[5:] + " " + lado:>17} |'
+            for f in (0.0,) + fs:
+                m = medir(rows, spot, em, lado, FRAC_EM, excl=EXCL, crecer=f)
+                if not m:
+                    fila += f'{"--":^24}|'
+                    continue
+                n = (m['hi'] - m['lo']) / (FRAC_EM * em)
+                fila += '{:^24}|'.format('{:.0f}-{:.0f} x{:.0f} {:4.1f}x {:4.2f}x'.format(
+                    m['lo'], m['hi'], n, m['xmed'], m['xdisj']))
+            print(fila.rstrip('|'))
+    print('\n  xW = cuantos anchos mide la banda crecida. Crecer mueve el BORDE, que es lo que')
+    print('  ninguna otra correccion de la 61.4 movia: si la concentracion es mas ancha que W, la')
+    print('  ventana la parte y el borde queda DENTRO del muro -- lo que la 17 dice que no se hace.')
+    print('  Y crecer infla `xdisj` por construccion: la banda se come a su propio competidor.')
+
+
+def seccion_7d_estabilidad():
+    """LA QUE DECIDE, otra vez: el borde entre tandas. El parche A no lo toca por construccion.
+
+    El barrido de `f` es fino a proposito: lo que descalifica al parche B no es su nivel sino que
+    la estabilidad NO ES MONOTONA en el parametro.
+    """
+    print('\n' + '=' * 100)
+    print('7d. LA QUE DECIDE -- el borde entre tandas, barrido fino de f')
+    print('=' * 100)
+    fs = (0.90, 0.80, 0.70, 0.65, 0.60, 0.55, 0.50, 0.45)
+    modos = [('sin crecer', dict())] + [(f'{f:.2f}', dict(crecer=f)) for f in fs]
+    serie = {}
+    for carpeta in capturas():
+        for sym, exp, rows, spot, em, call, put in casos(carpeta):
+            for lado in ('PUT', 'CALL'):
+                for etiqueta, kw in modos:
+                    m = medir(rows, spot, em, lado, FRAC_EM, excl=EXCL, **kw)
+                    if m:
+                        serie.setdefault((sym, exp, lado, etiqueta), []).append(m['borde'])
+    claves = sorted({k[:3] for k in serie if len(serie[k]) > 1})
+    print(f'  {"caso":>17} |' + ' '.join(f'{e:>10}' for e, _ in modos))
+    total = {e: 0.0 for e, _ in modos}
+    for clave in claves:
+        fila = f'  {clave[0] + " " + clave[1][5:] + " " + clave[2]:>17} |'
+        for etiqueta, _ in modos:
+            b = serie.get(clave + (etiqueta,), [])
+            mov = max(b) - min(b) if len(b) > 1 else 0.0
+            total[etiqueta] += mov
+            fila += f' {mov:9.1f} '
+        print(fila)
+    print(f'  {"MOVIMIENTO TOTAL":>17} |' + ' '.join(f'{total[e]:9.1f} ' for e, _ in modos))
+    print('\n  La fila de abajo sube y baja sin orden al mover `f`. Un parametro con acantilados')
+    print('  entre valores vecinos no se calibra con 12 casos: es el mismo motivo por el que se')
+    print('  rechazo el anclaje a la grilla el 26.')
+
+
+def seccion_7e_xvalle(carpeta):
+    """EL DIAGNOSTICO. `xdisj` no mide lo que dice medir, y `xvalle` si."""
+    print('\n' + '=' * 100)
+    print(f'7e. EL DIAGNOSTICO -- xvalle: que hay ENTRE la banda y su competidor'
+          f'   [{os.path.basename(carpeta)}, EM real]')
+    print('=' * 100)
+    print(f'  {"caso":>17} | {"xdisj":>7} {"hueco/W":>8} | {"xvalle":>7} | lectura')
+    valles = sinvalle = 0
+    for sym, exp, rows, spot, em, call, put in casos_em_real(carpeta):
+        for lado in ('PUT', 'CALL'):
+            m = medir(rows, spot, em, lado, FRAC_EM, excl=EXCL)
+            if not m or m['disj_lo'] != m['disj_lo']:
+                continue
+            h = min(abs(m['disj_lo'] - m['hi']), abs(m['lo'] - m['disj_hi']))
+            v = m['xvalle']
+            if v is None:
+                lect, txt = 'contiguo: UNA losa', '--'
+            elif v < 0.25:
+                lect, txt = 'VALLE: dos muros', f'{v:.2f}'
+                valles += 1
+            else:
+                lect, txt = 'sin valle: UNA losa', f'{v:.2f}'
+            sinvalle += 1 if v is None or v >= 0.25 else 0
+            print(f'  {sym + " " + exp[5:] + " " + lado:>17} | {m["xdisj"]:6.2f}x '
+                  f'{h / (m["hi"] - m["lo"]):8.2f} | {txt:>7} | {lect}')
+    print(f'\n  Valles de verdad: {valles} de {valles + sinvalle}. En los otros {sinvalle}, lo que')
+    print('  hay del otro lado del "competidor" es la misma losa o un estante sin hueco -- el valle')
+    print('  mas profundo de todo el dataset tiene el 28% de la densidad de su banda.')
+    print('  O sea que `xdisj` NO TIENE UN SOLO POSITIVO VERDADERO en el dataset, y el 1.01x de')
+    print('  TSLA 18-Sep CALL --el "no hay muro" de la 61.7-- es un falso negativo: entre sus dos')
+    print('  "muros" hay un estante con el 64% de la densidad de la banda.')
+
+
+def seccion_7f_restriccion(carpeta):
+    """Lo que el parche B habria movido, para que quede dicho lo que se deja sobre la mesa."""
+    print('\n' + '=' * 100)
+    print(f'7f. LO QUE SE DEJA SOBRE LA MESA -- restriccion con la banda crecida (f = {CRECER:.2f})'
+          f'   [{os.path.basename(carpeta)}, EM real]')
+    print('=' * 100)
+    print(f'  {"caso":>17} | {"borde":>7} {"delta":>6} {"ata":>6} | '
+          f'{"borde":>7} {"delta":>6} {"ata":>6} |')
+    cuenta = {'hoy': 0, 'fix': 0}
+    for sym, exp, rows, spot, em, call, put in casos_em_real(carpeta):
+        for lado in ('PUT', 'CALL'):
+            tabla = put if lado == 'PUT' else call
+            fila, atas = f'  {sym + " " + exp[5:] + " " + lado:>17} |', []
+            for modo, kw in (('hoy', dict()), ('fix', dict(crecer=CRECER))):
+                m = medir(rows, spot, em, lado, FRAC_EM, excl=EXCL, **kw)
+                if not m:
+                    fila += f' {"--":>7} {"--":>6} {"--":>6} |'
+                    atas.append(None)
+                    continue
+                d = delta_en(tabla, m['borde'])
+                ata = d < DELTA_REF
+                cuenta[modo] += 1 if ata else 0
+                atas.append(ata)
+                fila += f' {m["borde"]:7.1f} {d:6.3f} {"BANDA" if ata else "delta":>6} |'
+            print(fila + ('  <-- cambia' if atas[0] != atas[1] else ''))
+    print(f'\n  ata la BANDA:  sin crecer {cuenta["hoy"]} de 12   ->   crecida '
+          f'{cuenta["fix"]} de 12')
+    print('  Crecer haria que la estructura restrinja mas seguido, que es lo que la 99 le reclama')
+    print('  a GOT. No alcanza: el parametro no es estable (7d), y un borde que se mueve $19 entre')
+    print('  dos fotos es peor que un borde que restringe poco.')
+
+
 def main():
     global EXCL
     pedida = sys.argv[1] if len(sys.argv) > 1 else '2026-08-25'
@@ -814,6 +1103,12 @@ def main():
     seccion_6d_estabilidad()
     seccion_6e_ejemplos()
     seccion_6f_restriccion(carpeta)
+    seccion_7a_hueco(carpeta)
+    seccion_7b_parche_a(carpeta)
+    seccion_7c_parche_b(carpeta)
+    seccion_7d_estabilidad()
+    seccion_7e_xvalle(carpeta)
+    seccion_7f_restriccion(carpeta)
     return 0
 
 

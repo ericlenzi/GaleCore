@@ -83,6 +83,27 @@
 > [El hallazgo del 2026-08-26](hallazgos/2026-08-26-los-tres-defectos-de-la-banda.md), sección 6 del
 > mismo script.
 >
+> ---
+>
+> **El 2026-08-27 se midió el defecto que quedaba —el competidor contiguo— y el resultado se llevó
+> puesto un test.** No es un caso de borde: en **8 de 12** combinaciones el competidor está a menos
+> de un ancho de banda, y en dos a un dólar. Los dos parches obvios se rechazaron —el hueco mínimo
+> no mide nada nuevo; dejar crecer la banda arregla el borde pero su parámetro tiene acantilados
+> entre valores vecinos—, y buscando por qué fallaban los dos apareció el fondo del asunto:
+> **`xdisj` compara masas, y "un muro o dos" es una pregunta sobre el valle que hay en el medio.**
+>
+> Lo mide **`xvalle`**, y con él **el dataset no tiene un solo valle en 12 combinaciones**: `xdisj`
+> no tiene ningún positivo verdadero. Se cae con eso el "no hay muro" de TSLA 18-Sep CALL (ejemplo 2
+> de la **61.7**), que era el único del dataset: entre sus dos "muros a $30" hay un estante con el
+> 64% de la densidad de la banda.
+>
+> Y queda anotado, en su lugar, un defecto que no se había visto y **es de borde y no de veredicto**:
+> si la concentración es más ancha que `W`, la ventana la parte y **el borde cae adentro del muro**
+> — hasta $28 de strike. Secciones tocadas: **61.4**, **61.7**, **61.8** y **98**.
+>
+> [El hallazgo del 2026-08-27](hallazgos/2026-08-27-el-competidor-contiguo-y-xdisj.md), sección 7 del
+> mismo script.
+>
 > *Fuera de esas secciones, el texto es el recibido el 2026-08-24 sin cambios de contenido. Se
 > repararon además defectos de transcripción del archivo original: un fence sin cerrar que
 > aplanaba los headings de las secciones 5.2 a 99, las tablas que habían quedado separadas por
@@ -2313,6 +2334,11 @@ Que sea la ventana más densa no la hace una concentración. Hacen falta los dos
 Los dos, porque se rompen distinto: TSLA 09-18 CALL da `xmed` 8.6x y `xdisj` 1.01x — muy
 concentrado, en dos lugares a la vez.
 
+> **Corregido el 2026-08-27: el segundo test es `xvalle`, no `xdisj`.** El cociente de dos masas no
+> puede contestar "un muro o dos" —dos masas iguales pegadas son una losa, y con un valle en el
+> medio son dos muros—, y medido sobre las 12 combinaciones **`xdisj` no tiene un solo positivo
+> verdadero**, el TSLA de este párrafo incluido. Ver el nodo "El competidor contiguo" más abajo.
+
 **Cuando no pasan, la respuesta correcta es "no hay muro"** — no un argmax inestable. La zona queda
 definida solo por `delta_max`, que es una degradación limpia. Hoy el sistema siempre devuelve un
 muro; eso es lo que hay que cambiar.
@@ -2340,8 +2366,13 @@ justifica pagar el costo de dos tests en vez de uno:
 | TSLA 18-Sep CALL | 8.3x — parece sólido | **1.01x** | `xdisj`: dos muros a $30 |
 | QQQ 18-Sep CALL | **1.4x** | 1.26x — pasaría cualquier umbral | `xmed`: es una meseta |
 
-Las dos lecturas siguen valiendo como **descripción de la forma**: TSLA tiene dos concentraciones y
-QQQ tiene una meseta, y un test solo no ve las dos cosas.
+> **Corregido otra vez el 2026-08-27.** De las dos filas, la de TSLA ya no dice lo que decía: sus
+> "dos muros a $30" tienen un estante entre medio con el 64% de la densidad de la banda, así que
+> `xdisj` no estaba avisando de nada — estaba pesando dos pedazos del mismo estante. Lo que queda en
+> pie de esta tabla es la fila de QQQ: `xmed` ve una forma que `xdisj` no ve. Que hagan falta **dos**
+> tests sigue valiendo; que el segundo sea `xdisj`, no.
+
+La lectura de la forma sí sigue valiendo: QQQ tiene una meseta y `xmed` es lo único que la ve.
 
 > **Corregido el 2026-08-26.** Este nodo decía además que QQQ 18-Sep era *"la única serie del
 > dataset que se movió"* y que *"el único aviso previo fue su `xmed`"*, o sea que trataba el `xmed`
@@ -2412,19 +2443,55 @@ El strike 800 sigue entrando y saliendo por centavos, y sigue moviendo la compos
 competidor contaminado. Con 12 casos eso es una observación y no una demostración, pero alcanza para
 lo que hay que decidir: **el defecto 1 no justifica cambiar la definición, y su arreglo la empeora.**
 
-### Lo que sigue roto: el competidor contiguo
+### El competidor contiguo, y por qué `xdisj` no sirve
 
-Es la tercera lectura de un `xdisj` bajo, y **no la toca nada de lo anterior**:
+> **Anotado el 2026-08-25 como la tercera lectura de un `xdisj` bajo; medido el 2026-08-27, y el
+> resultado se lleva puesto el test.** Los dos parches obvios se rechazaron, y buscando por qué
+> fallaban los dos apareció que el problema no es el competidor: es la pregunta que `xdisj` hace.
+> Evidencia en [el hallazgo del 2026-08-27](hallazgos/2026-08-27-el-competidor-contiguo-y-xdisj.md).
+
+**El competidor contiguo no es un caso de borde: es el caso normal.** En **8 de 12** combinaciones
+el competidor que define `xdisj` está a menos de **un** ancho de banda, y en dos de ellas a **un
+dólar**. El competidor típico no es otro muro — es el borde de afuera del mismo.
+
+**`xdisj` compara masas, y "un muro o dos" es una pregunta sobre el valle.** Dos masas iguales sin
+nada entre ellas son una losa ancha; dos masas iguales con un valle entre ellas son dos muros.
+`xdisj` no puede distinguirlas porque no mira el medio. Lo que lo mira es **`xvalle`**: la densidad
+de la rebanada más vacía que entra entera entre la banda y su competidor, relativa a la densidad de
+la banda.
+
+Medido sobre las 12 combinaciones, **el dataset no tiene un solo valle**: ocho casos son contiguos
+—no hay lugar ni para una rebanada— y los otros cuatro dan 0.28, 0.53, 0.64 y 0.74. O sea que
+**`xdisj` no tiene un solo positivo verdadero**: todos sus valores bajos son la banda contra su
+propia cola o contra un estante sin hueco.
+
+**Y ahí cae el ejemplo 2 de la 61.7.** TSLA 18-Sep CALL era el "no hay muro" del dataset: `xmed`
+8.3x, `xdisj` 1.01x, dos concentraciones a $30. Pero entre ellas no hay una sola ventana de 9 puntos
+que baje del **64%** de la densidad de la banda. No son dos muros con un valle: es un estante de $35
+con ondulaciones, y el 1.01x decía "medí dos pedazos del mismo estante y pesan igual".
+
+Las tres lecturas de un `xdisj` bajo quedan así:
 
 | El competidor está… | Ejemplo | Qué significa |
 |---|---|---|
-| pegado al spot | SPY 16-Oct CALL — 766–776 con spot 765.45 | **arreglado**: la zona del dinero ya no entra |
-| lejos, en el ala | TSLA 18-Sep CALL — 400–409 contra 367–377 | dos muros reales; "no hay muro" es correcto |
-| contiguo a la banda | QQQ 18-Sep PUT — 681–690 contra 691–700 | una sola losa ancha partida en dos por el tamaño de la ventana |
+| pegado al spot | SPY 16-Oct CALL — 766–776 con spot 765.45 | **arreglado el 26**: la zona del dinero ya no entra |
+| contiguo a la banda | QQQ 18-Sep PUT — 681–690 contra 691–700 | una losa ancha partida en dos por el tamaño de la ventana |
+| lejos, en el ala | TSLA 18-Sep CALL — 400–409 contra 367–377 | **tampoco son dos muros**: `xvalle` 0.64, no hay valle |
 
-El tercer caso empuja en la dirección contraria a los otros dos: ahí `xdisj` compara el muro contra
-**su propia cola**, así que da un valor artificialmente **bajo** y castiga a una concentración ancha
-—que es exactamente lo que uno querría encontrar— haciéndola parecer un empate entre dos muros.
+### Lo que sigue roto: el borde, cuando la concentración es más ancha que `W`
+
+Es lo que apareció al probar el segundo parche, y es más incómodo que el defecto original: **si la
+concentración es más ancha que `W`, la ventana la parte y se queda con la mitad de adentro, así que
+el borde cae DENTRO del muro** — justo lo que la 17 dice que no se hace. No es un veredicto mal
+medido: es dónde se vende, y vale hasta **$28 de strike** (TSLA 18-Sep CALL: borde 377 contra 405).
+
+Dejar crecer la banda sobre la masa contigua lo arregla, y de paso **movería la restricción de 3 a 5
+de 12** — que es justo lo que la 99 le reclama a GOT. **Se rechazó igual, por el parámetro:**
+barriendo la densidad mínima `f` de la rebanada que se absorbe, el movimiento del borde entre tandas
+da 1.3 / **29.8** / **20.4** / 1.6 / 1.6 / **11.2** / 2.0 / 2.0 para `f` de 0.90 a 0.45. Sube y baja
+sin orden — `f = 0.60` no es bueno, está entre dos acantilados, y cinco centésimas más abajo la
+inestabilidad se multiplica por siete. Es el mismo motivo por el que se rechazó el anclaje a la
+grilla.
 
 ## 61.5 Lo que las mediciones ya contestaron
 
@@ -2514,9 +2581,11 @@ dinero** — `|K − spot| ≥ 0.15 × EM`, que también sale del cálculo del c
 del total del lado (61.4). Sin eso, el muro puede ser la pila de gamma del dinero, o medirse contra
 ella.
 
-**5 · Decidir si esa banda es un muro.** `xmed` y `xdisj` (61.4). Si no pasan, **el resultado es "no
-hay muro" en ese lado** y se salta al paso 7 con la zona definida solo por `delta_max`. Umbrales sin
-declarar.
+**5 · Decidir si esa banda es un muro.** `xmed` —¿hay algo acumulado?— y **`xvalle`** —¿es uno o son
+dos?— (61.4). Si no pasan, **el resultado es "no hay muro" en ese lado** y se salta al paso 7 con la
+zona definida solo por `delta_max`. Umbrales sin declarar, y sin nada contra qué declararlos: el
+dataset no tiene ni una inestabilidad ni un valle. **`xdisj` quedó descartado el 2026-08-27**: mide
+el cociente de dos masas, que no contesta la pregunta.
 
 **6 · Tomar el borde externo de la banda** — el extremo más lejos del spot — y correrlo por
 `buffer`. Ese es el borde estructural de la zona. Sin calibrar.
@@ -2573,7 +2642,15 @@ Lo que el ejemplo sí deja, y no depende del test:
   apareciendo concreto, y coincidiendo con la asimetría del ZGL de la 62.3.
 * El `spot − ZGL` es `+0.030 EM`: banda muerta, el ZGL no dice nada acá.
 
-### Ejemplo 2 — TSLA 18-Sep '26: no hay muro de un lado, y del otro el muro no restringe
+### Ejemplo 2 — TSLA 18-Sep '26: el "no hay muro" que no era, y del otro lado un muro que no restringe
+
+> **Reinterpretado el 2026-08-27, y esta vez se cae el veredicto.** Este ejemplo era *"el primer 'no
+> hay muro' del dataset trabajado de punta a punta"*. Medido con `xvalle`, **entre las dos
+> concentraciones no hay valle**: ninguna ventana de 9 puntos entre 377 y 400 baja del **64%** de la
+> densidad de la banda. No son dos muros a $30 — es un **estante de $35 con ondulaciones**, y el
+> `xdisj` de 1.01x estaba pesando dos pedazos del mismo estante. Los números de abajo son correctos;
+> la conclusión que sacaban, no. Ver
+> [el hallazgo del 2026-08-27](hallazgos/2026-08-27-el-competidor-contiguo-y-xdisj.md).
 
 `spot 351.11 · ATM IV 0.4152 · DTE 24 · Net GEX −3.0 B · ZGL 352.42 · EM ±37.4 · W 9.3`
 
@@ -2583,15 +2660,14 @@ PUT    banda 335.7-345.0   28.8% del lado   xmed 6.1x   xdisj 1.93x contra 321-3
        -> ata el DELTA
 
 CALL   banda 367.5-376.8   16.9% del lado   xmed 8.3x   xdisj 1.01x contra 400-409
-       -> NO HAY MURO: dos concentraciones empatadas, a $30 una de otra
+       -> xvalle 0.64: NO hay valle. Es UN estante de 370 a 405, mas ancho que W
        -> ata el DELTA
 ```
 
 **A diferencia del ejemplo 1, acá los dos veredictos son robustos:** con `W` de 9.3 o de 9.95 las
 bandas, los `xmed` y los `xdisj` no se mueven ni en el segundo decimal. Es el caso limpio.
 
-**El lado call es el primer "no hay muro" del dataset trabajado de punta a punta.** La pantalla
-muestra `Call Wall 400` y eso es un empate, no una pared:
+**Lo que la pantalla muestra como `Call Wall 400` no es una pared, y el argmax no lo ve:**
 
 ```text
 400    1.296 M    OI 18.945     banda 400.0-409.3  =  16.8% del lado
@@ -2599,9 +2675,11 @@ muestra `Call Wall 400` y eso es un empate, no una pared:
 ```
 
 El argmax eligió 400 porque le gana a 370 por un 16%. Si hubiera elegido 370, la zona se corría $30.
-Es también el caso que la 61.4 usa para justificar los **dos** tests: `xmed` da 8.3x —parece muy
-concentrado— y sólo `xdisj` delata que la concentración está en dos lugares. Con "no hay muro" la
-zona degrada limpio a `delta_max`: **K ≥ 390**, delta 0.192.
+**Ese empate se leyó como "dos concentraciones" y era una sola:** el gamma corre de 370 a 405 sin
+hueco —370, 380, 390 y 400 llevan 1115, 819, 765 y 1296— y las dos "bandas" son sus dos puntas. La
+lectura correcta no es "no hay muro": es que **hay un estante más ancho que `W`, y la ventana lo
+está partiendo**. El borde que sale de tomar sólo la punta de adentro, 377, queda **$28 adentro** de
+donde el estante termina (405). Eso es el defecto de borde que la 61.4 dejó abierto.
 
 **El lado put tiene un muro real que igual no sirve de cota.** `xdisj 1.93x` y `xmed 6.1x`: pasa los
 dos tests con holgura, y el competidor está afuera en el ala, no pegado al spot. Pero su borde cae en
@@ -2702,6 +2780,9 @@ costo de este research fue redescubrir cuatro veces la misma cosa:
 | `d_min × EM` como condición | 61.3, versión de la mañana | ρ = −1.0000 contra el delta en las 12 combinaciones. Es un corte de delta |
 | El muro como argmax de un strike | 13, 61.4 versión de la mañana | No es una concentración (≤19% del lado) y salta. Reemplazado por la banda |
 | Anclar la banda a un número entero de escalones de la grilla | 61.4, versión del 25 a la noche | Muda el redondeo en vez de sacarlo: swing del veredicto 3.8% → 13.5% y borde entre tandas 16.1 → 15.0. El defecto que venía a arreglar deja de decidir sacando la zona del dinero |
+| **`xdisj` como segundo test de la banda** | 61.4, del 25 al 27 | Compara masas, y "un muro o dos" es una pregunta sobre el **valle**. Sobre 12 combinaciones no tiene un solo positivo verdadero: sus valores bajos son la banda contra su propia cola (8) o contra un estante sin hueco (4). Lo reemplaza `xvalle` |
+| Exigirle al competidor un hueco de `g` anchos de banda | — | Sube `xdisj` sin medir nada nuevo, y deja intacto el único caso que preservaba —que resultó ser un falso negativo (27/08) |
+| Dejar crecer la banda sobre la masa contigua | — | Es el único que arregla el **borde** y llevaría la restricción a 5 de 12, pero su parámetro tiene acantilados entre valores vecinos: el movimiento del borde da 1.3 / 29.8 / 20.4 / 1.6 / 1.6 / 11.2 barriendo `f` (27/08) |
 | `PUT < PutWall` / `CALL > CallWall` a secas | 16 | Con el muro como argmax no restringe nada; con la banda, restringe en 3 de 12 |
 | El ZGL como borde o condición de rechazo | 61 versión original | Las seis capturas lo cruzan del lado put: rechazaría todo, siempre (62.2) |
 | Un "borde externo estructural" | — | No existe. La estructura fija el borde interno; el externo lo pone el crédito (61.2) |
@@ -3579,10 +3660,13 @@ Max Risk conceptual; Cushion; alerts-only; arquitectura de streaming y alertas; 
   es en las 10 series** con dos o más tomas: el movimiento total del borde entre tandas es **$1.3**
   contra $16.1 de la construcción anterior (hallazgo del 26/08). La única serie que se movía era la
   única cuya banda estaba parada sobre el dinero.
-* **`xmed` y `xdisj` miran cosas distintas** —una concentración chata contra dos concentraciones
-  empatadas— y hace falta ver las dos: TSLA 18-Sep CALL da 8.3x / 1.01x y QQQ 18-Sep CALL 1.4x /
-  1.26x. Lo que **no** está validado es que *avisen* de una inestabilidad futura: el único evento
-  que sostenía esa lectura resultó ser el defecto de construcción (61.4).
+* **`xmed` mide la forma** —si hay algo acumulado o la banda es una banda cualquiera— y es lo único
+  que ve una meseta: QQQ 18-Sep CALL da 1.4x contra 2.0x–14.8x del resto. Lo que **no** está
+  validado es que *avise* de una inestabilidad futura: el único evento que sostenía esa lectura
+  resultó ser un defecto de construcción (61.4).
+* **`xdisj` no valida nada, y salió** (27/08). El segundo test tiene que preguntar por el **valle**,
+  no por el cociente de dos masas. Su reemplazo, `xvalle`, tampoco está calibrado — con cero valles
+  observados no hay contra qué.
 * La **asimetría PUT/CALL por skew**, no por estructura, con signo propio de cada símbolo
   (Hallazgo 8, hallazgo del 24/08, confirmado con book vivo el 25/08 sobre los dos vencimientos
   regulares del bucle, con los seis cocientes conservando signo y escala).
@@ -3603,6 +3687,12 @@ dónde vivía cada uno, está en la **61.8**:
 * **Anclar la banda a un número entero de escalones de la grilla** — era el arreglo propuesto para
   el primero de los tres defectos de la 61.4, y medido empeora el swing del veredicto (3.8% → 13.5%)
   sin mejorar el borde entre tandas (hallazgo del 26/08).
+* **`xdisj` como segundo test de la banda** — mide el cociente de dos masas y la pregunta es el
+  valle. Cero positivos verdaderos en 12 combinaciones; lo reemplaza `xvalle` (hallazgo del 27/08).
+  Con él se cae el "no hay muro" de TSLA 18-Sep CALL, que era el único del dataset.
+* **El hueco mínimo al competidor** y **el crecimiento de la banda sobre la masa contigua** — los
+  dos parches al competidor contiguo. El primero no mide nada nuevo; el segundo arregla el borde
+  pero su parámetro tiene acantilados entre valores vecinos (ídem).
 * **El ZGL como condición de rechazo** — las seis capturas lo cruzan del lado put (62.2).
 * **El crédito como evidencia de que el muro paga** — no hay premio: descontando el delta, el
   residuo del borde da z medio **+0.56 ± 0.90**, indistinguible de cero.
@@ -3649,9 +3739,11 @@ el ancho de banda `W`, el `buffer`, el `delta_max` y su modulación por régimen
 
 Independientes de esa decisión, y siguen abiertos:
 
-* **el competidor contiguo**, la única de las tres lecturas de un `xdisj` bajo que quedó sin
-  arreglar: una losa ancha partida en dos por el tamaño de la ventana compite contra su propia cola
-  y se castiga sola (61.4, hallazgo del 26/08);
+* **el borde cuando la concentración es más ancha que `W`** — la ventana la parte y el borde queda
+  *adentro* del muro, contra lo que dice la 17. Vale hasta $28 de strike en el dataset, y es un
+  problema de dónde se vende y no de veredicto. Es lo que quedó del competidor contiguo después de
+  medirlo: el test se reemplazó, el borde sigue abierto (61.4, hallazgo del 27/08);
+* **el umbral de `xvalle`**, que no se puede fijar hasta observar un valle — cero en 12 (ídem);
 * la tabla de probabilidad empírica por lado, delta y DTE que alimenta el edge test (43.3);
 * separar el ruido de mercado del efecto de la hora de captura: el mismo símbolo y vencimiento
   movieron el cociente de skew hasta 0.15 en un día, y esa oscilación es el piso de precisión de
