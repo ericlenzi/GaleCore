@@ -20,6 +20,12 @@ Corre las mediciones del hallazgo 2026-08-25 sobre la banda, en ese orden:
 
 Mas una cuarta, de sanidad: la sensibilidad de la banda al ancho elegido.
 
+Y una sexta, del 2026-08-26, que mide los TRES DEFECTOS DE CONSTRUCCION que la 61.4 dejo
+anotados -- la ventana continua sobre una grilla discreta, el competidor contaminado por la
+pila del dinero, y el muro que ES la pila del dinero. Las secciones 0 a 5 quedan como estan
+a proposito: reproducen los numeros publicados de los hallazgos del 24 y del 25, y esa
+reproducibilidad es la que deja ver que movio el arreglo.
+
 DEFINICIONES
 
 `EM*` -- proxy de 1 sigma computable desde cualquier captura: la distancia del spot al
@@ -118,23 +124,98 @@ def delta_en(tabla, strike):
     return min(tabla, key=lambda x: abs(x[0] - strike))[1]
 
 
+# ---------------------------------------------------------------- la grilla
+
+def grilla(rows):
+    """Todos los strikes listados del vencimiento, ordenados. La grilla NO es uniforme:
+    SPY y QQQ tienen paso $1 en una franja alrededor del dinero (700-800 en SPY 16-Oct) y
+    $5 afuera; TSLA va de $2.5 a $10. Por eso el anclaje se hace con el paso LOCAL y no
+    con un paso global, que le daria a la banda de TSLA cinco veces el ancho en dolares
+    que a la de SPY."""
+    return sorted({num(r, 'strike') for r in rows if num(r, 'strike') is not None})
+
+
+VECINOS = 10         # cuantos escalones de grilla mira `paso_local`
+
+
+def paso_local(ks, centro, vecinos=VECINOS):
+    """Paso de la grilla alrededor de `centro`: mediana de los `vecinos` escalones mas
+    cercanos. Mediana y no moda, para que el escalon donde el paso salta de 1 a 5 no lo
+    decida.
+
+    El vecindario se mide en CANTIDAD de strikes, no en dolares, y eso no es un detalle: la
+    primera version lo media en dolares con radio `W`, asi que el ancho anclado dependia de
+    `W` dos veces -- por el cociente y por el paso -- y el veredicto volvia a moverse ante
+    un cambio vacio de ancho, que es exactamente lo que el anclaje viene a arreglar. En TSLA,
+    donde la grilla mezcla 2.5, 5 y 10, mover `W` un 10% cambiaba la mediana del paso y con
+    ella la banda entera."""
+    d = sorted((abs((a + b) / 2 - centro), b - a) for a, b in zip(ks, ks[1:]))[:vecinos]
+    return statistics.median([x[1] for x in d]) if d else 1.0
+
+
+def ancho_anclado(ks, k0, ancho, lado):
+    """DEFECTO 1 de la 61.4: la ventana es continua y la grilla de strikes no.
+
+    `W = 0.25 x EM` es un numero real; los strikes estan cada $1 o cada $5. Una ventana de
+    9.8 puntos que arranca en 790 termina en 799.8 y deja el strike 800 AFUERA por veinte
+    centavos; una de 10.6 lo mete. Ese strike vale 6.5% del lado y mueve el `xdisj` de
+    1.01x a 1.22x: un strike redondo decide si hay muro.
+
+    El arreglo propuesto era que la ventana midiera un numero ENTERO de escalones de la
+    grilla local: el borde cae siempre sobre un strike listado y ningun strike puede quedar a
+    centimetros de el.
+
+    MEDIDO EL 2026-08-26 Y RECHAZADO. No saca el redondeo, lo muda: de "que strike cae
+    adentro" a "cuantos escalones mide la ventana", y el segundo es mas grueso -- un escalon
+    de $5 en TSLA es la mitad de la banda. El swing del veredicto ante un cambio vacio de `W`
+    sube de 3.8% a 13.5%, y el borde entre tandas no mejora (16.1 -> 15.0). Se conserva
+    porque la seccion 6b es lo que reproduce el rechazo."""
+    centro = k0 + ancho / 2 if lado == 'CALL' else k0 - ancho / 2
+    paso = paso_local(ks, centro)
+    n = max(1, int(round(ancho / paso)))
+    return n * paso
+
+
 # ---------------------------------------------------------------- la banda
 
-def medir(rows, spot, em, lado, frac=FRAC_EM):
+def medir(rows, spot, em, lado, frac=FRAC_EM, excl=0.0, anclar=False):
+    """`excl` y `anclar` son los dos arreglos que la 61.4 pedia para sus tres defectos,
+    apagados por defecto para que las secciones 0-5 sigan reproduciendo los numeros
+    publicados. Medidos el 2026-08-26: `excl` arregla los defectos 2 y 3 y se adopta;
+    `anclar` no arregla el 1 y se rechaza (ver `ancho_anclado` y la seccion 6).
+
+    `excl` -- semiancho de la ZONA DEL DINERO a excluir, en EM. Arregla los defectos 2 y 3:
+    los strikes pegados al spot siempre concentran gamma, y con eso adentro el test compara
+    el muro contra la pila del dinero (SPY 16-Oct CALL: 790-800 contra 766-776 con spot
+    765.45) o directamente lo elige como muro (QQQ 18-Sep del 24-ago: argmax 710 con spot
+    708.02). Se excluyen del POOL, asi que no entran ni a la banda, ni al competidor, ni a
+    la mediana, ni al total del lado.
+
+    `anclar` -- ver `ancho_anclado`."""
     c = gex_del_lado(rows, spot, lado)
+    if excl:
+        c = [x for x in c if abs(x[0] - spot) >= excl * em]
     if len(c) < 6:
         return None
     total = sum(x[1] for x in c)
     ancho = frac * em
+    ks = grilla(rows)
 
     ventanas = []
     for k0, _ in c:
-        lo, hi = (k0, k0 + ancho) if lado == 'CALL' else (k0 - ancho, k0)
-        ventanas.append((sum(x[1] for x in c if lo <= x[0] <= hi), lo, hi))
+        w = ancho_anclado(ks, k0, ancho, lado) if anclar else ancho
+        lo, hi = (k0, k0 + w) if lado == 'CALL' else (k0 - w, k0)
+        dentro = frozenset(x[0] for x in c if lo - 1e-9 <= x[0] <= hi + 1e-9)
+        ventanas.append((sum(x[1] for x in c if x[0] in dentro), lo, hi, dentro))
     ventanas.sort(key=lambda x: -x[0])
     mejor = ventanas[0]
     mediana = statistics.median(v[0] for v in ventanas)
-    disjunta = next((v for v in ventanas if v[2] <= mejor[1] or v[1] >= mejor[2]), None)
+    # Disjunta = sin NINGUN strike en comun, no "sin solapamiento de intervalos". Comparar los
+    # intervalos deja pasar al competidor que toca la banda en su borde y por lo tanto comparte
+    # ese strike -- con la banda anclada a la grilla los bordes caen sobre strikes y eso pasa
+    # siempre. En QQQ 18-Sep PUT el "competidor" 700-708 contenia el 700, que es el strike mas
+    # grande de la banda 692-700: el test comparaba el muro contra si mismo.
+    disjunta = next((v for v in ventanas if not (v[3] & mejor[3])), None)
 
     orden = sorted(c, key=lambda x: -x[1])
     return dict(
@@ -447,12 +528,276 @@ def seccion_5_ejemplos():
             print(f'         paso 8 · con muro ata {"la BANDA" if d_borde < DELTA_REF else "el DELTA"}'
                   f'; sin muro ata el DELTA')
     print('\n  NO se imprime un veredicto de "hay muro": el umbral de xmed y xdisj todavia no esta')
-    print('  declarado (61.4), y con SPY 10-16 CALL se ve por que -- su xdisj salta de 1.01x a 1.22x')
-    print('  con un cambio del 8% en el ancho de banda, porque el strike 800 entra o no entra.')
+    print('  declarado (61.4). Estos numeros son los de la construccion PUBLICADA, con la zona del')
+    print('  dinero adentro; los mismos tres ejemplos con la zona del dinero afuera estan en 6e, y')
+    print('  ahi el xdisj de SPY 10-16 CALL pasa de 1.01x a 1.49x sin que el borde se mueva.')
+
+
+# ---------------------------------------------------------------- 6. los tres defectos
+
+"""La 61.4 dejo anotados tres defectos de construccion de la banda, y dijo que arreglarlos
+era cambiar la definicion y que habia que medir el arreglo antes de escribirlo. Esta seccion
+es esa medicion.
+
+  6a  DEFECTO 1, el diagnostico -- cuantas bandas dejan afuera un strike por centavos.
+  6b  DEFECTO 1, el arreglo propuesto -- anclar la ventana a la grilla, contra un cambio
+      VACIO de W (+/-10%), en las cuatro construcciones.
+  6c  DEFECTOS 2 y 3 -- barrido de cuanto excluir de la zona del dinero.
+  6d  LA QUE DECIDE -- cuanto se mueve el borde entre tandas con cada construccion. Es lo
+      unico que la banda vino a comprar, asi que un arreglo que empeore esto no sirve.
+  6e  Los tres ejemplos de la 61.7, antes y despues.
+  6f  El conteo de restriccion de la 61.3 (`ata la banda en 3 de 12`), recontado.
+"""
+
+EXCL = 0.15          # semiancho de la zona del dinero excluida, en EM. Se barre en 6c y 6d
+
+
+def veredicto(m):
+    return (m['xmed'], m['xdisj']) if m else (float('nan'), float('nan'))
+
+
+def dist_comp(m, spot, em, lado):
+    """Distancia del competidor disjunto al spot, en EM, medida por su borde INTERNO."""
+    comp = m['disj_lo'] if lado == 'CALL' else m['disj_hi']
+    return abs(comp - spot) / em if comp == comp else float('nan')
+
+
+def casos_em_real(carpeta):
+    """Igual que casos(), pero con el spot y el EM del ENCABEZADO cuando la captura lo tiene
+    versionado -- que es el EM de la 15, el que manda el paso 3 del procedimiento. El `EM*`
+    de las secciones 0-4 es un proxy 5-10% mas grande, y los tres defectos de la 61.4 se
+    encontraron justamente porque esa diferencia mueve veredictos: las mediciones del arreglo
+    van con el EM real o no son comparables con la 61.7. La tanda 2026-08-25 tiene encabezado
+    para sus seis series, asi que 6a, 6b, 6c y 6f corren enteras con el EM real."""
+    tanda = os.path.basename(carpeta)
+    for sym, exp, rows, spot, em, call, put in casos(carpeta):
+        h = ENCABEZADOS.get((tanda, sym, exp))
+        if h:
+            spot = h['spot']
+            em = spot * h['iv'] * (h['dte'] / 365.0) ** 0.5
+        yield sym, exp, rows, spot, em, call, put
+
+
+MODOS = (('hoy', dict()),
+         ('anclada', dict(anclar=True)),
+         ('sin ATM', dict(excl=EXCL)),
+         ('las dos', dict(anclar=True, excl=EXCL)))
+
+
+def seccion_6a_holgura(carpeta):
+    """DEFECTO 1, medido por lo que es: un strike que queda afuera por centavos.
+
+    Para cada banda se mide la HOLGURA -- la distancia entre su borde externo y el primer
+    strike que quedo afuera, en unidades del paso de la grilla. Holgura 0.02 significa que
+    ese strike quedo afuera por un 2% de un escalon: nada en el mercado decidio eso, lo
+    decidio el redondeo de `W = 0.25 x EM`.
+    """
+    print('\n' + '=' * 100)
+    print(f'6a. DEFECTO 1 (diagnostico) -- que tan por centavos queda afuera el primer strike'
+          f'   [{os.path.basename(carpeta)}, EM real]')
+    print('=' * 100)
+    print(f'  {"caso":>17} | {"borde":>8} {"1er fuera":>9} {"holgura":>9} | '
+          f'{"xdisj":>7} | {"xdisj anclada":>13}')
+    apretados = total = 0
+    for sym, exp, rows, spot, em, call, put in casos_em_real(carpeta):
+        for lado in ('PUT', 'CALL'):
+            m = medir(rows, spot, em, lado, FRAC_EM)
+            a = medir(rows, spot, em, lado, FRAC_EM, anclar=True)
+            if not m or not a:
+                continue
+            ks = grilla(rows)
+            fuera = [k for k in ks if k > m['hi'] + 1e-9] if lado == 'CALL' \
+                else [k for k in ks if k < m['lo'] - 1e-9]
+            if not fuera:
+                continue
+            k1 = min(fuera) if lado == 'CALL' else max(fuera)
+            holgura = abs(k1 - m['borde']) / paso_local(ks, m['borde'])
+            total += 1
+            apretados += 1 if holgura < 0.25 else 0
+            print(f'  {sym + " " + exp[5:] + " " + lado:>17} | {m["borde"]:8.1f} '
+                  f'{k1:9.1f} {holgura:8.2f}p{"!" if holgura < 0.25 else " "}| '
+                  f'{m["xdisj"]:6.2f}x | {a["xdisj"]:12.2f}x')
+    print(f'\n  ! = el primer strike de afuera esta a menos de un cuarto de escalon del borde:')
+    print(f'  entra o no entra por redondeo. Pasa en {apretados} de {total} casos.')
+
+
+def seccion_6b_anclaje(carpeta):
+    """DEFECTO 1, el arreglo propuesto: la ventana anclada a un numero entero de escalones.
+
+    La prueba no es que el veredicto cambie, sino que deje de moverse por nada: se compara el
+    veredicto a `W` con el veredicto a `W +/- 10%`, que es un cambio de ancho sin contenido --
+    el mismo 8% que en SPY 16-Oct CALL movia el `xdisj` de 1.01x a 1.22x.
+
+    Se imprime el RANGO de `xdisj` y no solo su swing, porque no todo swing es igual de grave:
+    de 1.61x a 1.96x no cambia ningun veredicto, y de 1.01x a 1.22x los cambia todos.
+    """
+    print('\n' + '=' * 100)
+    print(f'6b. DEFECTO 1 (arreglo) -- el veredicto ante un cambio VACIO de W (+/-10%)'
+          f'   [{os.path.basename(carpeta)}, EM real]')
+    print('=' * 100)
+    print(f'  {"caso":>17} |' + '|'.join(f'{e:^17}' for e, _ in MODOS))
+    print(f'  {"":>17} |' + '|'.join(f'{"rango de xdisj":^17}' for _ in MODOS))
+    peor = {e: [] for e, _ in MODOS}
+    for sym, exp, rows, spot, em, call, put in casos_em_real(carpeta):
+        for lado in ('PUT', 'CALL'):
+            fila = f'  {sym + " " + exp[5:] + " " + lado:>17} |'
+            for etiqueta, kw in MODOS:
+                vs = [medir(rows, spot, em, lado, FRAC_EM * f, **kw) for f in (0.9, 1.0, 1.1)]
+                xs = [v['xdisj'] for v in vs if v and v['xdisj'] == v['xdisj']
+                      and v['xdisj'] != float('inf')]
+                if not xs:
+                    fila += f'{"--":^17}|'
+                    continue
+                peor[etiqueta].append(max(xs) / min(xs) - 1 if min(xs) else 0.0)
+                fila += f'{f"{min(xs):.2f}-{max(xs):.2f}x":^17}|'
+            print(fila.rstrip('|'))
+    print()
+    for etiqueta, _ in MODOS:
+        v = peor[etiqueta]
+        if v:
+            print(f'  {etiqueta:>8} -> swing medio {statistics.mean(v) * 100:5.1f}%   '
+                  f'maximo {max(v) * 100:5.1f}%   casos con swing > 20%: '
+                  f'{sum(1 for x in v if x > 0.20)}/{len(v)}')
+
+
+def seccion_6c_exclusion(carpeta):
+    """DEFECTOS 2 y 3 -- excluir la zona del dinero del pool, y cuanto excluir.
+
+    El umbral no se declara sobre un caso: se barre. Por columna, el borde (que es lo que la
+    zona usa), el `xdisj` (que es lo que los defectos contaminan) y `dcomp`, la distancia del
+    competidor al spot en EM.
+
+    `dcomp` reemplaza al flag de "pegada al spot" que imprimia la seccion 5: ese flag usaba el
+    mismo 0.15 EM que este barrido recorre, asi que de m = 0.15 en adelante no podia
+    encenderse -- habria dado el defecto por arreglado por construccion.
+    """
+    print('\n' + '=' * 100)
+    print(f'6c. DEFECTOS 2 y 3 -- barrido de la zona del dinero excluida'
+          f'   [{os.path.basename(carpeta)}, EM real]')
+    print('=' * 100)
+    ms = (0.0, 0.10, 0.15, 0.25, 0.35)
+    print(f'  {"caso":>17} |' + ' '.join(f'{"m=" + f"{m:.2f}":^22}' for m in ms))
+    print(f'  {"":>17} |' + ' '.join(f'{"borde  xdisj  dcomp":^22}' for _ in ms))
+    for sym, exp, rows, spot, em, call, put in casos_em_real(carpeta):
+        for lado in ('PUT', 'CALL'):
+            fila = f'  {sym + " " + exp[5:] + " " + lado:>17} |'
+            for m in ms:
+                r = medir(rows, spot, em, lado, FRAC_EM, excl=m)
+                if not r:
+                    fila += f'{"--":^22} '
+                    continue
+                fila += (f'{r["borde"]:8.1f} {r["xdisj"]:5.2f}x '
+                         f'{dist_comp(r, spot, em, lado):5.2f} ')
+            print(fila)
+    print('\n  dcomp chico = el competidor es la pila del dinero y el test no midio nada.')
+    print('  Subir m de mas mueve bordes que estaban bien: eso es comerse la banda, no el dinero.')
+
+
+def seccion_6d_estabilidad():
+    """LA QUE DECIDE: cuanto se mueve el BORDE entre tandas, con cada construccion.
+
+    Es lo unico que la banda vino a comprar -- el argmax saltaba y por eso se lo reemplazo
+    (61.4) --, asi que un arreglo que mejore los veredictos y empeore esto no sirve. Se mide
+    sobre las 10 series con dos o mas tandas, con `EM*` porque la tanda del 24-ago no tiene
+    encabezado versionado y las dos tienen que medirse con la misma vara.
+    """
+    print('\n' + '=' * 100)
+    print('6d. LA QUE DECIDE -- cuanto se mueve el borde entre tandas, por construccion')
+    print('=' * 100)
+    modos = [('hoy', dict()), ('anclada', dict(anclar=True))]
+    modos += [(f'm={m:.2f}', dict(excl=m)) for m in (0.10, 0.15, 0.25, 0.35)]
+    modos += [('ancl+0.15', dict(anclar=True, excl=0.15))]
+    serie = {}
+    for carpeta in capturas():
+        for sym, exp, rows, spot, em, call, put in casos(carpeta):
+            for lado in ('PUT', 'CALL'):
+                for etiqueta, kw in modos:
+                    m = medir(rows, spot, em, lado, FRAC_EM, **kw)
+                    if m:
+                        serie.setdefault((sym, exp, lado, etiqueta), []).append(m['borde'])
+    claves = sorted({k[:3] for k in serie if len(serie[k]) > 1})
+    print(f'  {"caso":>17} |' + ' '.join(f'{e:>9}' for e, _ in modos))
+    total = {e: 0.0 for e, _ in modos}
+    for clave in claves:
+        fila = f'  {clave[0] + " " + clave[1][5:] + " " + clave[2]:>17} |'
+        for etiqueta, _ in modos:
+            b = serie.get(clave + (etiqueta,), [])
+            mov = max(b) - min(b) if len(b) > 1 else 0.0
+            total[etiqueta] += mov
+            fila += f' {mov:8.1f} '
+        print(fila)
+    print(f'  {"MOVIMIENTO TOTAL":>17} |' + ' '.join(f'{total[e]:8.1f} ' for e, _ in modos))
+    print('\n  Cada dolar de la ultima fila es una banda que cambio de lugar entre dos fotos de la')
+    print('  misma cadena. El borde de la construccion de hoy no es un strike, asi que se mueve')
+    print('  unos centavos siempre; los saltos de verdad son los enteros.')
+
+
+def seccion_6e_ejemplos():
+    """Los tres ejemplos de la 61.7, con el EM real, antes y despues."""
+    print('\n' + '=' * 100)
+    print(f'6e. LOS TRES EJEMPLOS DE LA 61.7 -- antes y despues (m = {EXCL:.2f} EM)')
+    print('=' * 100)
+    for tanda, sym, exp in EJEMPLOS:
+        h = ENCABEZADOS[(tanda, sym, exp)]
+        spot = h['spot']
+        em = spot * h['iv'] * (h['dte'] / 365.0) ** 0.5
+        path = os.path.join(ROOT, tanda, f'{sym}_gex_{exp}.csv')
+        rows = list(csv.DictReader(open(path, encoding='utf-8-sig')))
+        print(f'\n  {sym} {exp} [{tanda}]  spot {spot:.2f}  EM {em:.1f}  W {FRAC_EM * em:.1f}'
+              f'  zona del dinero: {spot - EXCL * em:.1f}-{spot + EXCL * em:.1f}')
+        for lado in ('PUT', 'CALL'):
+            dcol = 'putDelta' if lado == 'PUT' else 'callDelta'
+            tabla = sorted([(num(r, 'strike'), abs(num(r, dcol) or 0)) for r in rows
+                            if num(r, 'strike') is not None and num(r, dcol) is not None])
+            for etiqueta, kw in (('hoy    ', dict()), ('sin ATM', dict(excl=EXCL))):
+                m = medir(rows, spot, em, lado, FRAC_EM, **kw)
+                if not m:
+                    continue
+                print(f'    {lado:4s} {etiqueta} banda {m["lo"]:7.1f}-{m["hi"]:<7.1f} '
+                      f'{m["pct"]:5.1f}%  xmed {m["xmed"]:5.1f}x  xdisj {m["xdisj"]:5.2f}x '
+                      f'contra {m["disj_lo"]:6.1f}-{m["disj_hi"]:<6.1f} '
+                      f'(dcomp {dist_comp(m, spot, em, lado):.2f} EM)  borde {m["borde"]:7.1f} '
+                      f'delta {delta_en(tabla, m["borde"]):.3f}')
+
+
+def seccion_6f_restriccion(carpeta):
+    """Si el arreglo mueve el conteo de la 61.3: `ata la banda en 3 de 12`.
+
+    Es el numero que dice cuantas veces la estructura aporto algo que el corte de delta no
+    tenia, asi que cambiar la construccion de la banda obliga a recontarlo.
+    """
+    print('\n' + '=' * 100)
+    print(f'6f. RESTRICCION -- ata la banda o el delta, antes y despues'
+          f'   [{os.path.basename(carpeta)}, EM real]')
+    print('=' * 100)
+    print(f'  {"caso":>17} | {"borde":>7} {"delta":>6} {"ata":>6} | '
+          f'{"borde":>7} {"delta":>6} {"ata":>6} |')
+    cuenta = {'hoy': 0, 'fix': 0}
+    for sym, exp, rows, spot, em, call, put in casos_em_real(carpeta):
+        for lado in ('PUT', 'CALL'):
+            tabla = put if lado == 'PUT' else call
+            fila, atas = f'  {sym + " " + exp[5:] + " " + lado:>17} |', []
+            for modo, kw in (('hoy', dict()), ('fix', dict(excl=EXCL))):
+                m = medir(rows, spot, em, lado, FRAC_EM, **kw)
+                if not m:
+                    fila += f' {"--":>7} {"--":>6} {"--":>6} |'
+                    atas.append(None)
+                    continue
+                d = delta_en(tabla, m['borde'])
+                ata = d < DELTA_REF
+                cuenta[modo] += 1 if ata else 0
+                atas.append(ata)
+                fila += f' {m["borde"]:7.1f} {d:6.3f} {"BANDA" if ata else "delta":>6} |'
+            print(fila + ('  <-- cambia' if atas[0] != atas[1] else ''))
+    print(f'\n  ata la BANDA:  hoy {cuenta["hoy"]} de 12   ->   con el arreglo '
+          f'{cuenta["fix"]} de 12')
 
 
 def main():
+    global EXCL
     pedida = sys.argv[1] if len(sys.argv) > 1 else '2026-08-25'
+    if len(sys.argv) > 2:
+        EXCL = float(sys.argv[2])
     carpeta = os.path.join(ROOT, pedida)
     if not os.path.isdir(carpeta):
         print(f'no existe {carpeta}')
@@ -463,6 +808,12 @@ def main():
     seccion_3_premio(carpeta)
     seccion_4_sensibilidad(carpeta)
     seccion_5_ejemplos()
+    seccion_6a_holgura(carpeta)
+    seccion_6b_anclaje(carpeta)
+    seccion_6c_exclusion(carpeta)
+    seccion_6d_estabilidad()
+    seccion_6e_ejemplos()
+    seccion_6f_restriccion(carpeta)
     return 0
 
 
