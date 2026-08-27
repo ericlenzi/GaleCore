@@ -28,6 +28,7 @@ su propia carpeta fechada por el día de captura, y el `-OutDir` del script apun
 | [`2026-08-24/`](2026-08-24/) | 24-ago-2026 | TSLA, SPY, QQQ · vencimientos 2026-09-04 (DTE 11, **weekly**), 2026-09-18 (DTE 25, regular, solo SPY y QQQ) y 2026-10-16 (DTE 53–56, regular) | **Mezcladas**: TSLA en sesión (11:57 y 12:35 ET); SPY y QQQ post-cierre (~17:25 ET, y el 09-18 a las ~18:15 ET) |
 | [`2026-08-25/`](2026-08-25/) | 25-ago-2026 | TSLA, SPY, QQQ · vencimientos 2026-09-18 (DTE 24) y 2026-10-16 (DTE 52), **los dos regulares** — son el bucle de la §47.1 mirando desde ese día | **Todas en sesión**, 10:09–10:23 ET. Horarios exactos por captura en [`2026-08-25/capturas.txt`](2026-08-25/capturas.txt) |
 | [`2026-08-25-t2/`](2026-08-25-t2/) | 25-ago-2026 | SPY · los mismos dos vencimientos. **Primera captura con `callIV`/`putIV`** | En sesión, 11:57–12:01 ET. Segunda tanda del mismo día: por eso el sufijo `-t2`, ya que la carpeta se nombra por día de captura y dos tandas se pisarían |
+| [`2026-08-27/`](2026-08-27/) | 27-ago-2026 | TSLA, SPY, QQQ · 2026-09-18 (DTE 22) y 2026-10-16 (DTE 50), los dos regulares. **Primera captura con `callIV`/`putIV` en los tres símbolos**, y la primera posterior al fix del DTE | **Todas en sesión**, 15:17–15:24 ET. TSLA con banda 35, SPY y QQQ con 12. Detalle en [`2026-08-27/capturas.txt`](2026-08-27/capturas.txt) |
 
 **Dos tandas del mismo día se pisan**, porque el nombre de la carpeta es la fecha y el del archivo
 es el vencimiento. El sufijo `-tN` es la salida. Y tiene un premio: la `-t2` está a **~1h50m** de

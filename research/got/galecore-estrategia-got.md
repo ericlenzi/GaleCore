@@ -1455,6 +1455,17 @@ Es barato: es el mismo `gex-strikes.ps1` con otro símbolo.
 > sobre TSLA, cuya superficie va al revés que la del universo declarado. Ver
 > [el hallazgo](hallazgos/2026-08-24-sesgo-por-lado-spy-qqq.md).
 
+> **Errata del 2026-08-27 — el mecanismo, no el hecho.** Lo que esta sección afirma sobre *qué*
+> pasa sigue en pie: el sesgo reproduce por tercera vez (SPY 1.77, QQQ 1.50, TSLA 0.64) y su
+> dirección depende del símbolo. Lo que no se sostiene como está escrito es el **mecanismo**. Con
+> la IV por strike ya medible, el **nivel** de IV resulta ir al revés del sesgo en los tres
+> símbolos, y la **pendiente entre las dos patas del vertical** —que es la lectura operativa de
+> *"la pendiente local de la superficie"*— explica SPY y QQQ pero **tiene el signo equivocado en
+> TSLA**, el caso de control. Lo que sí sigue al sesgo en los seis casos es cuánto delta abarca el
+> spread de cada lado, y no es un artefacto del ancho. La frase de abajo no está refutada, pero su
+> proxy natural sí. Ver
+> [el hallazgo](hallazgos/2026-08-27-el-sesgo-no-es-el-nivel-de-iv.md).
+
 Hasta que exista el edge test:
 
 * **GOT tiene un sesgo por lado, y su dirección depende del símbolo.** Sobre SPY y QQQ
