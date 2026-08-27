@@ -2909,6 +2909,26 @@ falsa:
 3. **Aceptar el negativo** y plegar GOT al edge test de RPF. Es el resultado por defecto si no se
    elige ninguna de las otras dos.
 
+> **Errata del 2026-08-27 — la salida 2 ya está pagada, y esta sección deja de estar bloqueada
+> por datos.** `research/data/` tiene cadenas EOD de **SPY, QQQ e IWM de 2013 a 2025** con
+> `open_interest`, `gamma`, `delta` e `implied_volatility` por strike y por día: todo lo que la
+> banda de la §61.4 necesita para reconstruirse históricamente. Son **532 ciclos** (símbolo,
+> vencimiento mensual) con resultado observable = **1064 observaciones de lado**, contra las ~300
+> que pide el párrafo de arriba, y con **2013–2017 sin tocar** por la ventana OOS que el
+> backtesting declaró agotada. El "seis años" y el "acumular capturas propias es imposible" se
+> escribieron sin saber que la historia estaba en la máquina.
+>
+> **Y hay que arreglar el enunciado antes de medirlo.** "Cruzar" y "delta" no miden lo mismo: el
+> delta aproxima P(terminar ITM), no P(tocar), y para un proceso sin deriva P(tocar) ≈ 2 ×
+> P(terminar más allá). Medida como toque contra delta, la hipótesis sale falsa por construcción.
+> La lectura coherente con el resto de la §61 —y con `pop_obs_*.parquet`, que usa `itm`— es
+> **terminar más allá**. Fijarlo por escrito es el paso 1.
+>
+> Ojo con el reparo de la §5 del hallazgo: `research/data/` está **gitignoreado**, así que los
+> datos no viajan con el repo y una sesión futura que solo lea el código va a volver a concluir
+> que la historia hay que comprarla. Ver
+> [el hallazgo](hallazgos/2026-08-27-la-historia-ya-existe.md).
+
 
 # 62. ZGL y muro: qué hace cada uno
 
@@ -3820,6 +3840,16 @@ Ninguna captura transversal puede contestarlo y hacen falta del orden de **300 o
 independientes**, que con el universo de la 4 son seis años. **Antes de calibrar nada hay que
 elegir** entre ensanchar el universo, comprar historia de cadenas con open interest, o aceptar el
 negativo y plegar GOT al edge test de RPF.
+
+> **Actualizado el 2026-08-27 — sigue siendo el único pendiente, pero ya no por falta de datos.**
+> La historia de cadenas que el párrafo de arriba manda a comprar **ya está en la máquina**:
+> `research/data/` tiene SPY, QQQ e IWM de 2013 a 2025 con `open_interest` y `gamma` por strike,
+> o sea **1064 observaciones de lado** contra las ~300 pedidas, y con 2013–2017 sin tocar por la
+> ventana OOS agotada. Lo que falta es método, en cuatro pasos: fijar si "cruzar" es terminal o
+> toque (comparado contra delta, el toque da falso por construcción), resolver holdout contra
+> independencia de los tres símbolos, reconstruir la banda histórica versionando la tabla de
+> observaciones, y recién ahí medir. Ver
+> [el hallazgo](hallazgos/2026-08-27-la-historia-ya-existe.md).
 
 Lo que depende de esa decisión y hoy no tiene sentido calibrar: los umbrales de `xmed` y `xvalle`,
 **el ancho de banda `W`**, el `buffer`, el `delta_max` y su modulación por régimen,

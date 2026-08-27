@@ -46,7 +46,19 @@ del borde hasta **0.174**, contra un `delta_max` de **0.20** — o sea que `W` n
 ventana, **es quien decide si la banda ata**. El borde no se cierra antes de calibrar `W`, y `W`
 está del otro lado de la §61.9.
 
-**Queda una sola pregunta abierta, y bloquea a todas las demás** (§61.9):
+> **Actualizado el 2026-08-27 por la noche, y esto cambia el alcance del proyecto.** Todo lo que
+> sigue en este nodo —el "seis años", la decisión entre ensanchar el universo, comprar historia o
+> aceptar el negativo— se escribió sin saber que **la historia ya está en la máquina**.
+> `research/data/` tiene cadenas EOD de SPY, QQQ e IWM de **2013 a 2025** con `open_interest` y
+> `gamma` por strike: **532 ciclos = 1064 observaciones de lado**, contra las ~300 que pide la
+> §61.9, y con **2013–2017 sin tocar** por la ventana OOS que el backtesting declaró agotada.
+> **La §61.9 deja de estar bloqueada por falta de datos.** Lo que queda es de método: fijar qué
+> significa "cruzar" (el enunciado compara toque contra delta, que no miden lo mismo) y resolver la
+> tensión entre holdout limpio e independencia de los tres símbolos. Ver
+> [el hallazgo](hallazgos/2026-08-27-la-historia-ya-existe.md), que además deja el plan de cuatro
+> pasos para retomar en frío.
+
+**La pregunta abierta, que hasta el 2026-08-27 no se podía medir** (§61.9):
 
 > La probabilidad empírica de que el precio cruce el borde externo de una banda de gamma dominante
 > es menor que el delta de ese borde.
@@ -125,6 +137,7 @@ flujo desde otro ángulo y quedaron con errata apuntando ahí.
 | [2026-08-28](hallazgos/2026-08-28-reproduccion-completa-del-script.md) | El script entero, las 22 secciones de su `main()`, corridas juntas por primera vez desde que la sección 8 lo cerró | **Reproduce todo**: ρ = −1.0000, z medio +0.56 ± 0.90, 16.1 → 1.3, cero valles, 0.174 de delta. Ninguna discrepancia contra la §61 y la §98. Es **línea de base**, no medición nueva: deja el output íntegro fechado para diferenciar contra él una corrida futura | No aplica — no mueve ningún veredicto ni toca la definición |
 | [2026-08-27](hallazgos/2026-08-27-el-sesgo-no-es-el-nivel-de-iv.md) | El mecanismo que la §43.5 le atribuye al sesgo por lado — *"la pendiente local de la superficie de volatilidad"* —, medible por primera vez ahora que la API expone la IV por strike | El sesgo **reproduce por tercera vez** (SPY 1.77, QQQ 1.50, TSLA 0.64). Sobre el mecanismo: el **nivel** de IV va al **revés** del sesgo en los tres símbolos, y la **pendiente entre patas** explica SPY y QQQ pero falla en el signo sobre TSLA, el caso de control. Lo que lo sigue uno a uno en los seis casos es **cuánto delta abarca el spread**, y el barrido de ancho descarta que sea artefacto del width 5 | Aplicado — errata en la §43.5. Su consecuencia práctica la cerró el hallazgo de esa noche |
 | [2026-08-27 (noche)](hallazgos/2026-08-27-el-delta-abarcado-predice-el-sesgo.md) | La consecuencia que dejó abierta el de la tarde: el delta abarcado seguía al sesgo sobre seis observaciones, ¿aguanta sobre todo el dataset? | **Aguanta**: r = **+0.9796** sobre 22 pares de las cuatro capturas, error absoluto medio 0.106, y **22 de 22 coinciden en qué lado favorecen**. El desvío es sistemático (−0.09 de media, 17 de 22 negativos) y se explica por el crédito conservador del CSV: baja el nivel, no cambia el lado. **El sesgo por lado se mide sin el barrido de quotes** | Aplicado — `iv_por_lado.py` gana la sección 5, que barre todas las capturas. Sirve solo para *qué lado paga más*, no para *cuánto* |
+| [2026-08-27 (noche)](hallazgos/2026-08-27-la-historia-ya-existe.md) | La premisa de la §61.9: ¿hay que **comprar** historia de cadenas con open interest para medir la hipótesis única? | **Ya está comprada y está en la máquina.** SPY, QQQ e IWM 2013–2025 con `open_interest`, `gamma`, `delta` e IV por strike y por día: **532 ciclos = 1064 observaciones de lado** contra las ~300 que pide, y **2013–2017 sin tocar** por la ventana OOS agotada. Aparece además un **defecto de especificación**: el enunciado compara *cruzar* contra *delta*, y P(tocar) ≈ 2 × P(terminar más allá) — medido así saldría falso por construcción | Aplicado — erratas en la §61.9 y en dos nodos de este README, `inventario_historia.py` reproduce el conteo, y el hallazgo deja el plan de 4 pasos para retomar en frío |
 
 Los hallazgos no se editan cuando se aplican: la columna **Estado** de este índice es la que
 lleva la cuenta. El hallazgo queda como el registro de qué se encontró y cuándo.
@@ -186,6 +199,7 @@ Python 3.10+, sin dependencias externas. En consola Windows correr con `PYTHONIO
 | [`recheck_econ.py`](scripts/recheck_econ.py) | Recalcula el filtro económico del v5 (`RRreq`, `RequiredCredit`, `Cushion`, `WD_min`, `MaxRisk`) sobre los dos datasets de TSLA, mostrando el crédito correcto contra el que usó el v5 | [crédito CALL](hallazgos/2026-08-24-credito-call-columna-equivocada.md) |
 | [`skew_por_lado.py`](scripts/skew_por_lado.py) | Mide cuánto paga cada lado de la cadena por unidad de delta, por símbolo y vencimiento | [sesgo por lado](hallazgos/2026-08-24-sesgo-por-lado-spy-qqq.md) |
 | [`vencimientos_regulares.py`](scripts/vencimientos_regulares.py) | Cuántos vencimientos regulares entran en el bucle de la §47 según el día, y si una fecha dada es regular o weekly | §47.1 |
+| [`inventario_historia.py`](scripts/inventario_historia.py) | Qué hay en `research/data/` y si alcanza para medir la §61.9: columnas contra lo que la banda necesita, cobertura y calidad del OI, conteo de ciclos con resultado observable, y el corte entre la ventana OOS agotada y el holdout limpio. **Avisa y sale limpio si no encuentra los datos** — están gitignoreados | [la historia ya existe](hallazgos/2026-08-27-la-historia-ya-existe.md) |
 | [`iv_por_lado.py`](scripts/iv_por_lado.py) | Qué explica el sesgo por lado, con la superficie de IV ya medible: el **nivel** de IV a delta igualado, la **pendiente** entre las dos patas del vertical, el desglose de la métrica de la §43.4 lado por lado, y el barrido de ancho como control | [el sesgo no es el nivel de IV](hallazgos/2026-08-27-el-sesgo-no-es-el-nivel-de-iv.md) |
 | [`banda_de_gamma.py`](scripts/banda_de_gamma.py) | El muro como banda en vez de argmax: si `d_min × EM` es delta, si la banda es estable, si su borde restringe, y si paga un premio que sobreviva a descontar el delta. Su **sección 5** corre los tres ejemplos de la §61.7 con el EM real, sus secciones **6**, **7** y **8** miden los defectos de construcción de la §61.4 — los tres del 26, el competidor contiguo y el borde contra `W` —, y las 0 a 5 quedan como estaban a propósito, reproduciendo los números publicados | [el muro como banda](hallazgos/2026-08-25-el-muro-como-banda.md) · [el test depende del EM](hallazgos/2026-08-25-el-test-de-banda-depende-del-EM.md) · [los tres defectos](hallazgos/2026-08-26-los-tres-defectos-de-la-banda.md) · [el competidor contiguo](hallazgos/2026-08-27-el-competidor-contiguo-y-xdisj.md) |
 
@@ -195,9 +209,20 @@ PYTHONIOENCODING=utf-8 python research/got/scripts/skew_por_lado.py
 
 ## Temas abiertos
 
-**La lista corta es una sola línea:** hay que elegir cómo se mide la hipótesis de la §61.9 —universo
-ancho, historia comprada, o aceptar el negativo—, y hasta entonces no hay parámetro que valga la
-pena calibrar. El detalle, en la §98 del documento.
+**La lista corta es una sola línea:** medir la hipótesis de la §61.9 sobre la historia de cadenas de
+`research/data/`, y hasta entonces no hay parámetro que valga la pena calibrar. El detalle, en la
+§98 del documento.
+
+> **Reescrito el 2026-08-27 por la noche.** Decía *"hay que elegir cómo se mide —universo ancho,
+> historia comprada, o aceptar el negativo—"*. Ya no hay que elegir: la historia está. El plan
+> para retomar, en cuatro pasos, está al final de
+> [el hallazgo](hallazgos/2026-08-27-la-historia-ya-existe.md):
+> 1. **Fijar qué significa "cruzar"** — terminal o toque. Condiciona todo y es una línea.
+> 2. **Resolver holdout vs independencia** — 142 observaciones limpias, o la historia entera y el
+>    resultado es exploratorio.
+> 3. **Reconstruir la banda histórica** con el procedimiento de la §61.7 y **versionar la tabla de
+>    observaciones** (los datos crudos están gitignoreados; la tabla derivada pesa KB).
+> 4. Recién ahí, medir.
 
 > **Podado el 2026-08-25.** Los tres ítems que encabezaban esta lista quedaron cerrados: `WD` y
 > `Delta` **son** la misma variable —confirmado con ρ = −1.0000, no "prácticamente −1"— y `WD` salió
