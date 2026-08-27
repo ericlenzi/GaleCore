@@ -57,6 +57,30 @@ export interface GexScopeApi {
   strikes: GexStrikeApi[];
 }
 
+/**
+ * La banda de gamma de un lado: dónde está apilado el open interest, como RANGO y no como strike.
+ *
+ * Reemplaza al Call/Put Wall en la pantalla desde 2026-08-28. El argmax que mostraba antes está
+ * medido que es un mal objeto — nunca junta más del 19% del |GEX| de su lado y salta $40 en 48
+ * minutos —; la banda sobre las mismas series se movió $1.3 en total.
+ *
+ * NO dice que el precio vaya a frenar acá: eso se midió sobre 926 observaciones de 2013-2025 y da
+ * que el borde se comporta como un strike cualquiera de su mismo delta. Es descripción del
+ * posicionamiento. Ver research/got/hallazgos/2026-08-28-la-banda-no-predice.md.
+ */
+export interface GammaBandApi {
+  low: number;
+  high: number;
+  /** El borde EXTERNO — el extremo más lejos del spot. Es la referencia de la banda. */
+  edge: number;
+  /** Qué % del |GEX| de su lado junta la banda. */
+  pctOfSide: number;
+  /** La banda contra la ventana mediana del mismo lado. Cerca de 1x = no hay nada apilado. Sin umbral: no decide. */
+  xMed: number | null;
+  /** El ancho usado, en puntos de precio (width_em × expectedMove). */
+  width: number;
+}
+
 export interface GexExpiryApi {
   expiration: string;
   dte: number;
@@ -67,6 +91,9 @@ export interface GexExpiryApi {
   gammaZeroLevel: number | null;
   callWall: number | null;
   putWall: number | null;
+  /** null = no hay banda acá (sin EM, o el lado sin suficientes strikes). Es un resultado válido. */
+  callBand: GammaBandApi | null;
+  putBand: GammaBandApi | null;
   atmIv: number | null;
   expectedMove: number | null;
   strikes: GexStrikeApi[];
@@ -110,8 +137,16 @@ export interface GexChartData {
   expiration: string;
   zeroGammaLevel: number;
   netGex: number;
+  /** El muro: el nivel con nombre y valor. Va como línea con etiqueta en los dos gráficos. */
   callWall: number;
   putWall: number;
+  /**
+   * La banda de gamma que los gráficos **sombrean**, sin etiqueta: qué tan ancha es la
+   * concentración alrededor del muro. `null` = no hay banda para este scope, y el agregado siempre
+   * cae ahí — el ancho es una fracción del expected move, que necesita un vencimiento.
+   */
+  callBand: GammaBandApi | null;
+  putBand: GammaBandApi | null;
   strikes: GexStrike[];
 }
 

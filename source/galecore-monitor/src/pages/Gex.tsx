@@ -54,6 +54,8 @@ function toChartData(symbol: string, spot: number, expiry: GexExpiryApi | null):
     netGex: expiry.netGex,
     callWall: expiry.callWall ?? 0,
     putWall: expiry.putWall ?? 0,
+    callBand: expiry.callBand,
+    putBand: expiry.putBand,
     strikes: toChartStrikes(expiry.strikes),
   };
 }
@@ -65,6 +67,10 @@ function toChartData(symbol: string, spot: number, expiry: GexExpiryApi | null):
  * `dte: 0` y `expiration: GLOBAL_SCOPE` son relleno del contrato — el agregado no tiene ninguno de
  * los dos. Nadie los lee: `expiration` no se usa en el chart, y `dte` solo entra en las bandas
  * ±1σ/±2σ, que en global no se dibujan porque no hay IV ATM que las alimente.
+ *
+ * **El sombreado de la banda va en null**, por lo mismo que el expected move: su ancho es una
+ * fracción del EM y el agregado no tiene un `t`. El muro sí sale, porque el argmax es un máximo
+ * sobre strikes y no necesita EM.
  */
 function globalToChartData(symbol: string, spot: number, global: GexScopeApi): GexChartData | null {
   if (!global.strikes.length) return null;
@@ -77,6 +83,8 @@ function globalToChartData(symbol: string, spot: number, global: GexScopeApi): G
     netGex: global.netGex,
     callWall: global.callWall ?? 0,
     putWall: global.putWall ?? 0,
+    callBand: null,
+    putBand: null,
     strikes: toChartStrikes(global.strikes),
   };
 }

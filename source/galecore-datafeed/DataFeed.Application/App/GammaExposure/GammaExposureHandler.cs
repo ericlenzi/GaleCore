@@ -159,6 +159,92 @@ namespace DataFeed.Application.App.GammaExposure
                    .OrderBy(s => s.PutGEX)
                    .FirstOrDefault()?.Strike;
 
+        // Defaults de la banda, espejo de gex.wall_band en galecore_rules_gex.json.
+        public const double WallBandWidthEm = 0.25;
+        public const double WallBandMoneyZoneEm = 0.15;
+
+        // Mínimo de strikes con GEX en el lado para que la ventana signifique algo. Con menos, la
+        // "ventana más densa" y la mediana se calculan sobre un puñado de puntos y el cociente es ruido.
+        private const int WallBandMinStrikes = 6;
+
+        /// <summary>
+        /// La banda de gamma de un lado: la ventana de ancho <c>widthEm × EM</c> que maximiza la suma
+        /// de |GEX| de ese lado, entre los strikes que están FUERA de la zona del dinero.
+        ///
+        /// REEMPLAZA a <see cref="SelectCallWall"/> / <see cref="SelectPutWall"/> como objeto que se
+        /// muestra en la pantalla de GEX — los dos siguen existiendo porque RPF los usa de gate y el
+        /// Monitor los dibuja en su StrikeLadder; acá no se les toca la definición.
+        ///
+        /// El argmax es un mal objeto y está medido: nunca junta más del 19% del |GEX| de su lado, le
+        /// gana al segundo candidato por tan poco como un 2%, y salta —el call wall de QQQ 18-Sep
+        /// estuvo en 750 a las 10:12 ET y en 710 a las 11:00 ET del mismo día—. La banda sobre las
+        /// mismas series se movió $1.3 en total contra $16.1. Ver research/got/, sección 61.4.
+        ///
+        /// La zona del dinero se excluye del POOL entero —no sólo de la comparación—: los strikes
+        /// pegados al spot siempre concentran gamma, y con ellos adentro la ventana más densa puede
+        /// SER la pila del dinero (QQQ 18-Sep: argmax 710 con el spot en 708.02).
+        ///
+        /// LO QUE LA BANDA NO DICE: que el precio frene ahí. Medido sobre 926 observaciones de
+        /// SPY/QQQ/IWM 2013-2025, su borde se comporta como un strike cualquiera del mismo delta y el
+        /// mismo lado. Es descripción del posicionamiento, no una zona de venta.
+        ///
+        /// Devuelve null cuando no hay EM (sin él no hay ancho) o cuando el lado no tiene suficientes
+        /// strikes con GEX. Null es un resultado válido: significa "no hay banda acá".
+        /// </summary>
+        public static GammaBand? SelectWallBand(
+            IEnumerable<GammaExposureStrike> strikes, double spot, double? expectedMove, bool isCall,
+            double widthEm = WallBandWidthEm, double moneyZoneEm = WallBandMoneyZoneEm)
+        {
+            if (strikes == null || !(expectedMove > 0) || !(spot > 0)) return null;
+
+            double em = expectedMove.Value;
+            double width = widthEm * em;
+            if (!(width > 0)) return null;
+
+            // El pool: strikes del lado que corresponde, con GEX propio, fuera de la zona del dinero.
+            var pool = strikes
+                .Where(s => isCall ? s.Strike > spot : s.Strike < spot)
+                .Select(s => (Strike: s.Strike, Mass: Math.Abs(isCall ? s.CallGEX : s.PutGEX)))
+                .Where(x => x.Mass > 0 && Math.Abs(x.Strike - spot) >= moneyZoneEm * em)
+                .OrderBy(x => x.Strike)
+                .ToList();
+
+            if (pool.Count < WallBandMinStrikes) return null;
+
+            double total = pool.Sum(x => x.Mass);
+            if (!(total > 0)) return null;
+
+            // Todas las ventanas del lado: cada una arranca en un strike del pool y mide `width`.
+            // Hacia AFUERA en el lado call (k0 → k0+w) y hacia adentro en el put (k0-w → k0), para
+            // que el borde externo caiga siempre del lado lejano al spot.
+            var ventanas = new List<(double Mass, double Lo, double Hi)>(pool.Count);
+            foreach (var (k0, _) in pool)
+            {
+                double lo = isCall ? k0 : k0 - width;
+                double hi = isCall ? k0 + width : k0;
+                double masa = pool.Where(x => x.Strike >= lo - 1e-9 && x.Strike <= hi + 1e-9)
+                                  .Sum(x => x.Mass);
+                ventanas.Add((masa, lo, hi));
+            }
+
+            var mejor = ventanas.OrderByDescending(v => v.Mass).First();
+
+            var masas = ventanas.Select(v => v.Mass).OrderBy(m => m).ToList();
+            double mediana = masas.Count % 2 == 1
+                ? masas[masas.Count / 2]
+                : (masas[masas.Count / 2 - 1] + masas[masas.Count / 2]) / 2;
+
+            return new GammaBand
+            {
+                Low = Math.Round(mejor.Lo, 2),
+                High = Math.Round(mejor.Hi, 2),
+                Edge = Math.Round(isCall ? mejor.Hi : mejor.Lo, 2),
+                PctOfSide = Math.Round(mejor.Mass / total * 100, 1),
+                XMed = mediana > 0 ? Math.Round(mejor.Mass / mediana, 2) : null,
+                Width = Math.Round(width, 2),
+            };
+        }
+
         /// <summary>
         /// Obtiene Greeks (IV/delta/gamma) + OI por símbolo vía la conexión DXLink persistente,
         /// sin abrir una sesión nueva. Greeks pasa por reference-counting (no pisa al Monitor);
@@ -539,6 +625,13 @@ namespace DataFeed.Application.App.GammaExposure
                             GammaZeroLevel = CalculateGammaZero(strikes, spot),
                             CallWall = SelectCallWall(strikes, spot),
                             PutWall = SelectPutWall(strikes, spot),
+                            // La banda necesita el EM, así que va DESPUÉS de calcularlo. Es la única
+                            // de estas métricas que depende de otra: por eso el argmax se podía
+                            // calcular sobre el agregado y la banda no (61.1).
+                            CallBand = SelectWallBand(strikes, spot, expectedMove, isCall: true,
+                                                      request.WallBandWidthEm, request.WallBandMoneyZoneEm),
+                            PutBand = SelectWallBand(strikes, spot, expectedMove, isCall: false,
+                                                     request.WallBandWidthEm, request.WallBandMoneyZoneEm),
                             AtmIv = atmIv.HasValue ? Math.Round(atmIv.Value, 4) : null,
                             ExpectedMove = expectedMove,
                             Strikes = strikes,

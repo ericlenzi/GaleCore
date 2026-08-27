@@ -37,6 +37,39 @@ cercana dentro de un horizonte de DTE, e infiere niveles clave de la estructura 
   En el agregado los dos criterios daban lo mismo (775 / 765); la diferencia aparece por vencimiento
   (7 de 17 en el Call Wall, 2 de 17 en el Put Wall). Congelado por `GammaExposureWallTests.cs`.
 
+  > **Todo lo de arriba es cómo elegir bien el mejor argmax, y desde el 2026-08-28 sabemos que ese
+  > no era el problema.** El problema es el objeto: un strike suelto no es una concentración. Los
+  > dos muros se quedan como están —son el nivel con nombre y valor, y RPF los usa como gate—, pero
+  > la pantalla les agrega el sombreado de `CallBand` / `PutBand` al lado, que es lo que dice cuánta
+  > masa hay realmente alrededor de ese número.
+
+- **Call Band / Put Band** — la **banda de gamma** del lado: la ventana de ancho `0.25 × EM` que
+  maximiza la suma de `|GEX|` de ese lado, entre los strikes que están **fuera de la zona del
+  dinero** (`|K − spot| ≥ 0.15 × EM`). Devuelve `{ low, high, edge, pctOfSide, xMed, width }`, con
+  `edge` = el borde **externo**, el más lejos del spot. Solo se calcula **por vencimiento**
+  (`byExpiry[]`): el ancho es una fracción del Expected Move, y el agregado no tiene un `t`.
+
+  * **Es contexto visual, no un nivel.** La pantalla la dibuja **solo como zona sombreada**, sin
+    fila propia y sin etiqueta: el muro contesta *qué número* y la banda *qué tan ancha es la
+    concentración alrededor*. Los dos como texto sobre el mismo eje duplicarían la lectura.
+  * **La zona del dinero sale del pool entero**, no solo de la comparación: los strikes pegados al
+    spot siempre concentran gamma, y con ellos adentro la ventana más densa puede **ser** la pila
+    del dinero (QQQ 18-Sep: argmax 710 con el spot en 708.02).
+  * **`xMed`** — la banda contra la ventana **mediana** del mismo lado. Viaja en la respuesta como
+    diagnóstico y **ninguna pantalla lo dibuja**: no lleva umbral —no hay falla observada contra la
+    cual declararlo— y no es comparable entre símbolos ni épocas (su mediana sobre la historia de
+    cadenas va de 205.8 en 2013 a 19.4 en 2025, según cuántos strikes lejanos liste la cadena).
+  * **`null` es un resultado válido** — sin EM, o con el lado sin suficientes strikes con GEX (< 6).
+    Ahí simplemente no se pinta el sombreado; el muro se muestra igual.
+  * **No predice.** Medido sobre 926 observaciones de SPY/QQQ/IWM 2013–2025, el borde se comporta
+    como un strike cualquiera de su mismo delta y su mismo lado (+0.010, IC [−0.019, +0.040]).
+    Describe dónde está apilado el open interest; no dice que el precio frene ahí.
+
+  Los dos parámetros los declara `gex.wall_band` en `galecore_rules_gex.json` y viajan por
+  `GammaExposureRequest.WallBandWidthEm` / `WallBandMoneyZoneEm`. Congelado por
+  `GammaExposureBandTests.cs`. Origen: [`research/got/`](../../research/got/) §61.4 y el
+  [hallazgo del 2026-08-28](../../research/got/hallazgos/2026-08-28-la-banda-no-predice.md).
+
 Es el insumo principal de la **Capa 1** de la estrategia (régimen macro / GEX y Spot vs ZGL).
 
 ---

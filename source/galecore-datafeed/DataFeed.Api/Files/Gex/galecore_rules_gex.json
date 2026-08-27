@@ -33,6 +33,18 @@
     "include_zero_dte": true,
     "expiration_types": ["Regular", "Weekly"],
     "strike_scope": "full_chain",
+
+    "wall_band": {
+      "width_em": 0.25,
+      "money_zone_em": 0.15,
+      "_note": "La zona sombreada que el grafico pinta a cada lado: la ventana de ancho width_em x ExpectedMove que maximiza la suma de |GEX| de su lado, entre los strikes que estan FUERA de la zona del dinero (|K - spot| >= money_zone_em x EM). La exclusion del dinero no es un detalle: sin ella la ventana mas densa puede SER la pila de gamma del dinero, o medirse contra ella.",
+      "_es_sombreado_y_nada_mas": "La banda NO tiene fila en el Expiry Engine ni etiqueta en ningun grafico. Es contexto visual: dice que tan ancha es la concentracion alrededor del muro, y esa lectura es de forma, no de numero. El nivel con nombre y valor sigue siendo el Call/Put Wall, que es lo unico que se lee como texto. Poner las dos cosas como texto duplica la lectura sobre el mismo eje.",
+      "_por_que_existe": "El Call/Put Wall es un ARGMAX sobre un solo strike, y esta medido que no es una concentracion: nunca junta mas del 19% del |GEX| de su lado, le gana al segundo candidato por tan poco como un 2%, y salta — el call wall de QQQ 18-Sep estuvo en 750 a las 10:12 ET y en 710 a las 11:00 ET del mismo dia. El sombreado muestra cuanta masa hay realmente alrededor de ese numero, que es lo que la linea sola no puede decir. La banda en si es estable: sobre diez series con dos o mas tomas se movio $1.3 en total, contra $16.1 de una construccion anterior. Ver research/got/, seccion 61.4.",
+      "_lo_que_la_banda_no_dice": "Que el precio vaya a frenar ahi, ni que vender en su borde sea mejor que vender al mismo delta en cualquier otro lado. Se midio sobre 926 observaciones de SPY/QQQ/IWM 2013-2025 y la respuesta es que NO hay diferencia: el borde se comporta como un strike cualquiera de su mismo delta y su mismo lado (+0.010, IC [-0.019, +0.040]). Es DESCRIPCION del posicionamiento, no una zona de venta — y que sea sombreado sin etiqueta ayuda a que se lea asi. GEX es informativa. Ver research/got/hallazgos/2026-08-28-la-banda-no-predice.md.",
+      "_sin_umbral": "xmed —la banda contra la ventana mediana de su lado— lo calcula el backend y no lo dibuja ninguna pantalla, justamente porque no lleva umbral: no hay ninguna falla observada contra la cual declararlo, y ademas no es comparable entre simbolos ni entre epocas (sobre la historia de cadenas su mediana va de 205.8 en 2013 a 19.4 en 2025, segun cuantos strikes lejanos liste la cadena). Queda en la respuesta como dato de diagnostico.",
+      "_no_aplica_al_agregado": "La banda NO se calcula sobre la cadena completa, por la misma razon que expected_move no se muestra ahi: su ancho es una fraccion del EM y el agregado no tiene un `t` con el cual definirlo. En global el grafico simplemente no pinta el sombreado; los muros si salen, porque el argmax no necesita EM.",
+      "_mismo_sombreado_en_los_dos_graficos": "El grafico de velas y el panel de barras pintan la banda IGUAL —mismo color de lado y misma opacidad—, porque son la misma zona vista dos veces sobre el mismo eje de precio. Dos tratamientos distintos se leerian como dos objetos distintos."
+    },
     "oi_delta_band": [0.005, 0.995],
     "_oi_delta_band_note": "Banda de |delta| para pedir OI: la pata que queda afuera no tiene OI y aporta GEX 0. Medido 2026-08-06 en SPY (cadena completa, misma corrida para evitar drift): con [0.02, 0.98] lo descartado era solo 3.6% del |GEX|, pero -41.3B del NETO sobre 210.5B (-19.6%), porque lo que se corta esta sesgado a puts (los puts lejanos acumulan OI) e inflaba el neto hacia el lado call. Abrir la banda no costo latencia medible (93s abierta vs 127s cerrada). Se deja una poda minima en 0.005/0.995 para acotar la cola en simbolos de cadena enorme.",
     "greeks_batch_size": 200,
@@ -252,6 +264,7 @@
           { "id": "put_wall",      "label": "Put Wall",    "source": "byExpiry.putWall",        "ref": "definitions.put_wall" },
           { "id": "expected_move", "label": "Expected Move", "source": "byExpiry.expectedMove", "ref": "definitions.expected_move" }
         ],
+        "_rows_note": "El muro y la banda se reparten el trabajo: el MURO es el nivel con nombre y valor —tiene fila aca y etiqueta en el grafico—, y la BANDA es contexto visual, solo sombreado, sin fila ni etiqueta en ningun lado. Son dos objetos distintos sobre el mismo eje y por eso no compiten: el muro contesta 'que numero', la banda contesta 'que tan ancha es la concentracion alrededor'. Poner las dos como texto duplicaba la lectura; poner solo la banda dejaba a la pantalla sin un nivel que nombrar.",
         "global_rows": [
           { "id": "expiration",    "label": "Vencimiento",   "source": null,                          "value": "Cadena completa" },
           { "id": "dte",           "label": "DTE",           "source": "gex.config.maxDte",           "format": "lte" },
@@ -262,7 +275,7 @@
           { "id": "put_wall",      "label": "Put Wall",      "source": "global.putWall",        "ref": "definitions.put_wall" },
           { "id": "expected_move", "label": "Expected Move", "source": null }
         ],
-        "_global_rows_note": "Las mismas filas leidas del agregado en vez de un vencimiento. ZGL, Call Wall y Put Wall los calcula el backend sobre los strikes agregados, asi que salen tal cual. expected_move queda sin fuente A PROPOSITO: es spot * atmIv * sqrt(t) y el agregado no tiene un t — no es un dato que falte, es una formula que no esta definida para este scope. Se muestra vacia y no se rellena con el vencimiento mas cercano, que seria un numero de otro scope leido como si fuera de este. Por lo mismo, en global el grafico no dibuja las bandas +-1s/+-2s. Las dos filas que reemplazan a vencimiento/DTE (cadena completa, <= max_dte, cuantos vencimientos entraron) si son hechos del agregado, y expirationsIncluded deja a la vista si el barrido vino corto."
+        "_global_rows_note": "Las mismas filas leidas del agregado en vez de un vencimiento. ZGL, Call Wall y Put Wall los calcula el backend sobre los strikes agregados, asi que salen tal cual. Lo que NO hay en global es el sombreado de la banda, por la misma razon que expected_move: su ancho es una fraccion del EM. No es una fila que quede vacia — es que el grafico no pinta nada. expected_move queda sin fuente A PROPOSITO: es spot * atmIv * sqrt(t) y el agregado no tiene un t — no es un dato que falte, es una formula que no esta definida para este scope. Se muestra vacia y no se rellena con el vencimiento mas cercano, que seria un numero de otro scope leido como si fuera de este. Por lo mismo, en global el grafico no dibuja las bandas +-1s/+-2s. Las dos filas que reemplazan a vencimiento/DTE (cadena completa, <= max_dte, cuantos vencimientos entraron) si son hechos del agregado, y expirationsIncluded deja a la vista si el barrido vino corto."
       },
       "hidden_blocks": ["setup_candidato", "portfolio_manager", "microstructure", "strike_engine_structure_rows"]
     }

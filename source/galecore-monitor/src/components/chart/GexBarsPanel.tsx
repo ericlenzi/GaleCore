@@ -1,14 +1,22 @@
 import React from 'react';
 import { GexStrike } from '../../types/api';
+import { GammaBandApi } from '../../types/gex';
 import { GEX_BARS_W } from '../gex/graphLayout';
-import { CALL_COLOR, PUT_COLOR, sideColorAlpha } from '../../utils/optionSideColors';
+import { BAND_FILL_ALPHA, CALL_COLOR, PUT_COLOR, sideColorAlpha } from '../../utils/optionSideColors';
 import { fmtPrice } from '../../utils/formatters';
 
 interface Props {
   strikes:  GexStrike[];
   spot:     number;
+  /** El muro: el nivel con nombre y valor. Va como línea con etiqueta. */
   callWall: number;
   putWall:  number;
+  /**
+   * La banda de gamma del lado, que se **sombrea** sin etiqueta. `null` si este scope no la tiene
+   * — el agregado nunca la tiene, porque su ancho es una fracción del expected move.
+   */
+  callBand: GammaBandApi | null;
+  putBand:  GammaBandApi | null;
   zgl:      number;
   priceToY: (price: number) => number | null;
   height:   number;
@@ -21,7 +29,7 @@ const HALF_BAR = BAR_AREA / 2;          // each side (put left, call right)
 const CENTER_X = LABEL_W + HALF_BAR;    // x=0 axis position
 
 export const GexBarsPanel = React.memo(function GexBarsPanel({
-  strikes, spot, callWall, putWall, zgl, priceToY, height,
+  strikes, spot, callWall, putWall, callBand, putBand, zgl, priceToY, height,
 }: Props) {
   if (!strikes.length || height <= 0) return null;
 
@@ -40,10 +48,10 @@ export const GexBarsPanel = React.memo(function GexBarsPanel({
     return y !== null && y >= 0 && y <= height ? y : null;
   };
 
-  const spotY    = lineY(spot);
+  const spotY     = lineY(spot);
+  const zglY      = lineY(zgl);
   const callWallY = lineY(callWall);
   const putWallY  = lineY(putWall);
-  const zglY     = lineY(zgl);
 
   return (
     <div style={{
@@ -55,6 +63,11 @@ export const GexBarsPanel = React.memo(function GexBarsPanel({
       position: 'relative',
     }}>
       <svg width={PANEL_W} height={height} style={{ display: 'block' }}>
+        {/* El sombreado de la banda va PRIMERO: es fondo, y las barras y los muros se leen encima.
+            Pintado después taparía las barras que la banda justamente viene a describir. */}
+        <BandShade band={callBand} color={CALL_COLOR} lineY={lineY} height={height} />
+        <BandShade band={putBand}  color={PUT_COLOR}  lineY={lineY} height={height} />
+
         {/* Header labels */}
         <text x={CENTER_X - HALF_BAR / 2} y={10} fill={sideColorAlpha(PUT_COLOR, 0.55)} fontSize={7} textAnchor="middle">PUT</text>
         <text x={CENTER_X + HALF_BAR / 2} y={10} fill={sideColorAlpha(CALL_COLOR, 0.55)} fontSize={7} textAnchor="middle">CALL</text>
@@ -155,3 +168,46 @@ export const GexBarsPanel = React.memo(function GexBarsPanel({
     </div>
   );
 });
+
+/**
+ * La banda de gamma como ZONA sombreada, **sin etiqueta y sin líneas**: cuánta masa hay realmente
+ * alrededor del muro, que es lo que la línea del muro sola no puede decir.
+ *
+ * Mismo color de lado y misma opacidad (`BAND_FILL_ALPHA`) que el sombreado de `GexChart`: los dos
+ * gráficos comparten el eje de precio, así que dos tratamientos distintos se leerían como dos
+ * objetos distintos. El color es identidad de lado —CALL verde, PUT rojo— y no bien/mal.
+ *
+ * **El texto es del muro, no de la banda.** El muro contesta "qué número" y por eso lleva línea y
+ * etiqueta; la banda contesta "qué tan ancha es la concentración", que es forma y se lee del
+ * sombreado.
+ *
+ * `null` no dibuja nada — el scope agregado, donde la banda no está definida.
+ */
+function BandShade({ band, color, lineY, height }: {
+  band: GammaBandApi | null;
+  color: string;
+  lineY: (price: number) => number | null;
+  height: number;
+}) {
+  if (!band) return null;
+
+  // `lineY` recorta a la vista visible, así que una banda parcialmente fuera de pantalla perdería
+  // uno de sus dos extremos y no se dibujaría. Se clampea contra el alto en vez de descartarla.
+  const bruto = [band.low, band.high].map(p => lineY(p));
+  if (bruto.every(y => y === null)) return null;
+  const [yA, yB] = [lineY(band.low) ?? height, lineY(band.high) ?? 0];
+
+  const top = Math.max(0, Math.min(yA, yB));
+  const bottom = Math.min(height, Math.max(yA, yB));
+  if (bottom - top <= 0) return null;
+
+  return (
+    <rect
+      x={LABEL_W}
+      y={top}
+      width={PANEL_W - LABEL_W}
+      height={bottom - top}
+      fill={sideColorAlpha(color, BAND_FILL_ALPHA)}
+    />
+  );
+}

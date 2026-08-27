@@ -154,6 +154,8 @@ namespace DataFeed.Application.App.Gex
                 GreeksRetries = scan.GreeksRetries,
                 OiDeltaMin = scan.OiDeltaMin,
                 OiDeltaMax = scan.OiDeltaMax,
+                WallBandWidthEm = scan.WallBandWidthEm,
+                WallBandMoneyZoneEm = scan.WallBandMoneyZoneEm,
             }, cancellationToken);
             var ivrTask = _mediator.Send(new IVRankRequest { Symbol = symbol }, cancellationToken);
             var ivTask = _mediator.Send(new ImpliedVolatilityRequest { Symbol = symbol }, cancellationToken);
@@ -220,6 +222,8 @@ namespace DataFeed.Application.App.Gex
                             GammaZeroLevel = e.GammaZeroLevel,
                             CallWall = e.CallWall,
                             PutWall = e.PutWall,
+                            CallBand = e.CallBand,
+                            PutBand = e.PutBand,
                             AtmIv = e.AtmIv,
                             ExpectedMove = e.ExpectedMove,
                             Strikes = e.Strikes.Select(MapStrike).ToList(),
@@ -349,7 +353,8 @@ namespace DataFeed.Application.App.Gex
         private sealed record ScanConfig(
             int MaxDte, bool IncludeZeroDte, string[] ExpirationTypes,
             int GreeksBatchSize, int GreeksRetries, int CacheSeconds, double CacheMinCoveragePct,
-            double OiDeltaMin, double OiDeltaMax)
+            double OiDeltaMin, double OiDeltaMax,
+            double WallBandWidthEm, double WallBandMoneyZoneEm)
         {
             public GexScanConfig ToDto() => new()
             {
@@ -374,6 +379,7 @@ namespace DataFeed.Application.App.Gex
                 .ToArray();
 
             var band = node?["oi_delta_band"]?.AsArray();
+            var wb = node?["wall_band"];
 
             return new ScanConfig(
                 MaxDte: node?["max_dte"]?.GetValue<int>() ?? 60,
@@ -384,7 +390,11 @@ namespace DataFeed.Application.App.Gex
                 CacheSeconds: node?["cache_seconds"]?.GetValue<int>() ?? 600,
                 CacheMinCoveragePct: node?["cache_min_coverage_pct"]?.GetValue<double>() ?? 99,
                 OiDeltaMin: band?.Count > 0 ? band[0]!.GetValue<double>() : 0.02,
-                OiDeltaMax: band?.Count > 1 ? band[1]!.GetValue<double>() : 0.98);
+                OiDeltaMax: band?.Count > 1 ? band[1]!.GetValue<double>() : 0.98,
+                WallBandWidthEm: wb?["width_em"]?.GetValue<double>()
+                    ?? GammaExposureHandler.WallBandWidthEm,
+                WallBandMoneyZoneEm: wb?["money_zone_em"]?.GetValue<double>()
+                    ?? GammaExposureHandler.WallBandMoneyZoneEm);
         }
     }
 }

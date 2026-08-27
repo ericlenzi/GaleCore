@@ -235,6 +235,43 @@ public class GexRulesJsonTests
     }
 
     /// <summary>
+    /// El muro y la banda se reparten el trabajo, y el reparto es el invariante:
+    /// <list type="bullet">
+    /// <item><b>El muro es el nivel con nombre y valor</b> — tiene fila en el Expiry Engine y
+    /// etiqueta en el gráfico. Contesta "qué número".</item>
+    /// <item><b>La banda es solo sombreado</b> — sin fila y sin etiqueta, en ningún lado. Contesta
+    /// "qué tan ancha es la concentración alrededor", que es una lectura de forma y no de
+    /// número.</item>
+    /// </list>
+    ///
+    /// Son dos objetos sobre el mismo eje de precio, así que ponerlos los dos como texto duplica la
+    /// lectura. Este test congela que la banda no se cuele como fila.
+    /// </summary>
+    [Fact]
+    public void WallBand_EsSombreadoYNoFila()
+    {
+        var wb = Gex()["gex"]!["wall_band"]!.AsObject();
+
+        // Los dos parámetros son la fuente de verdad del sombreado; GammaExposureBandTests congela
+        // que los defaults del handler coincidan con estos valores.
+        Assert.Equal(0.25, (double?)wb["width_em"]);
+        Assert.Equal(0.15, (double?)wb["money_zone_em"]);
+
+        // La zona del dinero excluida no es opcional: sin ella la ventana más densa puede SER la
+        // pila de gamma del dinero (QQQ 18-Sep: argmax 710 con el spot en 708.02).
+        Assert.True((double?)wb["money_zone_em"] > 0,
+            "sin excluir la zona del dinero, la ventana más densa puede ser la pila del dinero.");
+
+        var engine = Gex()["display_config"]!["gex_tab"]!["expiry_engine"]!.AsObject();
+        foreach (var lista in new[] { "rows", "global_rows" })
+        {
+            var ids = engine[lista]!.AsArray().Select(r => (string?)r!["id"]).ToArray();
+            foreach (var banda in new[] { "call_band", "put_band" })
+                Assert.DoesNotContain(banda, ids);
+        }
+    }
+
+    /// <summary>
     /// El cuadro Details agrupa por la PREGUNTA que contesta cada indicador, y no por el objeto de
     /// la respuesta que lo trae. El invariante que importa es el scope: VIX y VIX9D son indices CBOE
     /// que GexAnalysisHandler pide como simbolos fijos, asi que valen lo mismo en SPY, QQQ o AAPL.
@@ -343,7 +380,8 @@ public class GexRulesJsonTests
 
         JsonNode Row(string id) => globalRows.First(r => (string?)r!["id"] == id)!;
 
-        // Lo que el backend YA calcula sobre los strikes agregados sale de gex.global.
+        // Lo que el backend YA calcula sobre los strikes agregados sale de gex.global. Los muros
+        // entran acá porque el argmax no necesita EM: es un máximo sobre strikes y nada más.
         foreach (var id in new[] { "net_gex", "zgl", "call_wall", "put_wall" })
             Assert.StartsWith("global.", (string?)Row(id)["source"]);
 

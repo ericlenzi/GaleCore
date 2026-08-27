@@ -1,3 +1,4 @@
+using DataFeed.Application.App.GammaExposure;
 using DataFeed.Application.App.Shared.Dtos;
 
 namespace DataFeed.Application.App.Gex
@@ -88,6 +89,17 @@ namespace DataFeed.Application.App.Gex
         public double? GammaZeroLevel { get; set; }
         public double? CallWall { get; set; }
         public double? PutWall { get; set; }
+        /// <summary>
+        /// La banda de gamma del lado call: dónde está apilado el open interest, como RANGO y no
+        /// como strike. Es lo que la pantalla dibuja desde 2026-08-28 en lugar de
+        /// <see cref="CallWall"/>, que es un argmax que salta. null = no hay banda acá, y es un
+        /// resultado válido. Ver <c>GammaExposureHandler.SelectWallBand</c>.
+        /// </summary>
+        public GammaBand? CallBand { get; set; }
+
+        /// <summary>La banda de gamma del lado put. Espejo de <see cref="CallBand"/>.</summary>
+        public GammaBand? PutBand { get; set; }
+
         /// <summary>IV ATM del vencimiento (fuente: Greeks DXLink del strike más cercano al spot).</summary>
         public double? AtmIv { get; set; }
         /// <summary>spot * atmIv * sqrt(dte/365) — ver definitions.expected_move.</summary>

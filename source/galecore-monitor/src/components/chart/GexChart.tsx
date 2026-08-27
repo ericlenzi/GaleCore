@@ -9,8 +9,8 @@ import {
   ColorType,
   CrosshairMode,
 } from 'lightweight-charts';
-import { GammaExposureResponse } from '../../types/api';
-import { CALL_COLOR, PUT_COLOR } from '../../utils/optionSideColors';
+import { GammaBandApi, GexChartData } from '../../types/gex';
+import { BAND_FILL_ALPHA, CALL_COLOR, PUT_COLOR, sideColorAlpha } from '../../utils/optionSideColors';
 import { fetchEquityCandles } from '../../api/marketdata';
 import { fmtPrice, etDateParts, etOffsetMinutes } from '../../utils/formatters';
 import { GexBarsPanel } from './GexBarsPanel';
@@ -20,7 +20,7 @@ interface Props {
   currentPrice: number;
   openPrice?:   number;
   iv30?:        number;
-  gexData:      GammaExposureResponse | null;
+  gexData:      GexChartData | null;
   /** Temporalidad de las velas. Default '5m' (intradía de Main). La pestaña GEX pasa '1h'. */
   candleInterval?: string;
   /** Segundos por vela — define el bucket de la actualización live. Debe acompañar a candleInterval. */
@@ -34,6 +34,9 @@ interface Props {
 }
 
 const DEFAULT_BUCKET = 5 * 60;
+
+/** Píxeles de área de precio por debajo de los cuales no vale la pena descontarle el eje al sombreado. */
+const MIN_ANCHO_SOMBRA = 80;
 
 function getBucket(s: number, bucketSeconds: number) {
   return Math.floor(s / bucketSeconds) * bucketSeconds;
@@ -212,7 +215,9 @@ export function GexChart({
       gexLinesRef.current.push(series.createPriceLine({ price, color, lineWidth: width, lineStyle: style, axisLabelVisible: axis, title: label }));
     };
 
-    add(gexData.callWall,       CALL_COLOR, `Call Wall ${fmtPrice(gexData.callWall, 0)}`,      2, LineStyle.Dashed);
+    // El MURO es el nivel con nombre y valor: línea con etiqueta en el eje. La BANDA no entra acá
+    // — va como sombreado (ver BandShade abajo), sin etiqueta, igual que en el panel de barras.
+    add(gexData.callWall,       CALL_COLOR, `Call Wall ${fmtPrice(gexData.callWall, 0)}`,       2, LineStyle.Dashed);
     add(gexData.putWall,        PUT_COLOR,  `Put Wall ${fmtPrice(gexData.putWall, 0)}`,         2, LineStyle.Dashed);
     add(gexData.zeroGammaLevel, '#94a3b8', `ZGL ${fmtPrice(gexData.zeroGammaLevel, 0)}`,        1, LineStyle.Dashed);
 
@@ -239,6 +244,24 @@ export function GexChart({
     bump();
   }, [gexData, iv30]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Ancho del eje de precios, para que el sombreado de la banda no lo tiña: la zona es del área de
+  // precio, no de la escala. Se relee en cada renderTick porque el eje cambia de ancho cuando
+  // cambian los dígitos del precio (de 3 a 4 cifras) o cuando el chart se redimensiona.
+  const axisW = React.useMemo(() => {
+    try {
+      const eje = chartRef.current?.priceScale('right').width() ?? 0;
+      const total = containerRef.current?.clientWidth ?? 0;
+      // Si el eje se come casi todo el ancho no se descuenta nada: con `right: eje` el sombreado
+      // colapsaría a ancho cero y directamente no se vería. Pasa con la ventana angosta, porque el
+      // panel de barras tiene ancho fijo y el gráfico se queda con lo que sobra. Teñir también el
+      // eje es mucho menos malo que no dibujar la banda.
+      return total - eje > MIN_ANCHO_SOMBRA ? eje : 0;
+    } catch { return 0; }
+  // renderTick no se usa adentro a propósito: es el disparador. Los dos anchos salen de refs, que
+  // no disparan render — igual que priceToY acá al lado.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderTick]);
+
   // priceToY: maps any price → canvas Y coordinate (reads seriesRef, refreshes on renderTick)
   const priceToY = useCallback((price: number): number | null => {
     if (!seriesRef.current) return null;
@@ -249,14 +272,26 @@ export function GexChart({
 
   return (
     <div ref={outerRef} style={{ display: 'flex', width: '100%', height: '100%', minHeight: 400 }}>
-      {/* Candle chart — takes all available space */}
-      <div ref={containerRef} style={{ flex: 1, minWidth: 0 }} />
+      {/* Candle chart — takes all available space. El wrapper es `relative` para que el sombreado
+          de la banda se posicione sobre el canvas; lightweight-charts no dibuja zonas entre dos
+          precios, así que va como overlay traducido con priceToCoordinate. */}
+      <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+        {gexData && (
+          <>
+            <BandShade band={gexData.callBand} color={CALL_COLOR} priceToY={priceToY} height={chartH} rightInset={axisW} />
+            <BandShade band={gexData.putBand}  color={PUT_COLOR}  priceToY={priceToY} height={chartH} rightInset={axisW} />
+          </>
+        )}
+      </div>
 
       {/* GEX bars panel — fixed width, synchronized Y axis */}
       {gexData && (
         <GexBarsPanel
           strikes={gexData.strikes}
           spot={currentPrice || gexData.spot}
+          callBand={gexData.callBand}
+          putBand={gexData.putBand}
           callWall={gexData.callWall}
           putWall={gexData.putWall}
           zgl={gexData.zeroGammaLevel}
@@ -265,5 +300,62 @@ export function GexChart({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * La banda de gamma sobre las velas: una zona tenue entre sus dos extremos, **sin etiqueta**.
+ *
+ * Es el mismo objeto que pinta `GexBarsPanel`, con el mismo color de lado y la misma opacidad
+ * (`BAND_FILL_ALPHA`) — los dos gráficos comparten el eje de precio, así que dos tratamientos
+ * distintos se leerían como dos cosas distintas.
+ *
+ * No lleva texto a propósito: el nivel con nombre y valor es el **muro**, que va como línea con
+ * etiqueta en el eje. La banda dice qué tan ancha es la concentración alrededor, y eso es una
+ * lectura de forma.
+ *
+ * **Va POR ENCIMA del canvas y no puede ir por debajo**, que es la diferencia con el panel de
+ * barras —ahí el sombreado es fondo y las barras se leen arriba—. lightweight-charts pinta sobre
+ * canvas con `z-index` 1 y 2 y fondo opaco (`#080d1b`), así que un overlay sin `z-index` queda
+ * tapado y no se ve nada. Con 0.10 de alpha, tintar las velas en vez de quedar detrás es
+ * indistinguible a ojo y las deja perfectamente legibles.
+ *
+ * `pointerEvents: none` para que no se coma el crosshair ni el scroll del chart. `null` no dibuja
+ * nada — es lo que pasa en el scope agregado, donde la banda no está definida.
+ */
+function BandShade({ band, color, priceToY, height, rightInset }: {
+  band: GammaBandApi | null;
+  color: string;
+  priceToY: (price: number) => number | null;
+  height: number;
+  /** Cuánto dejar libre a la derecha: el ancho del eje de precios, ya acotado por el que llama. */
+  rightInset: number;
+}) {
+  if (!band) return null;
+  const yHi = priceToY(band.high);
+  const yLo = priceToY(band.low);
+  if (yHi === null || yLo === null) return null;
+
+  const top = Math.min(yHi, yLo);
+  const alto = Math.abs(yHi - yLo);
+  // Fuera de la vista visible no se dibuja: sin esto la zona se estira contra el borde del canvas
+  // cuando el usuario scrollea el eje de precio, y una franja pegada al borde se lee como un dato.
+  if (alto <= 0 || top > height || top + alto < 0) return null;
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: 0,
+        right: rightInset,
+        top,
+        height: alto,
+        backgroundColor: sideColorAlpha(color, BAND_FILL_ALPHA),
+        pointerEvents: 'none',
+        // Por encima de los dos canvas de lightweight-charts (z-index 1 y 2). Sin esto el
+        // sombreado existe en el DOM, con su posición y su color correctos, y no se ve nada.
+        zIndex: 3,
+      }}
+    />
   );
 }

@@ -50,6 +50,12 @@ function ListRow({ label, value, hint }: { label: string; value: string; hint?: 
 /**
  * Lectura numérica del scope seleccionado: es lo que dibuja el gráfico de barras, en números.
  *
+ * **La banda de gamma NO tiene fila acá, y es deliberado.** El muro y la banda se reparten el
+ * trabajo: el muro es el nivel con nombre y valor —contesta "qué número"— y la banda es contexto
+ * visual que solo se sombrea en los gráficos —contesta "qué tan ancha es la concentración
+ * alrededor"—. Son dos objetos sobre el mismo eje de precio, así que ponerlos los dos como texto
+ * duplica la lectura sin agregar nada. Lo declara `expiry_engine._rows_note` del JSON.
+ *
  * En `expiry` todos los valores son de ESE vencimiento, no del agregado. En `global` son del
  * agregado de toda la cadena — el mismo número que el cuadro Details.
  */
@@ -74,8 +80,8 @@ export function ExpiryEngine({ scope, label = 'Expiry Engine' }: Props) {
 }
 
 /**
- * Modo global: las mismas filas leídas del agregado. ZGL y los muros los calcula el backend sobre
- * los strikes agregados, así que salen tal cual.
+ * Modo global: las mismas filas leídas del agregado. ZGL y muros los calcula el backend sobre los
+ * strikes agregados, así que salen tal cual — el argmax de un muro no necesita expected move.
  *
  * Dos diferencias deliberadas, ambas declaradas en `expiry_engine.global_rows` del JSON:
  * - **Expected Move va vacío.** Es `spot × atmIv × √t` y el agregado no tiene un `t`: no es un dato
@@ -83,6 +89,10 @@ export function ExpiryEngine({ scope, label = 'Expiry Engine' }: Props) {
  *   vencimiento más cercano pondría un número de otro scope donde se lee como si fuera de éste.
  * - **Vencimiento y DTE se reemplazan** por hechos que sí son del agregado: el alcance del barrido
  *   y cuántos vencimientos entraron — que además deja a la vista si el barrido vino corto.
+ *
+ * Lo que no se ve acá pero sí cambia: **el gráfico no pinta el sombreado de la banda en global**,
+ * por lo mismo que el EM va vacío — su ancho es una fracción del EM. No es una fila vacía, es que
+ * no se dibuja nada.
  */
 function GlobalRows({
   scope, label,

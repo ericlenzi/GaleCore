@@ -27,6 +27,18 @@ export const PUT_COLOR = '#f43f5e';
  * Devuelve `rgba(...)` en vez de un hex con alpha (`#22c55e8c`) porque los SVG del panel ya venían
  * escritos así y porque lightweight-charts no acepta hex de 8 dígitos en todas sus props.
  */
+/**
+ * Opacidad del sombreado de la banda de gamma, **compartida por los dos gráficos**.
+ *
+ * El gráfico de velas y el panel de barras pintan la misma zona sobre el mismo eje de precio: si
+ * cada uno usara su propia opacidad, se leerían como dos objetos distintos. Vive acá y no en cada
+ * componente por la misma razón que los colores de lado.
+ *
+ * Tiene que quedar tenue: la banda es contexto, no un nivel. Lo que se lee como nivel es el muro,
+ * que va como línea con etiqueta.
+ */
+export const BAND_FILL_ALPHA = 0.10;
+
 export function sideColorAlpha(color: string, alpha: number): string {
   const hex = color.replace('#', '');
   const r = parseInt(hex.slice(0, 2), 16);

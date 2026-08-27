@@ -75,5 +75,22 @@ namespace DataFeed.Application.App.GammaExposure
 
         /// <summary>Banda de |delta| para pedir OI (Candle).</summary>
         public double OiDeltaMax { get; set; } = 0.98;
+
+        /// <summary>
+        /// Ancho de la banda de gamma, en Expected Moves. Lo declara <c>gex.wall_band.width_em</c>;
+        /// el default es el mismo valor, para que el handler se comporte igual sin config.
+        ///
+        /// Sin calibrar, y está medido que mueve el borde ($9.6 en promedio con ±20%). Eso importa
+        /// menos de lo que parece acá: en una pantalla informativa el ancho cambia dónde se dibuja
+        /// el rango, no un veredicto — no hay ninguno.
+        /// </summary>
+        public double WallBandWidthEm { get; set; } = GammaExposureHandler.WallBandWidthEm;
+
+        /// <summary>
+        /// Semiancho de la zona del dinero que se excluye del pool de la banda, en Expected Moves.
+        /// Lo declara <c>gex.wall_band.money_zone_em</c>. Sin esto la ventana más densa puede ser
+        /// la pila de gamma del dinero en vez de un muro.
+        /// </summary>
+        public double WallBandMoneyZoneEm { get; set; } = GammaExposureHandler.WallBandMoneyZoneEm;
     }
 }

@@ -177,14 +177,64 @@ Qué cambia en scope global, declarado en `expiry_engine.global_rows`:
 | Vencimientos | `incluidos [/ pedidos]` | deja a la vista un barrido corto |
 | Expected Move | vacío | `spot × IV ATM × √t` necesita **un** `t`, y el agregado no lo tiene |
 
-Por lo mismo, en global el gráfico **no dibuja las bandas ±1σ/±2σ**: salen de la IV ATM del
-vencimiento, que en el agregado no existe. Ni el EM ni las bandas se rellenan con las del
-vencimiento más cercano — sería un número de otro scope leído como si fuera de éste, la misma
-trampa que un dato viejo que sobrevive a un error.
+Por lo mismo, en global el gráfico **no dibuja las bandas ±1σ/±2σ** ni el **sombreado de la banda
+de gamma** (§8.1): los tres salen del EM del vencimiento, que en el agregado no existe. Nada de eso
+se rellena con el del vencimiento más cercano — sería un número de otro scope leído como si fuera
+de éste, la misma trampa que un dato viejo que sobrevive a un error.
 
 **Efecto esperado:** el eje de precio se autoescala a `[putWall × 0.985, callWall × 1.015]`, y los
 muros globales están más separados que los de un vencimiento. En global el gráfico se abre y las
 velas se achatan. Es la vista correcta del scope, no un bug.
+
+### 8.1 La banda de gamma: el sombreado detrás del muro (2026-08-28)
+
+El **muro** sigue siendo el nivel con nombre y valor —fila en el Expiry Engine, línea con etiqueta
+en los dos gráficos—. Lo que se agrega es la **banda de gamma**: la ventana de ancho `0.25 × EM`
+que junta más `|GEX|` de su lado, entre los strikes que están **fuera de la zona del dinero**
+(`|K − spot| ≥ 0.15 × EM`). Se dibuja **solo como zona sombreada, sin fila y sin etiqueta**, y sus
+dos parámetros los declara `gex.wall_band` en el JSON.
+
+**El reparto es el punto:**
+
+| | contesta | cómo se muestra |
+|---|---|---|
+| Muro | *qué número* | fila con valor + línea con etiqueta |
+| Banda | *qué tan ancha es la concentración alrededor* | zona sombreada, sin texto |
+
+Son dos objetos sobre el mismo eje de precio: ponerlos los dos como texto duplica la lectura sin
+agregar nada, y por eso la banda no tiene fila.
+
+**Por qué hace falta el sombreado.** El muro es un **argmax sobre un solo strike**, y está medido
+que no es una concentración: nunca junta más del 19% del `|GEX|` de su lado, le gana al segundo
+candidato por tan poco como un 2%, y salta — el Call Wall de QQQ 18-Sep estuvo en 750 a las 10:12 ET
+y en 710 a las 11:00 ET del mismo día. Una línea sola no puede decir cuánta masa hay realmente
+alrededor de ese número; el sombreado sí. La banda en sí es estable: sobre diez series con dos o más
+tomas se movió **$1.3 en total**, contra $16.1 de una construcción anterior.
+
+**Lo que el sombreado NO dice, y por eso no lleva etiqueta.** Que el precio vaya a frenar ahí. Se
+midió sobre 926 observaciones de SPY/QQQ/IWM 2013–2025 y el borde de la banda se comporta como un
+strike cualquiera de su mismo delta y su mismo lado (+0.010, IC [−0.019, +0.040]). Es **descripción
+del posicionamiento**, y que sea una zona tenue sin texto ayuda a que se lea así. Misma regla que
+sacó el ✓/✗ del cuadro Details: GEX es informativa.
+
+**Los dos gráficos sombrean igual** —mismo color de lado y misma opacidad (`BAND_FILL_ALPHA` de
+`utils/optionSideColors.ts`)—, porque son la misma zona vista dos veces sobre el mismo eje de
+precio. Dos tratamientos distintos se leerían como dos objetos distintos. En `GexChart` va como
+overlay posicionado con `priceToCoordinate`, porque lightweight-charts no dibuja zonas entre dos
+precios; en `GexBarsPanel`, como `<rect>` **detrás** de las barras.
+
+**`xmed` no se dibuja en ningún lado.** El backend lo calcula y viaja en la respuesta como
+diagnóstico, pero no llega a la pantalla: no lleva umbral —no hay ninguna falla observada contra la
+cual declararlo— y además **no es comparable entre símbolos ni entre épocas**. Sobre la historia de
+cadenas su mediana va de 205.8 en 2013 a 19.4 en 2025, según cuántos strikes lejanos liste la
+cadena.
+
+**Sin banda tampoco pasa nada malo**: en el agregado, o cuando el lado no tiene suficientes strikes
+con GEX, no se pinta el sombreado y el muro se muestra igual.
+
+Origen: [`research/got/`](../../research/got/), §61.4, y el
+[hallazgo del 2026-08-28](../../research/got/hallazgos/2026-08-28-la-banda-no-predice.md).
+Congelado por `GammaExposureBandTests.cs` y `GexRulesJsonTests.cs`.
 
 ## 9. Código relevante
 
