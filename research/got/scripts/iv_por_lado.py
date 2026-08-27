@@ -117,9 +117,30 @@ def delta_abarcado(rows, por_strike, side, sgn, ancho):
 
 
 def archivos(carpeta):
+    # No recursivo a proposito: 2026-08-25/descartado-banda12/ tiene capturas invalidas y queda
+    # fuera del glob, igual que en skew_por_lado.py.
     for path in sorted(glob.glob(os.path.join(carpeta, '*_gex_*.csv'))):
         sym, _, exp = os.path.basename(path)[:-4].split('_')
         yield sym, exp, path
+
+
+def carpetas():
+    return sorted((d for d in glob.glob(os.path.join(ROOT, '*')) if os.path.isdir(d)),
+                  key=os.path.basename)
+
+
+def metrica_por_lado(rows, por_strike, side, sgn, col, ancho=WIDTH):
+    """((credito/ancho) / |delta del short|, delta abarcado). La primera necesita quotes; la
+    segunda sale de la columna de delta sola."""
+    s = short_leg(rows, side, exigir=col)
+    if s is None:
+        return None, None
+    ds, cred = abs(num(s[side + 'Delta'])), num(s[col])
+    largo = por_strike.get(round(num(s['strike']) + sgn * ancho, 2))
+    dl = num(largo.get(side + 'Delta')) if largo else None
+    abarca = (ds - abs(dl)) if dl is not None else None
+    ef = (cred / ancho) / ds if (cred is not None and ds) else None
+    return ef, abarca
 
 
 def main():
@@ -132,12 +153,15 @@ def main():
     primero = next(archivos(carpeta), None)
     if primero is None:
         sys.exit('La carpeta no tiene CSV.')
-    if 'callIV' not in cargar(primero[2])[0][0]:
-        sys.exit('Esta captura no tiene columnas callIV/putIV: es anterior al 2026-08-25-t2.')
+    tiene_iv = 'callIV' in cargar(primero[2])[0][0]
+    if not tiene_iv:
+        print('Esta captura no tiene columnas callIV/putIV (es anterior al 2026-08-25-t2):')
+        print('se omiten las secciones 1 y 2. Las 3, 4 y 5 no necesitan IV.\n')
 
     # ── 1. NIVEL ──────────────────────────────────────────────────────────────
-    print('1. NIVEL DE IV al mismo |delta|  (put/call > 1 = el put esta mas caro)')
-    print(f"   {'sim':5} {'vencimiento':12} {'|d|':>5} {'callIV':>8} {'putIV':>8} {'put/call':>9}")
+    if tiene_iv:
+        print('1. NIVEL DE IV al mismo |delta|  (put/call > 1 = el put esta mas caro)')
+        print(f"   {'sim':5} {'vencimiento':12} {'|d|':>5} {'callIV':>8} {'putIV':>8} {'put/call':>9}")
     for sym, exp, path in archivos(carpeta):
         rows, _ = cargar(path)
         for tgt in NIVELES:
@@ -146,10 +170,11 @@ def main():
                 print(f"   {sym:5} {exp:12} {tgt:5.2f} {c:8.4f} {p:8.4f} {p / c:9.3f}")
 
     # ── 2. PENDIENTE ──────────────────────────────────────────────────────────
-    print('\n2. PENDIENTE entre las dos patas del vertical (width %g, short ~ delta %.2f)' %
-          (WIDTH, DELTA_OBJETIVO))
-    print('   IV(comprada) - IV(vendida). Positivo = la pata comprada es mas cara, se pierde credito')
-    print(f"   {'sim':5} {'vencimiento':12} {'PUT dIV':>9} {'CALL dIV':>9}  {'el put pierde mas?':>19}")
+    if tiene_iv:
+        print('\n2. PENDIENTE entre las dos patas del vertical (width %g, short ~ delta %.2f)' %
+              (WIDTH, DELTA_OBJETIVO))
+        print('   IV(comprada) - IV(vendida). Positivo = la pata comprada es mas cara, se pierde credito')
+        print(f"   {'sim':5} {'vencimiento':12} {'PUT dIV':>9} {'CALL dIV':>9}  {'el put pierde mas?':>19}")
     for sym, exp, path in archivos(carpeta):
         rows, por_strike = cargar(path)
         d = {}
@@ -195,6 +220,47 @@ def main():
             c = delta_abarcado(rows, por_strike, 'call', +1, w)
             fila += f"{(c / p):8.2f}" if (p and c and p > 0) else f"{'-':>8}"
         print(fila)
+
+    seccion_5_retroactiva()
+
+
+def seccion_5_retroactiva():
+    """El delta abarcado, que sale de la columna de delta sola, contra la metrica de la 43.4,
+    que necesita el barrido de quotes. Sobre TODAS las capturas, no solo la del dia: las
+    anteriores no tienen IV pero si delta y credito, que es lo unico que hace falta aca.
+
+    Si los dos cocientes coinciden, el diagnostico de sesgo por lado se puede hacer sin cotizar
+    la cadena -- que es el barrido caro y el que obliga a acertarle a la banda por simbolo."""
+    print('\n5. RETROACTIVA: el delta abarcado predice el sesgo? (todas las capturas)')
+    print('   "abarca" no necesita quotes; "metrica" si. Si coinciden, el barrido caro sobra.')
+    print(f"   {'captura':14} {'sim':5} {'vencimiento':12} {'abarca C/P':>11} {'metrica C/P':>12} {'dif':>7}")
+    pares = []
+    for carpeta in carpetas():
+        for sym, exp, path in archivos(carpeta):
+            rows, por_strike = cargar(path)
+            ef, ab = {}, {}
+            for side, sgn, col in LADOS:
+                ef[side], ab[side] = metrica_por_lado(rows, por_strike, side, sgn, col)
+            if not all([ef['put'], ef['call'], ab['put'], ab['call']]):
+                continue
+            if ab['put'] <= 0 or ef['put'] <= 0:
+                continue
+            r_ab, r_ef = ab['call'] / ab['put'], ef['call'] / ef['put']
+            pares.append((r_ab, r_ef))
+            print(f"   {os.path.basename(carpeta):14} {sym:5} {exp:12} "
+                  f"{r_ab:11.2f} {r_ef:12.2f} {r_ef - r_ab:+7.2f}")
+    if len(pares) >= 3:
+        xs = [p[0] for p in pares]
+        ys = [p[1] for p in pares]
+        n = len(pares)
+        mx, my = sum(xs) / n, sum(ys) / n
+        sx = (sum((x - mx) ** 2 for x in xs) / n) ** 0.5
+        sy = (sum((y - my) ** 2 for y in ys) / n) ** 0.5
+        r = sum((x - mx) * (y - my) for x, y in pares) / (n * sx * sy) if sx and sy else 0.0
+        eam = sum(abs(y - x) for x, y in pares) / n
+        signo = sum(1 for x, y in pares if (x - 1) * (y - 1) > 0)
+        print(f'\n   n = {n}   correlacion r = {r:+.4f}   error absoluto medio = {eam:.3f}')
+        print(f'   coinciden en de que lado del 1 caen: {signo} de {n}')
 
 
 if __name__ == '__main__':

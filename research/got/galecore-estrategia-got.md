@@ -2612,6 +2612,16 @@ ajuste de la eficiencia `(crédito/width)/delta` construido con los strikes lejo
 residuo del borde da **z medio +0.56 ± 0.90 sobre 11 casos**, indistinguible de cero. El mercado
 cobra en el muro exactamente lo mismo que en cualquier strike del mismo delta.
 
+> **Errata del 2026-08-27 — el veredicto se sostiene, el `± 0.90` no es una barra de error.** Los
+> once z tienen desvío **2.98** cuando un z bien normalizado tendría ~1: cinco de once superan
+> \|z\|>2 (se esperaría medio caso) y dos superan \|z\|>3 (se esperaría 0.03). El `sd` con el que se
+> normaliza —el desvío de los residuos del ajuste cuadrático— subestima la incertidumbre en el
+> strike del borde, así que cada \|z\| está inflado y el `± 0.90`, que es el error estándar de esa
+> serie, no se puede leer como "0.56 sigmas de cero". **Esto no da vuelta el veredicto: lo
+> refuerza.** Si los z están inflados, el premio verdadero es todavía menor que +0.56; sacando los
+> dos outliers queda +0.32 ± 0.54 sobre nueve casos, y el reparto de signos sigue siendo 6 contra 5.
+> Lo que hay que dejar de hacer es citar el `± 0.90` como si midiera la precisión de la estimación.
+
 **Las dos juntas mueven la hipótesis, no la matan.** Si el muro estuviera restringiendo, sería un
 filtro; si el mercado le cobrara un premio, ya estaría descontado. Lo que dicen los datos es otra
 cosa:
@@ -3771,7 +3781,9 @@ dónde vivía cada uno, está en la **61.8**:
   tandas se mueve de 16 a 43 contra 1.3 (hallazgo del 28/08).
 * **El ZGL como condición de rechazo** — las seis capturas lo cruzan del lado put (62.2).
 * **El crédito como evidencia de que el muro paga** — no hay premio: descontando el delta, el
-  residuo del borde da z medio **+0.56 ± 0.90**, indistinguible de cero.
+  residuo del borde da z medio **+0.56**, indistinguible de cero, con 6 casos positivos y 5
+  negativos. El `± 0.90` que acompañaba a esa cifra salió de la §61.5 el 27/08: los z están
+  sobredispersos 3x, así que el descarte se apoya en el reparto de signos y no en esa barra.
 * **POP como gate de probabilidad favorable** — es delta con otro nombre (37).
 
 ## Reprobado o invalidado
