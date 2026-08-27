@@ -21,6 +21,25 @@ truncada sin decirlo. TSLA va con 35. El script avisa cuando la banda no llega a
 Dos capturas del mismo vencimiento en días distintos **se pisan**. Por eso cada tanda va en
 su propia carpeta fechada por el día de captura, y el `-OutDir` del script apunta ahí.
 
+## Derivados de la historia — las tablas de la §61.9 (2026-08-28)
+
+Estos **no son capturas**: son el derivado versionado de `research/data/`, las cadenas EOD de
+SPY/QQQ/IWM 2013–2025. Los crudos están gitignoreados y pesan cientos de MB; estas tablas pesan KB
+y son lo único que hace **reproducible fuera de esta máquina** la medición de la §61.9. Las produce
+[`banda_historica.py`](../scripts/banda_historica.py) y las mide
+[`medir_61_9.py`](../scripts/medir_61_9.py), que corre solo con esto — no necesita las cadenas.
+
+| Archivo | Qué es |
+|---|---|
+| `obs_banda_historica.csv` | **La tabla de observaciones.** Un renglón por (símbolo, vencimiento mensual, lado): la banda a DTE 45, su borde externo, el delta interpolado en ese borde, cuál condición ató (banda o `delta_max`), y el resultado observado — `cerro_mas_alla` (terminal, que es lo que se compara contra delta) y `toco` (descriptivo). **926 renglones = 463 ciclos** |
+| `obs_calibracion_delta.csv` | **La tabla de control.** Todos los strikes vendibles de esos mismos ciclos con `abs(delta)` entre 0.03 y 0.45, con su delta y su resultado. Es lo que permite construir la curva empírica de terminar más allá dado el delta **y el lado** y preguntar si el borde de la banda hace algo que un strike cualquiera de su mismo delta no haga. **26.678 renglones** |
+| `obs_banda_historica_w0.20.csv` · `_w0.30.csv` | Lo mismo con el ancho de banda barrido, que es el control de que el veredicto no depende de `W`. **No** llevan su propia tabla de control: es casi idéntica —lo único que cambia es qué strike lleva `es_borde`, 926 de 26.678 filas— y `medir_61_9.py` reusa la base |
+
+**El vencimiento mensual no es "viernes o sábado entre el 15 y el 22".** Ese filtro atrapa weeklies
+—en 24 meses del dataset pasan dos fechas— e infla la muestra ~15%. El bueno es el tercer viernes,
+con el listado corrido al **sábado** hasta feb-2015 y al **jueves** cuando el tercer viernes es Good
+Friday (2019-04-18, 2022-04-14, 2025-04-17). Lo implementa `mensuales_canonicos()`.
+
 ## Capturas
 
 | Carpeta | Cuándo | Qué tiene | Condiciones |

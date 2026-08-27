@@ -1,8 +1,8 @@
 # GOT Studio V5
 ## Estado integral de la estrategia de opciones — TSLA / SPY / QQQ / SKM
 
-> **Versión:** 5.0 · **Recibido:** 2026-08-24 · **Estado:** Sell Zone definida (61); una sola
-> hipótesis abierta, y bloqueante (61.9)
+> **Versión:** 5.0 · **Recibido:** 2026-08-24 · **Estado:** Sell Zone definida (61); la hipótesis
+> única **medida y falsa** (61.9). No queda ninguna hipótesis abierta.
 >
 > Documento **vivo**: se edita en el lugar y la historia la guarda git. Las versiones 1 a 4 están
 > congeladas en [versiones/](versiones/).
@@ -124,6 +124,27 @@
 >
 > [El hallazgo del 2026-08-28](hallazgos/2026-08-28-el-borde-le-debe-todo-a-W.md), sección 8 del
 > mismo script.
+>
+> ---
+>
+> **La 61.9 se midió el 2026-08-28, y da que no. Con eso GOT queda cerrado.** Sobre **926
+> observaciones de lado** —SPY, QQQ e IWM de 2013 a 2025, banda a DTE 45 por el procedimiento de la
+> **61.7**—, el borde de la banda **no cruza menos que su delta: cruza +0.025 más**. Y contra la
+> curva empírica `P(terminar más allá | delta, lado)` construida sobre 26.678 strikes del mismo
+> dataset, el borde **no se distingue de un strike cualquiera**: +0.010, IC [−0.019, +0.040]. El
+> efecto que la estrategia necesita (−0.07) queda excluido, y el negativo no depende de `W` —el
+> parámetro que el hallazgo anterior había dejado como bloqueante— ni de la ventana: el holdout
+> limpio 2013–2017 da lo mismo.
+>
+> Vale entonces la disyuntiva de la propia **61.9**: *"se vende delta 0.25 a precio justo y GOT es
+> el edge test de la 43.3 con más pasos"*. **`buffer`, `delta_max` por régimen, los umbrales de
+> `xmed` y `xvalle` y `W` dejan de tener sentido**: los cinco esperaban a esta medición para
+> calibrarse, y no hay nada que calibrar. Lo que sobrevive es la maquinaria de medición y la curva
+> empírica por lado, que son la mitad que le faltaba al edge test de la **43.3**.
+>
+> Secciones tocadas: **61.9** y **98**.
+> [El hallazgo del 2026-08-28](hallazgos/2026-08-28-la-banda-no-predice.md), con la tabla de
+> observaciones versionada en [`data/`](data/).
 >
 > *Fuera de esas secciones, el texto es el recibido el 2026-08-24 sin cambios de contenido. Se
 > repararon además defectos de transcripción del archivo original: un fence sin cerrar que
@@ -2877,7 +2898,28 @@ precios de las opciones puede producir una probabilidad favorable.** Sólo queda
 posibles de ventaja — el open interest, que es posicionamiento y no precio, y la brecha entre la
 distribución implícita y la empírica, que es el edge test de la 43.3 y ya pertenece a RPF.
 
-## 61.9 Lo único que falta, y qué cuesta
+## 61.9 Lo único que falta, y qué cuesta — MEDIDO, Y DA QUE NO
+
+> **Cerrada el 2026-08-28, en negativo.** Todo lo que sigue en esta sección se escribió cuando la
+> hipótesis no se podía medir. Se midió: **926 observaciones de lado** sobre SPY, QQQ e IWM de
+> 2013 a 2025, banda a DTE 45 con el procedimiento de la 61.7. El resultado no es "no se pudo
+> confirmar" — es que **el borde de la banda cruza MÁS que su delta** (+0.025, IC [−0.005, +0.053])
+> y, contra un strike cualquiera del mismo delta y del mismo lado, **no aporta nada**: +0.010, IC
+> [−0.019, +0.040]. El efecto que la estrategia necesita —vender delta 0.25 a riesgo de delta 0.18,
+> o sea −0.07— queda **excluido**. No depende de `W` (0.20 / 0.25 / 0.30 EM dan +0.014 / +0.010 /
+> +0.006) ni de la ventana: el holdout limpio 2013–2017, que el backtesting nunca tocó, da +0.011.
+>
+> **Vale entonces la disyuntiva que esta misma sección dejó escrita:** *"si es falsa, se vende delta
+> 0.25 a precio justo y GOT es el edge test de la 43.3 con más pasos"*. Con eso no queda ninguna
+> hipótesis abierta en GOT, y la pregunta de plataforma se resuelve en su salida 3 — plegar GOT al
+> edge test de RPF. Ver
+> [el hallazgo del 2026-08-28](hallazgos/2026-08-28-la-banda-no-predice.md), que además deja
+> versionada la tabla de observaciones y la curva empírica `P(terminar más allá | delta, lado)`.
+>
+> Dos correcciones de arrastre a lo que sigue: la muestra que la errata del 27 anunciaba estaba
+> **inflada ~15%** (463 ciclos y no 532 — el filtro de mensuales atrapaba weeklies), y el delta
+> resulta estar **bien calibrado en el agregado y muy mal por lado**, lo cual le pone una condición
+> a cómo se puede plantear el edge test de la 43.3.
 
 Con lo anterior, toda la estrategia se reduce a **una sola afirmación falsable**, y no queda ninguna
 otra en pie:
@@ -3831,51 +3873,42 @@ dónde vivía cada uno, está en la **61.8**:
 
 ## Pendiente
 
-**Uno solo bloquea a todos los demás**, y está en la 61.9:
+> **Reescrito el 2026-08-28: ya no hay un pendiente bloqueante, porque se midió y dio que no.**
+> Esta lista decía que la 61.9 bloqueaba a todos los demás y que antes de calibrar nada había que
+> elegir entre ensanchar el universo, comprar historia o aceptar el negativo. **Se eligió la
+> segunda —la historia ya estaba pagada— y el resultado es el tercero.** Ver
+> [el hallazgo del 2026-08-28](hallazgos/2026-08-28-la-banda-no-predice.md).
 
-> La probabilidad empírica de que el precio cruce el borde externo de una banda de gamma dominante
-> es menor que el delta de ese borde.
+**La hipótesis única está medida y es falsa** (61.9). Sobre 926 observaciones de lado, el borde de
+la banda cruza **+0.025 más** que su delta, y contra un strike cualquiera del mismo delta y del
+mismo lado aporta **+0.010** [−0.019, +0.040]. Es robusto a `W` (0.20/0.25/0.30 EM), a la ventana
+(el holdout limpio 2013–2017 da +0.011) y al subgrupo donde la banda efectivamente ata (+0.013).
 
-Ninguna captura transversal puede contestarlo y hacen falta del orden de **300 observaciones
-independientes**, que con el universo de la 4 son seis años. **Antes de calibrar nada hay que
-elegir** entre ensanchar el universo, comprar historia de cadenas con open interest, o aceptar el
-negativo y plegar GOT al edge test de RPF.
+**Con eso, lo que esta lista tenía como "pendiente de calibrar" deja de ser pendiente y pasa a no
+tener sentido.** Los umbrales de `xmed` y `xvalle`, el ancho de banda `W`, el `buffer` y el
+`delta_max` modulado por régimen esperaban todos a esta medición. Calibrarlos ahora sería afinar una
+construcción que está medida y no informa.
 
-> **Actualizado el 2026-08-27 — sigue siendo el único pendiente, pero ya no por falta de datos.**
-> La historia de cadenas que el párrafo de arriba manda a comprar **ya está en la máquina**:
-> `research/data/` tiene SPY, QQQ e IWM de 2013 a 2025 con `open_interest` y `gamma` por strike,
-> o sea **1064 observaciones de lado** contra las ~300 pedidas, y con 2013–2017 sin tocar por la
-> ventana OOS agotada. Lo que falta es método, en cuatro pasos: fijar si "cruzar" es terminal o
-> toque (comparado contra delta, el toque da falso por construcción), resolver holdout contra
-> independencia de los tres símbolos, reconstruir la banda histórica versionando la tabla de
-> observaciones, y recién ahí medir. Ver
-> [el hallazgo](hallazgos/2026-08-27-la-historia-ya-existe.md).
+**`W` es el caso ejemplar, y por el lado inverso al que quedó anotado el 28/08 a la mañana.** Ese
+día se cerró que `W` decide si la banda ata —mover un ±20% corre el delta del borde hasta 0.174 con
+un presupuesto de 0.20— y que por eso el borde no se podía cerrar antes de calibrarlo. Medida la
+61.9, `W` no cambia el veredicto en ningún valor: **`W` decide dónde cae el borde y no cambia que el
+borde no informa**, que es también la explicación de por qué nunca hubo contra qué calibrarlo.
 
-Lo que depende de esa decisión y hoy no tiene sentido calibrar: los umbrales de `xmed` y `xvalle`,
-**el ancho de banda `W`**, el `buffer`, el `delta_max` y su modulación por régimen,
-`RequiredCredit`, `Width`, el candidate ranking, Selective Mode, No Operate, exit, persistence y
-portfolio risk.
+Sobreviven, y **no dependen de GOT**:
 
-**`W` está primero en esa lista desde el 2026-08-28, y no por prolijidad:** no es un parámetro sin
-afinar, es el que manda sobre el resultado. Mover `W` un ±20% corre el delta del borde hasta 0.174
-con un presupuesto de 0.20, o sea que decide si la banda ata — que es el número con el que se juzga
-si la estructura aporta algo. Mientras `W` no se pueda calibrar, el borde no se puede cerrar.
-
-Independientes de esa decisión, y siguen abiertos:
-
-* **el borde**, que **no se puede cerrar antes de calibrar `W`** — y `W` está del otro lado de la
-  61.9. Medido el 28/08, el borde de hoy se corre $9.6 en promedio y hasta 0.174 de delta con ±20%
-  de `W`, contra un `delta_max` de 0.20: `W` decide si la banda ata. Las tres salidas probadas
-  fallan, y la receta del crecimiento queda escrita para cuando se pueda aplicar (61.4);
-* **el umbral de `xvalle`**, que no se puede fijar hasta observar un valle — cero en 12 (ídem);
-* la tabla de probabilidad empírica por lado, delta y DTE que alimenta el edge test (43.3);
-* separar el ruido de mercado del efecto de la hora de captura: el mismo símbolo y vencimiento
-  movieron el cociente de skew hasta 0.15 en un día, y esa oscilación es el piso de precisión de
-  cualquier calibración sobre esa métrica (hallazgo del 25/08);
-* elegir la banda de quotes por símbolo, en múltiplos de EM y no en porcentaje de spot (ídem);
+* la tabla de probabilidad empírica por lado, delta y DTE que alimenta el edge test (43.3) — ahora
+  medida sobre 26.678 strikes, con el descubrimiento de que **la brecha implícita-empírica es
+  direccional**: el delta está bien calibrado en el agregado y muy mal por lado, así que un edge
+  test sobre deltas agrupados da cero por cancelación;
+* **la maquinaria de medición** (`banda_historica.py` + `medir_61_9.py`), reusable tal cual para
+  cualquier pregunta de la forma *"¿este nivel predice algo que el delta no prediga?"*;
 * pasar el riesgo a un porcentaje del capital (72);
-* el régimen `netGEX > 0` **no está observado**: las seis capturas son de gamma negativa (62.4);
 * liquidez y slippage.
+
+Quedan **cerrados sin resolver**, porque ya no tienen para qué resolverse: el borde y su defecto de
+ancho (61.4), el umbral de `xvalle` —cero valles en 12—, el régimen `netGEX > 0` sin observar
+(62.4), la banda de quotes por símbolo y el ruido de la hora de captura (hallazgo del 25/08).
 
 
 # 99. Conclusión
@@ -3891,6 +3924,20 @@ Independientes de esa decisión, y siguen abiertos:
 > * **El backtest no es la etapa que sigue: es la única etapa.** No queda ninguna otra pregunta
 >   abierta que una captura pueda contestar, y calibrar cualquier parámetro antes de la 61.9 es
 >   afinar números que no significan nada si esa hipótesis es falsa.
+>
+> **Corregida otra vez el 2026-08-28, y esta vez cierra.** El backtest se corrió: la 61.9 está
+> medida sobre 926 observaciones de lado y **es falsa**. Las dos correcciones de arriba quedan
+> confirmadas y se vuelven definitivas — GOT **es** `SELL DELTA X`, y no en el sentido de que le
+> falte madurar: el borde de la banda no se distingue de un strike cualquiera de su mismo delta y
+> su mismo lado (+0.010, IC [−0.019, +0.040]), incluso en los 229 casos donde la estructura
+> restringe. Lo que la estrategia agregaba sobre un corte de delta era, medido, **nada**.
+>
+> Queda entonces lo que la 61.9 misma anticipó para este caso: **GOT es el edge test de la 43.3 con
+> más pasos**, así que no justifica prefijo, JSON, pestaña ni switch propios. Se pliega a RPF. Lo
+> que se lleva consigo no es poco —la curva empírica `P(terminar más allá | delta, lado)` y la
+> maquinaria que la produjo son la mitad que le faltaba a ese edge test— pero es una contribución a
+> RPF, no una estrategia.
+> Ver [el hallazgo del 2026-08-28](hallazgos/2026-08-28-la-banda-no-predice.md).
 >
 > Lo que sí sobrevive de esta sección es su última frase, y ahora con evidencia detrás: los
 > parámetros tienen que ser consecuencia de la estructura y de la economía. El problema es que
