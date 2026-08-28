@@ -7,8 +7,14 @@ import { SectionTitle, Card, CollapsibleCard, Stat, TH, TD } from '../strategy/R
  *
  * GEX es informativa: no propone estructura, no calcula strikes ni sizing, no emite señales. Por eso
  * este panel NO tiene gates de señal, máquina de estados ni sizing (a diferencia del de RPF) — muestra
- * lo que la estrategia sí declara: universo, contexto de mercado (lectura), config del barrido y el
- * umbral por símbolo que decide qué se evalúa.
+ * lo que la estrategia sí declara: universo, contexto de mercado (lectura), config del barrido, la
+ * banda de gamma y el umbral por símbolo que decide qué se evalúa.
+ *
+ * **La banda tiene tarjeta propia porque es lo único que el gráfico dibuja sin nombrar.** Todo lo
+ * demás de la pantalla tiene una etiqueta que se puede buscar acá; el sombreado no, y un sombreado
+ * sobre un gráfico de precios invita justo a la lectura que la medición descarta —que el precio
+ * frena ahí—. Sin esta tarjeta, la única forma de saber qué es, desde la app, era abrir la solapa
+ * Json y leer el archivo crudo.
  *
  * Lee el JSON de reglas que el store ya cargó (`useGexStore.rules`); tipado como `any` porque el tipo
  * `GexRules` del store expone solo lo que la pestaña necesita para renderizar, no el archivo entero.
@@ -31,6 +37,7 @@ export function GexReference() {
   const scope = rules.strategy_scope ?? {};
   const universe = rules.universe ?? {};
   const gex = rules.gex ?? {};
+  const band = gex.wall_band ?? {};
   const thr = rules.definitions?.gex_threshold_by_symbol ?? {};
   const zgl = rules.definitions?.zgl_with_buffer ?? {};
   const checks: any[] = rules.macro_regime?.checks ?? [];
@@ -88,6 +95,42 @@ export function GexReference() {
           {zgl.formula && <Stat label="ZGL buffer" value={zgl.buffer_pct != null ? `${(zgl.buffer_pct * 100).toFixed(1)}%` : '—'} hint="sobre el flip" />}
         </div>
       </CollapsibleCard>
+
+      {/* C.2 · La banda de gamma — lo único que la pantalla dibuja sin nombrar */}
+      {(band.width_em != null || band.money_zone_em != null) && (
+        <CollapsibleCard title="C.2 · Banda de gamma (el sombreado)" titleColor="var(--blue-gc)" defaultOpen>
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.5 }}>
+            La zona sombreada a cada lado del gráfico: la ventana que junta más gamma de su lado,
+            fuera de la zona del dinero. Es <strong>dónde está apilado el open interest</strong>.
+            Se dibuja sin etiqueta a propósito — el nivel con nombre y valor es el muro; la banda
+            dice qué tan ancha es la concentración a su alrededor.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+            <Stat
+              label="Ancho"
+              value={band.width_em != null ? `${band.width_em} × EM` : '—'}
+              hint="del expected move"
+            />
+            <Stat
+              label="Dinero excluido"
+              value={band.money_zone_em != null ? `± ${band.money_zone_em} × EM` : '—'}
+              hint="no entra al cálculo"
+            />
+            <Stat label="Scope" value="por vencimiento" hint="el agregado no tiene EM" />
+          </div>
+          {/* La advertencia es la razón de ser de esta tarjeta: un sombreado sobre un gráfico de
+              precios invita justo a la lectura que la medición descarta. */}
+          <div style={{
+            fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5,
+            marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border-dark)',
+          }}>
+            <strong style={{ color: 'var(--text-secondary)' }}>No predice que el precio frene ahí.</strong>{' '}
+            Medido sobre 926 ciclos de SPY/QQQ/IWM entre 2013 y 2025, el borde de la banda se
+            comporta como un strike cualquiera de su mismo delta y su mismo lado. Es contexto, no
+            una zona para operar.
+          </div>
+        </CollapsibleCard>
+      )}
 
       {/* D · Umbral por símbolo — decide qué se evalúa */}
       <CollapsibleCard title="D · Umbral de GEX por símbolo" titleColor="var(--green)" defaultOpen>
