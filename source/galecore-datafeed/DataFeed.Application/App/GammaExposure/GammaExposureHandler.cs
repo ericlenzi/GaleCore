@@ -424,12 +424,14 @@ namespace DataFeed.Application.App.GammaExposure
 
                 var rawExpirations = optionChains?.data?.items?.SelectMany(i => i.expirations).ToList();
                 if (rawExpirations == null || !rawExpirations.Any())
-                    throw new Exception($"No se encontraron cadenas de opciones para {request.Symbol}");
+                    throw new OptionChainNotFoundException(request.Symbol,
+                        $"{request.Symbol} no lista opciones.");
 
                 // El DTE se recalcula acá y NO se toma del proveedor. Ver NormalizeExpirations.
                 var allExpirations = NormalizeExpirations(rawExpirations);
                 if (!allExpirations.Any())
-                    throw new Exception($"Todas las expiraciones de {request.Symbol} vencieron o traen fecha ilegible");
+                    throw new OptionChainNotFoundException(request.Symbol,
+                        $"Todas las expiraciones de {request.Symbol} vencieron o traen fecha ilegible.");
 
                 // Filtrar expiraciones. Por defecto (modo histórico): solo "Regular", DTE > 0.
                 // La estrategia GEX pasa ExpirationTypes = [Regular, Weekly] e IncludeZeroDte = true.
@@ -445,7 +447,8 @@ namespace DataFeed.Application.App.GammaExposure
                     .ToList();
 
                 if (!candidateExpirations.Any())
-                    throw new Exception($"No se encontraron expiraciones ({string.Join("/", allowedTypes)}) dentro de {request.MaxDTE} DTE para {request.Symbol}");
+                    throw new OptionChainNotFoundException(request.Symbol,
+                        $"{request.Symbol} no tiene vencimientos {string.Join("/", allowedTypes)} dentro de {request.MaxDTE} DTE.");
 
                 // Modo histórico: la más cercana (el OrderByDescending + First original devolvía la de
                 // MAYOR DTE dentro del rango; se conserva ese orden para no cambiar el comportamiento).
@@ -654,6 +657,12 @@ namespace DataFeed.Application.App.GammaExposure
                 response.PutWall = SelectPutWall(response.Strikes, spot);
 
                 return response;
+            }
+            catch (OptionChainNotFoundException)
+            {
+                // Pasa derecho: envuelta en un Exception genérico pierde su tipo y vuelve a ser el
+                // 500 que se quería evitar. El controller la mapea a 409 con su code.
+                throw;
             }
             catch (Exception ex)
             {

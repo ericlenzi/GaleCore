@@ -36,6 +36,13 @@ namespace DataFeed.Controllers
                 // decir "vinculá tu cuenta" en vez de mostrar el error crudo.
                 return this.Conflict(new { error = ex.Message, code = BrokerAccountNotLinkedException.Code });
             }
+            catch (OptionChainNotFoundException ex)
+            {
+                // 409 por lo mismo: el símbolo que eligió el operador no se puede analizar, y eso es
+                // una respuesta, no una caída. El `symbol` viaja aparte para que el front lo nombre
+                // sin tener que parsear el mensaje.
+                return this.Conflict(new { error = ex.Message, code = OptionChainNotFoundException.Code, symbol = ex.Symbol });
+            }
 
             if (HttpMethods.IsGet(this.Request.Method))
             {
