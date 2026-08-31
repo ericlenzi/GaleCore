@@ -10,6 +10,12 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
 
         Task<OptionChainsModel?> GetOptionChainsAsync(string symbol, CancellationToken cancellationToken);
 
+        /// <summary>
+        /// Busca instrumentos por símbolo o parte de él. Es metadato de mercado, no dato de cuenta:
+        /// va con la credencial de sistema como el resto de los market data.
+        /// </summary>
+        Task<SymbolSearchModel?> GetSymbolSearchAsync(string query, CancellationToken cancellationToken);
+
         /// <param name="credential">null = credencial de sistema. Los datos de cuenta son por usuario.</param>
         Task<AccountBalancesModel?> GetAccountBalancesAsync(string accountNumber, CancellationToken cancellationToken, TastytradeCredential? credential = null);
 

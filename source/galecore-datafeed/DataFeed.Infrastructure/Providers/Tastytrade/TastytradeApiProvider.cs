@@ -66,6 +66,33 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
             return result;
         }
 
+        /// <summary>
+        /// GET /symbols/search/{query}. Un texto que no matchea nada devuelve items vacío, no error.
+        ///
+        /// El 404 se trata como "no hay resultados" y no como falla: acá el texto lo escribe una
+        /// persona letra por letra, así que un query sin match es el caso NORMAL de la mitad de las
+        /// pulsaciones. Con EnsureSuccessStatusCode pelado, escribir "AAPL" tiraría una excepción
+        /// por cada prefijo que Tastytrade no reconozca.
+        /// </summary>
+        public async Task<SymbolSearchModel?> GetSymbolSearchAsync(string query, CancellationToken cancellationToken)
+        {
+            _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            _client.DefaultRequestHeaders.UserAgent.ParseAdd("PostmanRuntime/7.36.0");
+            var request = await _auth.CreateOAuthApiRequestAsync($"/symbols/search/{Uri.EscapeDataString(query)}");
+            var response = await _client.SendAsync(request, cancellationToken);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return new SymbolSearchModel { Data = new SymbolSearchData { Items = new List<SymbolSearchItem>() } };
+
+            response.EnsureSuccessStatusCode();
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            return JsonSerializer.Deserialize<SymbolSearchModel>(content, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+        }
+
         /// <param name="credential">
         /// Credencial con la que se pide. Los datos de cuenta son POR USUARIO: pedirlos con la
         /// credencial equivocada devuelve, sin error visible, las posiciones de otra persona. Si

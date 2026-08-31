@@ -11,6 +11,7 @@ using DataFeed.Application.Data.Tastytrade.MarketDataTradeQuoteGreeks;
 using DataFeed.Application.Data.Tastytrade.AccountBalances;
 using DataFeed.Application.Data.Tastytrade.AccountPositions;
 using DataFeed.Application.Data.Tastytrade.MarketMetricsVolatility;
+using DataFeed.Application.Data.Tastytrade.SymbolSearch;
 
 namespace DataFeed.Controllers
 {
@@ -32,6 +33,18 @@ namespace DataFeed.Controllers
         [Tags("Data.Api")]
         [HttpGet("Tastytrade/OptionChains")]
         public async Task<IActionResult> OptionChainsAsync([FromQuery] OptionChainsRequest request) => await Handle(request);
+
+        /// <summary>
+        /// Busca símbolos por texto (símbolo o parte de él) contra el catálogo de Tastytrade.
+        /// `InstrumentTypes` acota el resultado ("Equity,Index"); vacío devuelve todo lo que matchea.
+        ///
+        /// Vive en Data.Api y no bajo el prefijo de una estrategia: buscar un símbolo es un dato de
+        /// mercado de la misma clase que ByType u OptionChains. Hoy lo consume el buscador de la
+        /// pestaña GEX, pero no tiene nada de GEX adentro.
+        /// </summary>
+        [Tags("Data.Api")]
+        [HttpGet("Tastytrade/Symbols/Search")]
+        public async Task<IActionResult> SymbolSearchAsync([FromQuery] SymbolSearchRequest request) => await Handle(request);
 
         [Tags("Data.Api")]
         [HttpGet("Tastytrade/Market-metrics/VolatilityData")]
