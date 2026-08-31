@@ -28,28 +28,45 @@ export function TickerGrid({ selectedSymbol, onSelect, symbols, loading, error }
   const rulesError = error ?? null;
   const marketStore = useMarketStore();
   const { tickers, initTicker, setLoading, setError } = marketStore;
-  const loadedRef   = useRef(false);
+  /** Qué símbolos ya se pidieron. NO es un booleano de "ya cargué": el universo cambia. */
+  const loadedRef   = useRef<Set<string>>(new Set());
   const pollRef     = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── Load all tickers in a single batch call ───────────────────────────────
+  // ── Carga inicial por lote, solo del delta ────────────────────────────────
+  // El guard era `loadedRef.current` booleano: con la primera lista cargada, cualquier universo
+  // posterior entraba y salía sin pedir nada, y sus cards se quedaban en precio 0 hasta que
+  // tickeara el socket. Con un universo fijo desde el arranque nunca se notó.
   useEffect(() => {
-    if (!symbols.length || loadedRef.current) return;
-    loadedRef.current = true;
+    // Lo que ya no se muestra sale del registro: si vuelve, su precio se vuelve a pedir en vez
+    // de mostrarse el de la vez anterior. Se recorre con forEach y no con spread porque el
+    // target del tsconfig es es5, donde iterar un Set exige downlevelIteration.
+    const stillShown = new Set<string>();
+    loadedRef.current.forEach((s) => { if (symbols.includes(s)) stillShown.add(s); });
+    loadedRef.current = stillShown;
 
-    symbols.forEach((s) => {
+    const pending = symbols.filter((s) => !loadedRef.current.has(s));
+    if (!pending.length) return;
+
+    pending.forEach((s) => {
+      loadedRef.current.add(s);
       initTicker(s);
       setLoading(s, 'price', true);
     });
 
-    fetchMarketDataBatch(symbols)
+    fetchMarketDataBatch(pending)
       .then((results) => {
         results.forEach(applyMarketData);
       })
       .catch((e) => {
-        symbols.forEach((s) => setError(s, 'price', e.message));
+        // Un símbolo que falló NO queda marcado como cargado: el próximo intento tiene que
+        // volver a pedirlo, o queda en 0 para siempre.
+        pending.forEach((s) => {
+          loadedRef.current.delete(s);
+          setError(s, 'price', e.message);
+        });
       })
       .finally(() => {
-        symbols.forEach((s) => setLoading(s, 'price', false));
+        pending.forEach((s) => setLoading(s, 'price', false));
       });
   }, [symbols.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
