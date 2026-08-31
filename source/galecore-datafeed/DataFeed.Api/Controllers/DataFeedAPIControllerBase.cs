@@ -1,4 +1,5 @@
-﻿using DataFeed.Infrastructure.Providers.Tastytrade;
+﻿using DataFeed.Api.Controllers.Dtos;
+using DataFeed.Infrastructure.Providers.Tastytrade;
 using MediatR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -34,14 +35,23 @@ namespace DataFeed.Controllers
                 // 409 y no 500: que el operador todavía no haya vinculado su cuenta es un estado
                 // esperado, no una falla del servidor. El `code` es lo que le permite al tablero
                 // decir "vinculá tu cuenta" en vez de mostrar el error crudo.
-                return this.Conflict(new { error = ex.Message, code = BrokerAccountNotLinkedException.Code });
+                return this.Conflict(new ApiErrorResponse
+                {
+                    Error = ex.Message,
+                    Code = BrokerAccountNotLinkedException.Code,
+                });
             }
             catch (OptionChainNotFoundException ex)
             {
                 // 409 por lo mismo: el símbolo que eligió el operador no se puede analizar, y eso es
                 // una respuesta, no una caída. El `symbol` viaja aparte para que el front lo nombre
                 // sin tener que parsear el mensaje.
-                return this.Conflict(new { error = ex.Message, code = OptionChainNotFoundException.Code, symbol = ex.Symbol });
+                return this.Conflict(new ApiErrorResponse
+                {
+                    Error = ex.Message,
+                    Code = OptionChainNotFoundException.Code,
+                    Symbol = ex.Symbol,
+                });
             }
 
             if (HttpMethods.IsGet(this.Request.Method))

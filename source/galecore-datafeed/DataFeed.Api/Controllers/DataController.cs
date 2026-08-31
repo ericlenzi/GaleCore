@@ -12,6 +12,7 @@ using DataFeed.Application.Data.Tastytrade.AccountBalances;
 using DataFeed.Application.Data.Tastytrade.AccountPositions;
 using DataFeed.Application.Data.Tastytrade.MarketMetricsVolatility;
 using DataFeed.Application.Data.Tastytrade.SymbolSearch;
+using DataFeed.Api.Controllers.Dtos;
 
 namespace DataFeed.Controllers
 {
@@ -83,12 +84,12 @@ namespace DataFeed.Controllers
         // por el `code` para decirle que vincule su cuenta.
         [Tags("Data.Account")]
         [HttpGet("Tastytrade/Account/Balances")]
-        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status409Conflict)]
         public async Task<IActionResult> AccountBalancesAsync([FromQuery] AccountBalancesRequest request) => await Handle(request);
 
         [Tags("Data.Account")]
         [HttpGet("Tastytrade/Account/Positions")]
-        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status409Conflict)]
         public async Task<IActionResult> AccountPositionsAsync([FromQuery] AccountPositionsRequest request) => await Handle(request);
 
         #endregion
