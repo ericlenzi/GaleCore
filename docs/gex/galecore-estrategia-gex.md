@@ -11,7 +11,7 @@
 | **Tipo** | Informativa |
 | **Nombre** | Gamma Exposure |
 | **JSON de reglas** | `DataFeed.Api/Files/Gex/galecore_rules_gex.json` (`_meta.strategy: gex_gamma_exposure`) |
-| **Endpoints** | `GET /App/Gex/Rules`, `GET /App/Gex/Analysis?Symbol=`, `GET|POST /App/Gex/Workers` |
+| **Endpoints** | `GET /App/Gex/Rules`, `GET /App/Gex/Analysis?Symbol=`, `GET\|POST /App/Gex/Switch` |
 | **Pestaña** | `gex` |
 | **Universo** | SPY, QQQ, AAPL, SKM (`universe.mode: whitelist`) |
 
@@ -183,19 +183,40 @@ DXLink y dos concurrentes se pisan — medido: SPY y QQQ solapados bajaron a **6
 cobertura, contra 100% de a uno. El segundo pedido espera; al entrar re-chequea el cache por si el
 barrido anterior era de su mismo símbolo.
 
-## 7. Switch "Workers"
+## 7. Switch ON/OFF
 
 GEX no corre `BackgroundService`, pero sí tiene algo que anda solo y compite por el feed: **el barrido
 de la cadena** (auto-refresh del front). El switch es un **kill switch** de eso.
 
-- `GET /App/Gex/Workers` → `{ enabled, source }`; `POST /App/Gex/Workers` con `{ enabled }`.
-- Estado en `Files/Gex/gex_workers_state.json` — override del operador, **persiste a restart**,
-  gitignoreado. Si no existe, manda `gex.enabled` del JSON de reglas. Dueño: `GexWorkerSwitch`
-  (singleton).
+**Se llamaba "Workers" hasta el 2026-08-10.** El nombre describía una implementación que en GEX ni
+siquiera existe —no hay `BackgroundService`— y no lo que el operador hace con él: apagar la
+estrategia entera. Con el renombre cambiaron la ruta, el archivo de estado y la clase.
+
+- `GET /App/Gex/Switch` → `{ enabled, source }`; `POST /App/Gex/Switch` con `{ enabled }`. El `GET`
+  agrega `rules` y `platform` para diagnóstico; el front consume solo `enabled` y `source`.
+- **Dos niveles**, y el ausente hereda: `gex.enabled` del JSON de reglas (`source: "rules"`, está en
+  git y se edita deliberadamente) y `Files/Gex/gex_switch_state.json` (`source: "platform"`, override
+  del operador, **persiste a restart**, gitignoreado). La tabla de verdad es
+  `App/Shared/StrategyEnablement.Resolve`, compartida con RPF y congelada por
+  `StrategyEnablementTests`. Dueño del archivo: `GexStrategySwitch`.
+- **El switch es global y el `POST` es de admin** (`users.is_admin`): apagar la estrategia la apaga
+  para todos, así que un segundo operador no puede apagársela al resto. Quién puede escribirlo lo
+  resuelve `AppController.CanManagePlatformAsync`, única autoridad de esa regla. Sin base
+  configurada no hay permisos que consultar y el `POST` no exige admin.
+- `GexStrategySwitch` todavía lee `Files/Gex/gex_workers_state.json` **como fallback**: el archivo
+  está gitignoreado y vive solo en la máquina del operador, así que sin eso el renombre habría
+  dejado el override huérfano y una estrategia apagada a propósito habría vuelto sola a ON. Se puede
+  borrar cuando no queden entornos con el nombre viejo.
 - **En OFF `/App/Gex/Analysis` no barre ni toca DXLink**: devuelve lo último cacheado con
-  `workersEnabled: false` y `frozen: true`, **ignorando el TTL** — nadie lo va a refrescar y tirarlo
-  dejaría la pantalla vacía sin ganar nada. El front corta el auto-refresh, deshabilita Reload y marca
-  **DETENIDO · DATO CONGELADO** con la hora del último barrido.
+  `switchEnabled: false` y `frozen: true`, **ignorando el TTL** — nadie lo va a refrescar y tirarlo
+  dejaría la pantalla vacía sin ganar nada.
+- **En OFF la pantalla se reduce al encabezado más un cartel** (`StrategyOffPanel`): título,
+  References, el switch y nada más. No alcanza con marcar los datos como congelados dejándolos a la
+  vista — un panel lleno de números se lee como vigente aunque diga que no lo está. Y cortar el árbol
+  de React ahí apaga actividad real: los efectos que suscriben al hub y el polling REST de respaldo
+  de la grilla viven dentro de los componentes que dejan de montarse. La chapa
+  **DETENIDO · DATO CONGELADO** quedó para el caso en que el backend responde `frozen` con el front
+  en ON.
 
 ## 8. Contrato de render (`display_config.gex_tab`)
 
@@ -290,7 +311,8 @@ Congelado por `GammaExposureBandTests.cs` y `GexRulesJsonTests.cs`.
 | `DataFeed.Application/App/Gex/GexAnalysisHandler.cs` | Barrido, semáforo, cache con hash, `EvaluateLayer1` |
 | `DataFeed.Application/App/GammaExposure/GammaExposureHandler.cs` | Cálculo de GEX por strike; modo global opt-in |
 | `DataFeed.Application/App/Shared/CascadeUtils.cs` | `EvaluateLayer1` compartida con RPF |
-| `DataFeed.Api/Infrastructure/GexWorkerSwitch.cs` | Estado del kill switch |
+| `DataFeed.Api/Infrastructure/GexStrategySwitch.cs` | Estado del kill switch (era `GexWorkerSwitch`) |
+| `DataFeed.Application/App/Shared/StrategyEnablement.cs` | Tabla de verdad de los dos niveles, compartida con RPF |
 | `DataFeed.Tests/GexRulesJsonTests.cs` | Congela los invariantes del JSON |
 | `DataFeed.Application/Data/Tastytrade/SymbolSearch/` | Búsqueda de símbolos (§5.1). Es de plataforma: `Data.Api`, no `App.Gex` |
 | `DataFeed.Infrastructure/.../OptionChainNotFoundException.cs` | El 409 del símbolo que no se puede barrer |
