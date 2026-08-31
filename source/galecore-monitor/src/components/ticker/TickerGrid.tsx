@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { TickerCard } from './TickerCard';
 import { useMarketStore } from '../../store/useMarketStore';
 import { fetchMarketDataBatch } from '../../api/marketdata';
@@ -11,6 +11,11 @@ interface Props {
   symbols: string[];
   loading?: boolean;
   error?: string | null;
+  /** Card extra al final de la grilla (hoy: el buscador de símbolos de GEX). */
+  trailing?: React.ReactNode;
+  /** Los que se pueden sacar de la grilla. La grilla no sabe por qué uno lo es y otro no. */
+  removableSymbols?: string[];
+  onRemoveSymbol?: (symbol: string) => void;
 }
 
 function applyMarketData(d: { symbol: string; open: number; prevClose?: number; volume: number; last: number; bid: number; ask: number }) {
@@ -22,7 +27,10 @@ function applyMarketData(d: { symbol: string; open: number; prevClose?: number; 
   store.updateQuote(d.symbol, { bidPrice: d.bid, askPrice: d.ask, timestamp: new Date().toISOString() });
 }
 
-export function TickerGrid({ selectedSymbol, onSelect, symbols, loading, error }: Props) {
+export function TickerGrid({
+  selectedSymbol, onSelect, symbols, loading, error,
+  trailing, removableSymbols, onRemoveSymbol,
+}: Props) {
   // El estado de carga es el de quien pasa el universo — la grilla no lo deriva de ningún store.
   const rulesLoading = loading ?? false;
   const rulesError = error ?? null;
@@ -108,7 +116,9 @@ export function TickerGrid({ selectedSymbol, onSelect, symbols, loading, error }
     );
   }
 
-  if (!symbols.length) {
+  // Sin universo, la grilla igual se dibuja si hay card extra: el buscador es justamente lo que
+  // permite salir de un universo vacío.
+  if (!symbols.length && !trailing) {
     return (
       <div className="p-4 text-xs" style={{ color: 'var(--text-muted)' }}>
         No hay tickers configurados
@@ -131,9 +141,13 @@ export function TickerGrid({ selectedSymbol, onSelect, symbols, loading, error }
             ticker={tickerState}
             selected={selectedSymbol === symbol}
             onClick={() => onSelect(selectedSymbol === symbol ? null : symbol)}
+            onRemove={removableSymbols?.includes(symbol) && onRemoveSymbol
+              ? () => onRemoveSymbol(symbol)
+              : undefined}
           />
         );
       })}
+      {trailing}
     </div>
   );
 }

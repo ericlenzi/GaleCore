@@ -22,8 +22,23 @@
 
   "universe": {
     "mode": "whitelist",
-    "tickers": ["SPY", "QQQ", "TSLA"],
-    "min_avg_daily_volume_underlying": 5000000
+    "tickers": ["SPY", "QQQ", "AAPL"],
+    "min_avg_daily_volume_underlying": 5000000,
+
+    "ad_hoc_search": {
+      "enabled": true,
+      "max_pinned": 1,
+      "max_results": 8,
+      "auto_refresh": false,
+      "min_query_length": 1,
+      "allowed_instrument_types": ["Equity", "Index"],
+      "_note": "El buscador de la pestania: una card mas al final de la grilla que permite analizar un simbolo que NO esta en tickers, sin editar este archivo ni reiniciar la API. Lo resuelve GET /Data/Tastytrade/Symbols/Search, que es de plataforma (Data.Api) y no de esta estrategia.",
+      "_por_que_no_entra_al_universo": "El simbolo elegido NO se agrega a tickers. Esa lista es whitelist, esta en git, es la misma para todos y declara que barre la estrategia; un simbolo que un operador mira cinco minutos no es una regla. El pinneado vive en el front y muere con la sesion.",
+      "_max_pinned_note": "Uno solo, y no es una limitacion de la UI: los barridos se serializan en un semaforo global (ver GexAnalysisHandler) y recorrer el universo ya toma ~383s medidos. Cada simbolo pinneado entra a esa misma ronda. Elegir uno nuevo reemplaza al anterior.",
+      "_auto_refresh_note": "false = no se programa ningun intervalo para el simbolo ad-hoc. El primer barrido lo dispara elegirlo en el buscador (esa eleccion ES el acto manual); despues solo el boton Reload. Por eso su card no usa el amarillo de dato viejo sino la etiqueta MANUAL: para un simbolo que nadie va a refrescar, envejecer es el estado normal y no una anomalia.",
+      "_allowed_instrument_types_note": "Lo que el front le pasa a InstrumentTypes del endpoint de busqueda. Equity incluye ETFs (SPY y QQQ son Equity para Tastytrade), asi que los dos tipos cubren el universo analizable. NO promete que el simbolo tenga cadena de opciones: eso recien se sabe al pedirla, y ahi el barrido responde 409 con code option_chain_not_found. Buscar 'AAPL' devuelve siete ETFs apalancados sobre AAPL, y ninguno tiene cadena propia.",
+      "_sin_umbral": "Un simbolo ad-hoc no figura en definitions.gex_threshold_by_symbol, asi que su celda de GEX Global muestra 'sin umbral declarado' en vez de un veredicto. Es correcto y deliberado: declarar un umbral es lo que hace que ese check signifique algo, y para un simbolo que se mira una vez no hay umbral que declarar."
+    }
   },
 
   "gex": {

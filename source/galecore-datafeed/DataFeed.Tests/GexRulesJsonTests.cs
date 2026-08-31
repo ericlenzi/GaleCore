@@ -76,6 +76,41 @@ public class GexRulesJsonTests
     }
 
     /// <summary>
+    /// El buscador de simbolos de la pestania. Lo que se congela no son los valores —el operador
+    /// puede subir max_results cuando quiera— sino que existan las palancas que el front LEE: la
+    /// que falte cae al default hardcodeado y esa parte de la pantalla deja de responder al JSON.
+    ///
+    /// Las dos que si tienen su valor congelado llevan una decision adentro, no una preferencia.
+    /// </summary>
+    [Fact]
+    public void AdHocSearch_DeclaraLasPalancasQueElFrontLee()
+    {
+        var search = Gex()["universe"]!["ad_hoc_search"]!.AsObject();
+
+        Assert.True(search.ContainsKey("enabled"), "Sin enabled el buscador no se puede apagar desde el JSON.");
+        Assert.True(search.ContainsKey("min_query_length"), "Falta min_query_length: cada tecla pegaria a la API.");
+        Assert.True(search.ContainsKey("max_results"), "Falta max_results: el dropdown no tendria tope.");
+
+        // max_pinned es un limite REAL y no decoracion: el front guarda una lista y la recorta a
+        // este numero. Si guardara un solo string, subirlo aca no cambiaria nada y el JSON estaria
+        // declarando algo que nadie honra.
+        Assert.True((int)search["max_pinned"]! >= 1, "max_pinned < 1 deja el buscador sin poder pinear nada.");
+
+        // El simbolo ad-hoc no entra al intervalo del universo. No es una preferencia de UI: los
+        // barridos se serializan en un semaforo global (GexAnalysisHandler) y recorrer el universo
+        // ya toma ~383s medidos, asi que un simbolo que se refresca solo entra a esa misma ronda.
+        Assert.False((bool)search["auto_refresh"]!, "auto_refresh true mete el simbolo ad-hoc en la ronda del barrido.");
+
+        // Lo que el front le pasa a InstrumentTypes del endpoint de busqueda. Vacio traeria futuros,
+        // cripto y contratos de opcion sueltos, que no se pueden barrer. Equity incluye ETFs.
+        var types = search["allowed_instrument_types"]!.AsArray()
+            .Select(t => (string?)t).ToArray();
+
+        Assert.NotEmpty(types);
+        Assert.Contains("Equity", types);
+    }
+
+    /// <summary>
     /// Contrato con GexAnalysisHandler.ReadScanConfig: si alguno de estos paths desaparece, el
     /// handler cae a sus defaults y el barrido deja de responder al JSON sin que nadie se entere.
     /// </summary>

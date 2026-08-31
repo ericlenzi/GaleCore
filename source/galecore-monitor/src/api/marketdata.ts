@@ -1,5 +1,31 @@
 import apiClient from './client';
-import { MarketDataByTypeApiResponse, MarketDataByTypeResponse, QuoteResponse, CandleItem } from '../types/api';
+import {
+  MarketDataByTypeApiResponse, MarketDataByTypeResponse, QuoteResponse, CandleItem,
+  SymbolSearchApiResponse, SymbolSearchResult,
+} from '../types/api';
+
+/**
+ * Busca símbolos por texto contra el catálogo de Tastytrade.
+ *
+ * `instrumentTypes` acota el resultado y lo declara quien pregunta — en GEX sale de
+ * `universe.ad_hoc_search.allowed_instrument_types`. Vacío devuelve todo lo que matchea, incluidos
+ * futuros y contratos de opción sueltos, que no se pueden barrer.
+ */
+export async function searchSymbols(
+  query: string,
+  instrumentTypes?: string[],
+): Promise<SymbolSearchResult[]> {
+  const { data } = await apiClient.get<SymbolSearchApiResponse>(
+    '/Data/Tastytrade/Symbols/Search',
+    {
+      params: {
+        Symbol: query,
+        InstrumentTypes: instrumentTypes?.length ? instrumentTypes.join(',') : undefined,
+      },
+    },
+  );
+  return data?.items ?? [];
+}
 
 export async function fetchMarketDataByType(symbol: string): Promise<MarketDataByTypeResponse> {
   const results = await fetchMarketDataBatch([symbol]);

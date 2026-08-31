@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw, BookOpen } from 'lucide-react';
 import { TickerGrid } from '../components/ticker/TickerGrid';
+import { SymbolSearchCard } from '../components/ticker/SymbolSearchCard';
 import { DetailsPanel } from '../components/gex/DetailsPanel';
 import { OptionsChainList } from '../components/gex/OptionsChainList';
 import { CHAIN_COL_W } from '../components/gex/graphLayout';
@@ -103,7 +104,8 @@ interface GexProps {
 export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexProps) {
   const {
     tickers, display, rulesLoading, rulesError, loadRules,
-    cache, loading, error, selectedExpiry, fetchGex, selectExpiry,
+    cache, loading, error, errorCode, selectedExpiry, fetchGex, selectExpiry,
+    adHocSearch, adHocSymbols, pinAdHoc, unpinAdHoc,
   } = useGexStore();
 
   const platformTickers = useAppConfigStore((s) => s.tickers);
@@ -114,7 +116,16 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
 
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [refOpen, setRefOpen] = useState(false);
+
+  // El universo del JSON más lo que el operador pineó con el buscador. Los ad-hoc van al final y no
+  // se mezclan con los declarados: son de esta sesión y de esta persona.
+  const gridSymbols = useMemo(
+    () => [...tickers, ...adHocSymbols],
+    [tickers, adHocSymbols],
+  );
+
   const active = selectedSymbol ?? tickers[0] ?? null;
+  const isAdHoc = !!active && adHocSymbols.includes(active);
 
   const ticker = useMarketStore((s) => (active ? s.tickers[active] : undefined));
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -129,7 +140,9 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
   //
   // Gateado por el switch: en OFF la estrategia no puede seguir ocupando el hub con símbolos que
   // solo ella necesita. Apagarla tiene que apagar TODA su actividad, no solo el barrido.
-  const extraTickersKey = tickers.filter((s) => !platformTickers.includes(s)).join(',');
+  // Incluye a los ad-hoc: un símbolo pineado tiene que tener precio en vivo como cualquier otro, y
+  // al despinearlo el cleanup lo desuscribe.
+  const extraTickersKey = gridSymbols.filter((s) => !platformTickers.includes(s)).join(',');
   useEffect(() => {
     if (socketStatus !== 'connected' || !switchEnabled) return;
     const extras = extraTickersKey ? extraTickersKey.split(',') : [];
@@ -141,21 +154,31 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
   // Con el switch en OFF no se programa nada: el backend igual rechazaría el barrido, pero pedirlo
   // sería ruido. Se hace una sola lectura para traer el dato congelado a la pantalla.
   const refreshSeconds = display?.refresh_seconds ?? DEFAULT_REFRESH_SECONDS;
+
+  // El símbolo ad-hoc no entra al intervalo: lo declara `ad_hoc_search.auto_refresh`, y no es una
+  // preferencia de UI. Los barridos se serializan en un semáforo del backend y recorrer el universo
+  // ya toma minutos, así que un símbolo de paso que se refresca solo entra a esa misma ronda.
+  // El primer barrido sí sale: elegirlo en el buscador ES el acto manual.
+  const autoRefresh = !isAdHoc || (adHocSearch?.auto_refresh ?? false);
+
   useEffect(() => {
     // En OFF no se pide NADA, ni siquiera la lectura inicial: antes se hacía un fetch para traer el
     // dato congelado a pantalla, pero con la pantalla reducida al cartel de apagado ese dato no se
     // muestra en ningún lado. Era una request al backend cuyo resultado nadie miraba.
     if (!active || !switchEnabled) return;
     if (!cache[active]) fetchGex(active);
+    if (!autoRefresh) return;
 
     intervalRef.current = setInterval(() => fetchGex(active), refreshSeconds * 1000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [active, refreshSeconds, switchEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, refreshSeconds, switchEnabled, autoRefresh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const entry = active ? cache[active] : undefined;
   const data = entry?.data ?? null;
   const isLoading = active ? loading[active] ?? false : false;
   const err = active ? error[active] ?? null : null;
+  // 409 con code: el símbolo existe pero no se puede barrer. Es una respuesta, no una avería.
+  const chainMissing = (active ? errorCode[active] : null) === 'option_chain_not_found';
 
   const expiries = useMemo(() => data?.gex.byExpiry ?? [], [data]);
   // Sin elección explícita manda el más cercano — que en día hábil es el 0DTE. El agregado global
@@ -187,7 +210,10 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
   const frozen = switchEnabled === false || !!data?.frozen;
 
   const updated = entry?.updatedAt ?? null;
-  const stale = isStale(updated, refreshSeconds * 1000 * 1.5);
+  // El amarillo de "dato viejo" mide contra la cadencia del auto-refresh. Para un símbolo que nadie
+  // va a refrescar, envejecer es el estado normal y no una anomalía: en vez del amarillo lleva la
+  // etiqueta MANUAL, que dice por qué la hora no se mueve.
+  const stale = autoRefresh && isStale(updated, refreshSeconds * 1000 * 1.5);
 
   if (rulesLoading) {
     return <div className="p-4 text-xs" style={{ color: 'var(--text-muted)' }}>Cargando reglas de GEX…</div>;
@@ -250,7 +276,29 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
       ) : (
       <>
       <div className="p-3">
-        <TickerGrid symbols={tickers} selectedSymbol={active} onSelect={setSelectedSymbol} />
+        <TickerGrid
+          symbols={gridSymbols}
+          selectedSymbol={active}
+          onSelect={setSelectedSymbol}
+          removableSymbols={adHocSymbols}
+          onRemoveSymbol={(symbol) => {
+            // Si se saca el que estaba abierto, la pantalla vuelve al primero del universo en vez
+            // de quedarse mostrando un símbolo que ya no está en la grilla.
+            if (active === symbol) setSelectedSymbol(null);
+            unpinAdHoc(symbol);
+          }}
+          trailing={adHocSearch?.enabled ? (
+            <SymbolSearchCard
+              minQueryLength={adHocSearch.min_query_length}
+              maxResults={adHocSearch.max_results}
+              instrumentTypes={adHocSearch.allowed_instrument_types}
+              onPick={(symbol) => {
+                const pinned = pinAdHoc(symbol);
+                if (pinned) setSelectedSymbol(pinned);
+              }}
+            />
+          ) : undefined}
+        />
       </div>
 
       {active && (
@@ -305,6 +353,22 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
                     DETENIDO{data ? ' · DATO CONGELADO' : ''}
                   </span>
                 )}
+                {/* Símbolo de paso: no lo refresca ningún intervalo, y la hora que está al lado no
+                    se va a mover sola. Sin decirlo, esa hora quieta se lee como un dato colgado. */}
+                {isAdHoc && !frozen && (
+                  <span
+                    title="Simbolo pineado con el buscador: no entra al auto-refresh del universo. Se rebarre con Reload."
+                    style={{
+                      fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
+                      padding: '2px 6px', borderRadius: 20,
+                      color: 'var(--text-muted)',
+                      border: '1px solid var(--border)',
+                      fontFamily: 'JetBrains Mono, monospace', whiteSpace: 'nowrap', cursor: 'help',
+                    }}
+                  >
+                    MANUAL
+                  </span>
+                )}
                 {partialScan && (
                   <span
                     title={`Faltaron ${(data!.gex.global.expirationsRequested - data!.gex.global.expirationsIncluded)} vencimientos · cobertura ${data!.gex.global.coveragePct}% de los símbolos`}
@@ -343,8 +407,20 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
             </div>
 
             {err ? (
-              <div style={{ padding: 16, fontSize: 12, color: 'var(--red-gc)' }}>
-                Error cargando GEX: {err}
+              /* El símbolo sin cadena no es una avería: se dice con el texto de la API y sin el
+                 rojo de error, que acá mandaría el mensaje equivocado — no hay nada que arreglar,
+                 hay otro símbolo que elegir. */
+              <div style={{
+                padding: 16, fontSize: 12, lineHeight: 1.5,
+                color: chainMissing ? 'var(--text-secondary)' : 'var(--red-gc)',
+              }}>
+                {chainMissing ? err : `Error cargando GEX: ${err}`}
+                {chainMissing && (
+                  <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                    El buscador matchea tambien la descripcion, asi que devuelve ETFs sobre el
+                    simbolo que no tienen cadena propia. Elegi otro.
+                  </div>
+                )}
               </div>
             ) : (
               <DetailsPanel

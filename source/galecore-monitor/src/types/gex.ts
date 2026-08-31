@@ -199,9 +199,26 @@ export interface GexTabDisplayConfig {
   };
 }
 
+/**
+ * `universe.ad_hoc_search` del JSON de reglas: el buscador de símbolos de la pestaña.
+ *
+ * El símbolo que se elige NO se agrega a `universe.tickers` — esa lista es whitelist, está en git y
+ * es la misma para todos. El pinneado vive en el store y muere con la sesión.
+ */
+export interface AdHocSearchConfig {
+  enabled?: boolean;
+  /** Cuántos símbolos ad-hoc se pueden tener a la vez. Es un límite real: el store recorta a este número. */
+  max_pinned?: number;
+  max_results?: number;
+  /** false = el símbolo ad-hoc no entra al intervalo de auto-refresh; solo se rebarre a mano. */
+  auto_refresh?: boolean;
+  min_query_length?: number;
+  allowed_instrument_types?: string[];
+}
+
 export interface GexRules {
   _meta?: { version?: string; strategy?: string; status?: string };
-  universe?: { tickers?: string[] };
+  universe?: { tickers?: string[]; ad_hoc_search?: AdHocSearchConfig };
   gex?: { max_dte?: number; include_zero_dte?: boolean };
   display_config?: { gex_tab?: GexTabDisplayConfig };
 }

@@ -518,6 +518,26 @@ export interface QuotePayload {
   timestamp?: string;
 }
 
+// ─── Symbol search (Data.Api) ─────────────────────────────────────────────────
+/** Un resultado de GET /Data/Tastytrade/Symbols/Search. */
+export interface SymbolSearchResult {
+  symbol: string;
+  description?: string | null;
+  /**
+   * "Equity" (incluye ETFs), "Index", "Future", "Cryptocurrency"…
+   * **No dice si el símbolo tiene cadena de opciones**: eso recién se sabe al pedir el barrido, y
+   * ahí la API responde 409 con `option_chain_not_found`.
+   */
+  instrumentType?: string | null;
+  listedMarket?: string | null;
+}
+
+export interface SymbolSearchApiResponse {
+  query: string;
+  items: SymbolSearchResult[];
+  count: number;
+}
+
 export interface GreeksPayload {
   eventSymbol?: string;
   price?: number;       // theoretical option price

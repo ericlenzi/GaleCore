@@ -1,4 +1,5 @@
 import React from 'react';
+import { X } from 'lucide-react';
 import { TickerState } from '../../types/market';
 import { fmtPrice, fmtPct, calcChange, fmtTime, isStale } from '../../utils/formatters';
 
@@ -6,6 +7,11 @@ interface Props {
   ticker: TickerState;
   selected: boolean;
   onClick: () => void;
+  /**
+   * Sacar esta card de la grilla. Solo lo traen las que no son del universo declarado: las del JSON
+   * no se sacan desde la pantalla, se editan en el JSON.
+   */
+  onRemove?: () => void;
 }
 
 function MarketStatusBadge({ extendedTradingHours }: { extendedTradingHours: boolean | null | undefined }) {
@@ -28,7 +34,7 @@ function MarketStatusBadge({ extendedTradingHours }: { extendedTradingHours: boo
   );
 }
 
-export function TickerCard({ ticker, selected, onClick }: Props) {
+export function TickerCard({ ticker, selected, onClick, onRemove }: Props) {
   // Use prevClose as change basis (like TradingView); fallback to open
   const basis      = ticker.prevClose && ticker.prevClose > 0 ? ticker.prevClose : ticker.open;
   const { abs: changeAbs, pct: changePct } = calcChange(ticker.price, basis);
@@ -56,7 +62,21 @@ export function TickerCard({ ticker, selected, onClick }: Props) {
         <span style={{ color: 'var(--text-primary)', fontFamily: 'JetBrains Mono, monospace', fontWeight: 700, fontSize: 13, letterSpacing: '0.05em' }}>
           {ticker.symbol}
         </span>
-        <MarketStatusBadge extendedTradingHours={ticker.extendedTradingHours} />
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <MarketStatusBadge extendedTradingHours={ticker.extendedTradingHours} />
+          {/* Un <button> adentro de otro <button> es HTML inválido y React lo advierte: la card
+              entera ya es el botón de selección, así que la × es un span con su propio handler. */}
+          {onRemove && (
+            <span
+              role="button"
+              title="Sacar de la grilla"
+              onClick={(e) => { e.stopPropagation(); onRemove(); }}
+              style={{ display: 'inline-flex', cursor: 'pointer', color: 'var(--text-muted)' }}
+            >
+              <X size={12} />
+            </span>
+          )}
+        </span>
       </div>
 
       {/* Price + change */}
