@@ -78,12 +78,17 @@ namespace DataFeed.Controllers
 
         #region Account
 
+        // 409 = el operador todavía no vinculó su cuenta de bróker (`broker_account_not_linked`).
+        // Es el estado normal de alguien recién dado de alta, no una falla: el tablero lo distingue
+        // por el `code` para decirle que vincule su cuenta.
         [Tags("Data.Account")]
         [HttpGet("Tastytrade/Account/Balances")]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> AccountBalancesAsync([FromQuery] AccountBalancesRequest request) => await Handle(request);
 
         [Tags("Data.Account")]
         [HttpGet("Tastytrade/Account/Positions")]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> AccountPositionsAsync([FromQuery] AccountPositionsRequest request) => await Handle(request);
 
         #endregion

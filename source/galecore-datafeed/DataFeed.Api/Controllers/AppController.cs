@@ -52,6 +52,9 @@ namespace DataFeed.Controllers
 
         [Tags("App.Analytics")]
         [HttpGet("/App.Analytics/GammaExposure")]
+        // 409 = el símbolo no tiene cadena analizable (`option_chain_not_found`). Sin declararlo,
+        // Swagger lo muestra como "Undocumented" y el que integra no sabe que existe ese estado.
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> GammaExposureAsync([FromQuery] GammaExposureRequest request) => await Handle(request);
 
         [Tags("App.Analytics")]
@@ -1111,6 +1114,9 @@ namespace DataFeed.Controllers
         /// </summary>
         [Tags("App.Gex")]
         [HttpGet("Gex/Analysis")]
+        // 409 = el símbolo no tiene cadena analizable (`option_chain_not_found`), que con el buscador
+        // de símbolos es un estado que el operador alcanza solo.
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> GexAnalysisAsync([FromQuery] GexAnalysisRequest request)
         {
             request.RulesJson = await LoadFileOrNullAsync("Gex/galecore_rules_gex.json");
