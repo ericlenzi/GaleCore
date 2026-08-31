@@ -7,7 +7,7 @@ información de gamma exposure para que el operador decida.
 
 | Archivo | Rol |
 |---|---|
-| [`galecore-estrategia-gex.md`](galecore-estrategia-gex.md) | **Definición canónica.** Qué es, GEX global vs. de un vencimiento, capa 1 compartida, latencia y cache, umbral por símbolo, switch Workers, contrato de render. La **banda de gamma** —el sombreado del gráfico— está en su [§8.1](galecore-estrategia-gex.md). |
+| [`galecore-estrategia-gex.md`](galecore-estrategia-gex.md) | **Definición canónica.** Qué es, GEX global vs. de un vencimiento, capa 1 compartida, latencia y cache, umbral por símbolo, switch, contrato de render. La **banda de gamma** —el sombreado del gráfico— está en su [§8.1](galecore-estrategia-gex.md); el **buscador de símbolos** —analizar uno que no está en el universo— en su [§5.1](galecore-estrategia-gex.md). |
 | [`gex_endpoint.md`](gex_endpoint.md) | Referencia del endpoint `/App.Analytics/GammaExposure` — el GEX de **un solo** vencimiento. Es el motor de cálculo sobre el que se apoya la estrategia, no la estrategia. Incluye el contrato de `CallBand` / `PutBand`. |
 
 ## Los dos objetos del gráfico, que no son lo mismo

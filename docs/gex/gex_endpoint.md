@@ -261,6 +261,13 @@ vieja pedida. Antes, dos requests concurrentes del mismo símbolo (ej. IVRank y 
 - Mantener el **log de ERROR de DXLink** (no volver al `catch {}` vacío).
 - Los caches (`_chainCache`, `_oiCache`) son **por día UTC**; el OI es el settled del día previo y no
   cambia intradía, por eso es seguro cachearlo. Si se necesita refresco intradía de OI, invalidar por tiempo.
+- **El símbolo que no se puede analizar es un 409, no un 500.** Los tres casos —no lista opciones,
+  todas las expiraciones vencidas, ninguna dentro de `MaxDTE`— salen como
+  `OptionChainNotFoundException` con `code: "option_chain_not_found"`, que
+  `DataFeedControllerBase` mapea a 409 al lado de `broker_account_not_linked`. Dejó de ser un caso de
+  laboratorio con el buscador de símbolos de GEX: el operador puede elegir cualquier cosa que
+  Tastytrade conozca. El `catch (Exception)` del final la **deja pasar derecho** — envuelta en un
+  `Exception` genérico pierde el tipo y vuelve a ser el 500 que se quería evitar.
 - Call Wall siempre **arriba** del spot; Put Wall siempre **abajo** (definición estándar de muros GEX),
   y ambos exigen que el **neto del strike tenga el signo del lado** (ver §1). Un muro `null` es un
   resultado válido, no un dato faltante: significa que ningún strike de ese lado califica.

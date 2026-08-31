@@ -180,8 +180,13 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     `App.Gex` → `/App/Gex/*`. Ver "Convención de rutas HTTP por estrategia" más abajo.
 
   `DataController` → `/Data`
-  * `Data.Api` — datos REST de la cuenta: `Tastytrade/MarketData/ByType`, `Tastytrade/OptionChains`,
-    `Tastytrade/Market-metrics/VolatilityData`.
+  * `Data.Api` — datos REST de mercado: `Tastytrade/MarketData/ByType`, `Tastytrade/OptionChains`,
+    `Tastytrade/Market-metrics/VolatilityData`, `Tastytrade/Symbols/Search`. El último busca
+    símbolos por texto contra el catálogo de Tastytrade, con un filtro opcional por tipo de
+    instrumento (`InstrumentTypes`). **El filtro es un parámetro, no una política:** qué tipos
+    sirven lo decide quien pregunta —GEX lo declara en su
+    `universe.ad_hoc_search.allowed_instrument_types`—, porque el endpoint es de plataforma y lo
+    consume cualquier pantalla. Hoy lo usa el buscador de símbolos de la pestaña GEX.
   * `Data.Stream` — datos vía socket/streaming: `Tastytrade/MarketData/{Candle,Trade,Quote,Greeks,TradeQuoteGreeks}`.
   * `Data.Account` — cuenta: `Tastytrade/Account/{Balances,Positions}`. Van con la credencial DEL
     usuario que pregunta (ver `docs/GaleCore-arquitectura-datos.md` §5.4), así que tienen un estado
@@ -191,6 +196,14 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     es el estado normal de alguien recién dado de alta, y el tablero lo distingue por el `code` para
     decirle que vincule su cuenta en vez de mostrarle un error de servidor. El `code` es contrato:
     renombrarlo rompe el mensaje del front.
+
+  **Hay un segundo `code` con el mismo contrato:** `option_chain_not_found`
+  (`OptionChainNotFoundException`, también 409), que tira el `GammaExposureHandler` compartido
+  cuando el símbolo pedido no tiene cadena analizable — no lista opciones, todas las expiraciones
+  vencidas, o ninguna dentro del `MaxDTE`. Misma regla de categoría: un pedido legítimo cuyo
+  resultado no existe no es una falla del servidor. Aplica a `/App/Gex/Analysis` y a
+  `/App.Analytics/GammaExposure`, que comparten handler, y dejó de ser un caso de laboratorio con el
+  buscador de símbolos: el operador puede elegir cualquier cosa que Tastytrade conozca.
   Hoy el proveedor (`Tastytrade`) vive en la **ruta**, no en el tag: los tags son planos (`Data.Api`),
   no `Data.Api.<Cuenta>`. El sub-prefijo por cuenta recién hace falta cuando se sume un segundo bróker.
 
@@ -520,7 +533,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   ├── analytics.ts        # /App.Analytics/* (GammaExposure, IVRank, ImpliedVolatility)
   │   ├── gex.ts              # /App/Gex/{Rules,Analysis} + GEX_SWITCH_ENDPOINT
   │   ├── rpf.ts              # RPF_SWITCH_ENDPOINT (el switch se llama por `strategies.ts`, no acá)
-  │   ├── marketdata.ts       # /Data/Tastytrade/MarketData/*
+  │   ├── marketdata.ts       # /Data/Tastytrade/MarketData/* + searchSymbols() (/Data/Tastytrade/Symbols/Search)
   │   └── account.ts          # /Data/Account/*
   ├── socket/
   │   └── useMarketSocket.ts  # Hook SignalR: connect, subscribe/unsubscribe (subscribeLeg usa includeGreeks=true), handlers ReceiveTrade/Quote/Greeks + los de RPF
@@ -530,7 +543,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   ├── useCurrentUserStore.ts # Quién está logueado y qué puede (/App/GaleCore/Me): username, isAdmin, canManagePlatform
   │   ├── resetUserScoped.ts  # Limpia lo que es de la persona (usuario + cuenta). Único lugar que sabe qué es de quién
   │   ├── useAppConfigStore.ts # Config de la app: universe.tickers, strategies[], monitor. Fuente: /App/GaleCore/Rules/Core
-  │   ├── useGexStore.ts      # Estrategia GEX: reglas propias (/App/Gex/Rules) + cache de /App/Gex/Analysis por símbolo + vencimiento seleccionado
+  │   ├── useGexStore.ts      # Estrategia GEX: reglas propias (/App/Gex/Rules) + cache de /App/Gex/Analysis por símbolo + vencimiento seleccionado + símbolos ad-hoc del buscador (NO son universo: mueren con la sesión)
   │   ├── useRpfStore.ts      # Estrategia RPF: estados por símbolo + sugerencias (SignalR)
   │   ├── useStrategySwitchStore.ts # Dueño ÚNICO del estado de los switches, indexado por switch_endpoint
   ├── components/
@@ -549,8 +562,9 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   │   ├── StrategyCard.tsx    # Card por estrategia: identidad + StrategySwitch a su switch_endpoint + "Abrir"
   │   │   └── ServiceCard.tsx     # Card por servicio de plataforma (services[]): no navega ni tiene References — solo su switch
   │   ├── ticker/
-  │   │   ├── TickerCard.tsx      # Card por ticker: precio, variación, bid/ask/vol
-  │   │   └── TickerGrid.tsx      # Grid de TickerCards. `symbols` es obligatorio: lo pasa la estrategia dueña de la pantalla
+  │   │   ├── TickerCard.tsx      # Card por ticker: precio, variación, bid/ask/vol. `onRemove` opcional (solo la traen los que no son del universo)
+  │   │   ├── SymbolSearchCard.tsx # Última card de la grilla: buscar un símbolo fuera del universo. No sabe de GEX — recibe sus parámetros y avisa qué eligieron
+  │   │   └── TickerGrid.tsx      # Grid de TickerCards. `symbols` es obligatorio: lo pasa la estrategia dueña de la pantalla. `trailing` es la card extra del final
   │   ├── chart/
   │   │   ├── GexChart.tsx        # Gráfico LW-Charts: precio + GEX barras + muros + std dev
   │   │   └── GexBarsPanel.tsx    # Panel de barras de gamma por strike

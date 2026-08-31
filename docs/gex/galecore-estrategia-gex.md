@@ -121,13 +121,60 @@ el 0DTE). Cada vuelta pide sólo los que faltan.
 
 ## 5. El umbral de GEX decide qué símbolos se evalúan
 
-`definitions.gex_threshold_by_symbol.values` declara un umbral por símbolo — hoy `SPY: 200`,
-`QQQ: 50` (en billions USD). **El símbolo que no figura no se valida:** `EvaluateLayer1` devuelve
-`gexTotal.thresholdDeclared: false` y el tablero pinta esa celda en **gris con "sin umbral"**, en vez de
-rojo.
+`definitions.gex_threshold_by_symbol.values` declara un umbral por símbolo — hoy `SPY: 0` y `QQQ: 0`.
+**El umbral es el signo, no un piso en billones:** el GEX de esta estrategia agrega toda la cadena, así
+que es mayor en magnitud que el de un vencimiento y cualquier piso en billones queda descalibrado
+(hasta 2026-08-18 decían 200 y 50, contradiciendo a su propia nota). **El símbolo que no figura no se
+valida:** `EvaluateLayer1` devuelve `gexTotal.thresholdDeclared: false` y el tablero pinta esa celda en
+**gris con "sin umbral"**, en vez de rojo.
 
 Sumar un símbolo a `universe.tickers` **no alcanza** para que su check de GEX signifique algo — hay que
-declararle el umbral. Hoy AAPL y SKM están en el universo sin umbral declarado.
+declararle el umbral. Hoy AAPL está en el universo sin umbral declarado.
+
+### 5.1 El buscador: analizar un símbolo fuera del universo (2026-08-31)
+
+La grilla de la pestaña termina en una card más — **Buscar símbolo** — que pega contra
+`GET /Data/Tastytrade/Symbols/Search` y pinea el elegido al lado de los del universo. Desde ahí la
+pantalla lo trata como a cualquier otro: Details, cadena, gráfico, GEX global.
+
+**El símbolo pineado NO entra a `universe.tickers`.** Esa lista es whitelist, está en git, es la misma
+para todos y declara qué barre la estrategia; un símbolo que un operador mira cinco minutos no es una
+regla. Vive en `useGexStore` y muere con la sesión.
+
+Las palancas las declara `universe.ad_hoc_search` y las congela `GexRulesJsonTests`:
+
+| Clave | Hoy | Qué decide |
+|---|---|---|
+| `enabled` | `true` | Si la card existe |
+| `max_pinned` | `1` | Cuántos a la vez; elegir otro reemplaza al anterior |
+| `max_results` | `8` | Tope del dropdown |
+| `auto_refresh` | `false` | Si el ad-hoc entra al intervalo del universo |
+| `min_query_length` | `1` | Desde qué largo se busca |
+| `allowed_instrument_types` | `["Equity", "Index"]` | Qué se ofrece — `Equity` incluye ETFs |
+
+**`auto_refresh: false` no es una preferencia de UI:** los barridos se serializan (§6) y recorrer el
+universo ya toma ~383s, así que un símbolo de paso que se refresca solo entra a esa misma ronda. El
+primer barrido sí sale —elegirlo en el buscador *es* el acto manual—; después, solo Reload. De ahí
+salen dos cosas más:
+
+- La cabecera del Details lleva **MANUAL** en vez del amarillo de "dato viejo". Ese amarillo mide
+  contra la cadencia del auto-refresh, y para un símbolo que nadie va a refrescar envejecer es el
+  estado normal, no una anomalía.
+- Al reemplazarlo o sacarlo **se le tira todo su estado** (cache, loading, error, vencimiento
+  elegido). Sin intervalo que lo actualice, re-pinearlo mostraría un barrido de hace una hora como si
+  fuera de recién.
+
+**`max_pinned` es un límite real y no decoración:** el store guarda una **lista** y la recorta a ese
+número. Con un solo string guardado, subirlo en el JSON no cambiaría nada — el archivo estaría
+declarando algo que nadie honra.
+
+**Que el buscador lo ofrezca no promete que se pueda barrer.** `instrument-type` dice qué clase de
+instrumento es, no si lista opciones, y la búsqueda matchea también la descripción: "AAPL" devuelve
+siete ETFs apalancados *sobre* AAPL, ninguno con cadena propia. Ahí `/App/Gex/Analysis` responde
+**409** con `code: "option_chain_not_found"`, y la pantalla lo muestra en gris con el símbolo nombrado
+y la explicación — no en rojo: no hay nada que arreglar, hay otro símbolo que elegir.
+
+Un símbolo ad-hoc tampoco tiene umbral declarado (§5), y su celda de GEX Global lo dice.
 
 ## 6. Barridos serializados
 
@@ -245,6 +292,9 @@ Congelado por `GammaExposureBandTests.cs` y `GexRulesJsonTests.cs`.
 | `DataFeed.Application/App/Shared/CascadeUtils.cs` | `EvaluateLayer1` compartida con RPF |
 | `DataFeed.Api/Infrastructure/GexWorkerSwitch.cs` | Estado del kill switch |
 | `DataFeed.Tests/GexRulesJsonTests.cs` | Congela los invariantes del JSON |
+| `DataFeed.Application/Data/Tastytrade/SymbolSearch/` | Búsqueda de símbolos (§5.1). Es de plataforma: `Data.Api`, no `App.Gex` |
+| `DataFeed.Infrastructure/.../OptionChainNotFoundException.cs` | El 409 del símbolo que no se puede barrer |
+| `galecore-monitor/src/components/ticker/SymbolSearchCard.tsx` | La card del buscador |
 | `galecore-monitor/src/pages/Gex.tsx` | Pestaña |
 
 ## 10. Documentos relacionados
