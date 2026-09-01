@@ -14,11 +14,23 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
     /// access token de una no sirve para la cuenta de la otra.
     /// </param>
     /// <param name="Source">"db" o "config" — para que el log diga de dónde salió.</param>
+    /// <param name="IsSystem">
+    /// La credencial de la plataforma (la fila `is_system`, o la de appsettings), contra la de un
+    /// usuario. NO es lo mismo que <paramref name="Source"/>: las dos pueden salir de la base.
+    ///
+    /// Lo que decide es DE QUIÉN es el problema cuando Tastytrade la rechaza. La de un usuario la
+    /// arregla su dueño y sale como 409 `broker_credential_invalid`; la de sistema no tiene dueño a
+    /// quien pedirle nada —y encima viaja en endpoints de MERCADO, donde el que pregunta puede no
+    /// tener ni cuenta vinculada— así que sigue siendo un 500. Sin esta marca, un rechazo de la
+    /// credencial de sistema le pediría a cualquiera que estuviera mirando precios que re-vinculara
+    /// una cuenta que no tiene nada que ver.
+    /// </param>
     public sealed record TastytradeCredential(
         string Id,
         string RefreshToken,
         string? AccountNumber,
-        string Source);
+        string Source,
+        bool IsSystem = false);
 
     /// <summary>
     /// De dónde salen las credenciales. Implementa la división del doc de arquitectura §5.4:

@@ -23,13 +23,18 @@ interface Props {
  * es contenido. `minHeight: 0` en el contenedor del scroll no es decorativo: sin él, un hijo con
  * `height: 100%` dentro de un flex column desborda en vez de scrollear.
  *
- * SIN CUENTA DE BRÓKER VINCULADA se reduce al encabezado más un cartel, igual que la pantalla de
+ * SIN CUENTA DE BRÓKER USABLE se reduce al encabezado más un cartel, igual que la pantalla de
  * una estrategia en OFF. No es un caso de error: es lo que ve un operador recién dado de alta, y sin
  * cuenta no hay posiciones que monitorear ni legs que suscribir. Cortar el árbol acá evita que
  * `PositionMonitor` monte sus efectos para una lista que siempre va a estar vacía.
+ *
+ * Son DOS estados y cada uno tiene su cartel: no vinculó ninguna, o vinculó una cuyo refresh token
+ * Tastytrade rechaza. La pantalla se recorta igual en los dos —no hay datos en ninguno—, pero el
+ * texto manda a hacer cosas distintas, y decirle "vinculá tu cuenta" a alguien que ya la vinculó lo
+ * deja mirando un formulario lleno sin saber qué cambiar.
  */
 export function Monitor({ subscribeLeg, unsubscribeLeg, subscribeSymbol, unsubscribeSymbol, socketStatus }: Props) {
-  const brokerAccountMissing = useAccountStore((s) => s.brokerAccountMissing);
+  const brokerAccountIssue = useAccountStore((s) => s.brokerAccountIssue);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', fontFamily: 'Inter, sans-serif' }}>
@@ -39,15 +44,25 @@ export function Monitor({ subscribeLeg, unsubscribeLeg, subscribeSymbol, unsubsc
         style={{ padding: '14px 18px 12px', flexShrink: 0 }}
       />
 
-      {brokerAccountMissing ? (
+      {brokerAccountIssue ? (
         <div style={{ padding: '0 18px' }}>
-          <NoticePanel
-            color="var(--blue-gc)"
-            icon={<KeyRound size={20} />}
-            title="Sin cuenta de bróker"
-            detail="El Monitor muestra las posiciones de tu cuenta, y todavía no vinculaste ninguna: no hay balances, ni posiciones, ni Greeks que seguir."
-            hint="Vinculala en Mi Cuenta › Cuenta de bróker, con tu número de cuenta y el refresh token de Tastytrade."
-          />
+          {brokerAccountIssue === 'not_linked' ? (
+            <NoticePanel
+              color="var(--blue-gc)"
+              icon={<KeyRound size={20} />}
+              title="Sin cuenta de bróker"
+              detail="El Monitor muestra las posiciones de tu cuenta, y todavía no vinculaste ninguna: no hay balances, ni posiciones, ni Greeks que seguir."
+              hint="Vinculala en Mi Cuenta › Cuenta de bróker, con tu número de cuenta y el refresh token de Tastytrade."
+            />
+          ) : (
+            <NoticePanel
+              color="var(--yellow-gc)"
+              icon={<KeyRound size={20} />}
+              title="Credencial de bróker rechazada"
+              detail="Tu cuenta está vinculada, pero Tastytrade no acepta su refresh token: no se pueden leer balances ni posiciones. La causa más común es que lo hayas generado desde otra aplicación OAuth y no desde la de GaleCore."
+              hint="Generá uno nuevo desde la aplicación OAuth de GaleCore y volvé a cargarlo en Mi Cuenta › Cuenta de bróker."
+            />
+          )}
         </div>
       ) : (
         <div style={{ flex: 1, minHeight: 0 }}>

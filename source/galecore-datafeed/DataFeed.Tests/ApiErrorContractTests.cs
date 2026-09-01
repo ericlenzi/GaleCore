@@ -97,6 +97,34 @@ public class ApiErrorContractTests
     }
 
     /// <summary>
+    /// El 409 de la credencial rechazada tiene el MISMO cuerpo que el de la cuenta sin vincular: dos
+    /// campos y sin `symbol`. Son dos estados distintos del mismo endpoint y lo unico que los separa
+    /// es el `code` — que es justamente el punto de que exista el campo.
+    ///
+    /// Lo que Tastytrade contesto (`Client secret mismatch`) NO esta en el cuerpo, ni deberia: es
+    /// vocabulario del proveedor y vive en el log. Si alguien lo agrega al DTO, este test lo frena.
+    /// </summary>
+    [Fact]
+    public void ErrorDeCredencialRechazada_TieneElMismoCuerpoQueElDeLaCuentaSinVincular()
+    {
+        var error = new ApiErrorResponse
+        {
+            Error = "La cuenta de broker vinculada tiene un refresh token que Tastytrade rechaza.",
+            Code = "broker_credential_invalid",
+        };
+
+        foreach (var body in SerializarConAmbos(error))
+        {
+            Assert.Equal(
+                new[] { "code", "error" },
+                body.Properties().Select(p => p.Name).OrderBy(n => n).ToArray());
+
+            Assert.Equal("broker_credential_invalid", (string?)body["code"]);
+            Assert.False(body.ContainsKey("symbol"), "El 409 de la credencial no lleva symbol.");
+        }
+    }
+
+    /// <summary>
     /// Los `code` son los que el front tiene escritos. Van tomados de las constantes de las
     /// excepciones, que es de donde salen en runtime: si alguien las renombra, esto falla acá y no
     /// en el tablero de alguien.
@@ -106,7 +134,23 @@ public class ApiErrorContractTests
     {
         Assert.Equal("broker_account_not_linked",
             DataFeed.Infrastructure.Providers.Tastytrade.BrokerAccountNotLinkedException.Code);
+        Assert.Equal("broker_credential_invalid",
+            DataFeed.Infrastructure.Providers.Tastytrade.BrokerCredentialInvalidException.Code);
         Assert.Equal("option_chain_not_found",
             DataFeed.Infrastructure.Providers.Tastytrade.OptionChainNotFoundException.Code);
+    }
+
+    /// <summary>
+    /// Los dos estados de la cuenta son DISTINTOS. Parece una perogrullada escrita asi, pero el
+    /// front decide con esto entre "vincula tu cuenta" y "re-vincula tu cuenta": si alguien
+    /// unificara los codes para simplificar, el operador que ya cargo sus credenciales volveria a
+    /// leer un cartel que le pide hacer lo que ya hizo.
+    /// </summary>
+    [Fact]
+    public void LosDosEstadosDeLaCuenta_NoCompartenCode()
+    {
+        Assert.NotEqual(
+            DataFeed.Infrastructure.Providers.Tastytrade.BrokerAccountNotLinkedException.Code,
+            DataFeed.Infrastructure.Providers.Tastytrade.BrokerCredentialInvalidException.Code);
     }
 }

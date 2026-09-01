@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { BalancesResponse, PositionResponse } from '../types/api';
-import type { AccountFailure } from '../api/account';
+import type { AccountFailure, BrokerAccountIssue } from '../api/account';
 
 /**
  * Balances y posiciones de la cuenta de bróker del operador.
@@ -18,10 +18,12 @@ interface AccountStore {
   loadingPositions: boolean;
   errorBalances: string | null;
   /**
-   * El operador no vinculó su cuenta de bróker. Es distinto de un error cualquiera: no hay nada
-   * roto, le falta un paso. El Monitor lo usa para mostrar su cartel en vez de una pantalla vacía.
+   * El operador no puede leer su cuenta de bróker por algo que él arregla: no la vinculó, o la que
+   * vinculó tiene un refresh token que Tastytrade rechaza. Es distinto de un error cualquiera —no
+   * hay nada roto del lado de la plataforma— y el Monitor lo usa para mostrar el cartel que
+   * corresponde en vez de una pantalla vacía. null = ninguno de los dos.
    */
-  brokerAccountMissing: boolean;
+  brokerAccountIssue: BrokerAccountIssue | null;
   lastUpdate: Date | null;
   setBalances: (b: BalancesResponse) => void;
   setPositions: (p: PositionResponse[]) => void;
@@ -41,21 +43,22 @@ const EMPTY = {
   loadingBalances: false,
   loadingPositions: false,
   errorBalances: null,
-  brokerAccountMissing: false,
+  brokerAccountIssue: null,
   lastUpdate: null,
 };
 
 export const useAccountStore = create<AccountStore>((set) => ({
   ...EMPTY,
 
-  // Que los balances lleguen prueba que la cuenta está vinculada: se limpia la marca.
-  setBalances: (b) => set({ balances: b, lastUpdate: new Date(), errorBalances: null, brokerAccountMissing: false }),
+  // Que los balances lleguen prueba que la cuenta está vinculada Y que su credencial sirve: se
+  // limpia la marca, sea cuál sea de las dos que estaba puesta.
+  setBalances: (b) => set({ balances: b, lastUpdate: new Date(), errorBalances: null, brokerAccountIssue: null }),
   setPositions: (p) => set({ positions: p }),
   setLoadingBalances: (v) => set({ loadingBalances: v }),
   setLoadingPositions: (v) => set({ loadingPositions: v }),
   setErrorBalances: (f) => set(f
-    ? { errorBalances: f.message, brokerAccountMissing: f.brokerAccountMissing, balances: null, lastUpdate: null }
-    : { errorBalances: null, brokerAccountMissing: false }),
+    ? { errorBalances: f.message, brokerAccountIssue: f.brokerAccountIssue, balances: null, lastUpdate: null }
+    : { errorBalances: null, brokerAccountIssue: null }),
   failPositions: () => set({ positions: [] }),
 
   reset: () => set({ ...EMPTY }),

@@ -41,6 +41,22 @@ namespace DataFeed.Controllers
                     Code = BrokerAccountNotLinkedException.Code,
                 });
             }
+            catch (BrokerCredentialInvalidException ex)
+            {
+                // 409 por lo mismo que la de arriba, un escalón más adelante: la cuenta está
+                // vinculada pero Tastytrade rechaza su refresh token. Tampoco es una falla del
+                // servidor —de hecho todo lo que GaleCore controla funcionó— y el operador puede
+                // arreglarlo solo, así que necesita su propio `code` para que el tablero le diga
+                // "re-vinculá" en vez de "vinculá", que lo manda a un formulario que ya llenó.
+                //
+                // El detalle que contestó Tastytrade NO viaja: ya se logueó en TastytradeOAuth, es
+                // vocabulario del proveedor y al operador no le dice nada.
+                return this.Conflict(new ApiErrorResponse
+                {
+                    Error = ex.Message,
+                    Code = BrokerCredentialInvalidException.Code,
+                });
+            }
             catch (OptionChainNotFoundException ex)
             {
                 // 409 por lo mismo: el símbolo que eligió el operador no se puede analizar, y eso es

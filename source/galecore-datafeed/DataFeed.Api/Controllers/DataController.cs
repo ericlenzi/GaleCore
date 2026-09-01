@@ -79,9 +79,12 @@ namespace DataFeed.Controllers
 
         #region Account
 
-        // 409 = el operador todavía no vinculó su cuenta de bróker (`broker_account_not_linked`).
-        // Es el estado normal de alguien recién dado de alta, no una falla: el tablero lo distingue
-        // por el `code` para decirle que vincule su cuenta.
+        // 409 = el operador no puede leer SU cuenta, por una de dos razones que el tablero distingue
+        // por el `code`:
+        //   * `broker_account_not_linked` — todavía no vinculó ninguna. Es el estado normal de
+        //     alguien recién dado de alta, no una falla.
+        //   * `broker_credential_invalid` — vinculó una, pero Tastytrade rechaza su refresh token.
+        // Ninguna de las dos es un error del servidor, y las dos las arregla él en Mi Cuenta.
         [Tags("Data.Account")]
         [HttpGet("Tastytrade/Account/Balances")]
         [ProducesResponseType(typeof(ApiErrorResponse), StatusCodes.Status409Conflict)]

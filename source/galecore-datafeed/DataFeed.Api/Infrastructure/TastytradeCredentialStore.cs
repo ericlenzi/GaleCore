@@ -64,7 +64,10 @@ namespace DataFeed.Api.Infrastructure
             if (TryGetCached("system", out var hit)) return hit!;
 
             var fromDb = await QueryAsync(q => q.Where(a => a.IsSystem), ct);
-            var resolved = fromDb ?? FromConfig();
+
+            // La marca se pone acá y no en QueryAsync porque la MISMA consulta sirve a los dos
+            // caminos: lo que hace de sistema a una credencial es por dónde se la pidió.
+            var resolved = (fromDb ?? FromConfig()) with { IsSystem = true };
 
             LogSystemResolved(resolved);
 

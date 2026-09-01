@@ -1,49 +1,71 @@
 import apiClient from './client';
 import { BalancesResponse, PositionResponse } from '../types/api';
 
-/** Lo que devuelve la API cuando el usuario todavía no vinculó su cuenta (409). */
+/** Los `code` del 409 que la API manda cuando el operador no puede leer SU cuenta. */
 const NOT_LINKED = 'broker_account_not_linked';
+const CREDENTIAL_INVALID = 'broker_credential_invalid';
 
 const NOT_LINKED_MESSAGE =
   'No tenés una cuenta de bróker configurada. Vinculala en Mi Cuenta › Cuenta de bróker.';
+
+const CREDENTIAL_INVALID_MESSAGE =
+  'Tastytrade rechaza el refresh token de tu cuenta. Generá uno nuevo desde la aplicación OAuth ' +
+  'de GaleCore y volvé a cargarlo en Mi Cuenta › Cuenta de bróker.';
+
+/**
+ * Los dos estados en los que el operador se queda sin datos de cuenta y la solución está en sus
+ * manos. Uno u otro, nunca los dos: por eso es un campo con dos valores y no dos booleanos, que
+ * dejarían escribible un estado —vinculada Y sin vincular— que no existe.
+ */
+export type BrokerAccountIssue = 'not_linked' | 'credential_invalid';
 
 export interface AccountFailure {
   /** Lo que se le muestra al operador. */
   message: string;
   /**
-   * El caso esperado: todavía no vinculó su cuenta. Es un dato aparte del mensaje porque el Monitor
-   * decide con él si muestra su cartel, y matchear el texto para eso se rompe al reescribirlo.
+   * Cuál de los dos estados es, o null si el fallo es otra cosa. Es un dato aparte del mensaje
+   * porque el Monitor decide con él qué cartel muestra, y matchear el texto para eso se rompe al
+   * reescribirlo.
    */
-  brokerAccountMissing: boolean;
+  brokerAccountIssue: BrokerAccountIssue | null;
 }
 
 /**
  * Traduce un fallo de los endpoints de cuenta a algo que el operador pueda accionar.
  *
- * NO VINCULAR LA CUENTA ES EL ESTADO NORMAL DE UN OPERADOR RECIÉN DADO DE ALTA, así que mostrarle
- * "Request failed with status code 500" —que es lo que salía— lo deja mirando un error de servidor
- * cuando lo único que le falta es cargar sus credenciales. Cualquier otra falla se muestra tal
- * cual: si la API se cayó de verdad, decirle "vinculá tu cuenta" lo manda a buscar donde no es.
+ * Los dos estados que distingue tienen la misma forma —no hay datos, y el arreglo está en Mi
+ * Cuenta— pero MANDAN A HACER COSAS DISTINTAS, y por eso no se unifican:
+ *   * `not_linked` — todavía no cargó nada. Es el estado normal de alguien recién dado de alta.
+ *   * `credential_invalid` — cargó algo que Tastytrade rechaza (típicamente un refresh token
+ *     emitido por otra aplicación OAuth). Decirle "vinculá tu cuenta" acá lo manda a un formulario
+ *     que ya llenó, a mirar un número de cuenta que está bien.
+ *
+ * Cualquier otra falla se muestra tal cual: si la API se cayó de verdad, mandarlo a Mi Cuenta lo
+ * hace buscar donde no es.
  */
 export function describeAccountError(err: any): AccountFailure {
   const data = err?.response?.data;
 
-  // El caso esperado, con el contrato de hoy.
+  // Los casos esperados, con el contrato de hoy.
   if (data?.code === NOT_LINKED) {
-    return { message: NOT_LINKED_MESSAGE, brokerAccountMissing: true };
+    return { message: NOT_LINKED_MESSAGE, brokerAccountIssue: 'not_linked' };
+  }
+  if (data?.code === CREDENTIAL_INVALID) {
+    return { message: CREDENTIAL_INVALID_MESSAGE, brokerAccountIssue: 'credential_invalid' };
   }
 
   // Una API anterior al 409 lo tiraba como 500 con el texto de la excepción en el cuerpo. Se
   // reconoce por el texto para que el tablero no dependa de que la API esté al día; se puede sacar
-  // cuando no quede ninguna vieja corriendo.
+  // cuando no quede ninguna vieja corriendo. Solo cubre el caso sin vincular: la credencial
+  // rechazada nació con su 409, así que nunca hubo una versión que la mandara como texto.
   const body = typeof data === 'string' ? data : '';
   if (body.includes('no tiene una cuenta de bróker vinculada')) {
-    return { message: NOT_LINKED_MESSAGE, brokerAccountMissing: true };
+    return { message: NOT_LINKED_MESSAGE, brokerAccountIssue: 'not_linked' };
   }
 
   return {
     message: data?.error || err?.message || 'No se pudieron leer los datos de la cuenta.',
-    brokerAccountMissing: false,
+    brokerAccountIssue: null,
   };
 }
 

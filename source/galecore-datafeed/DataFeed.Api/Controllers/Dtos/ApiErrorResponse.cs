@@ -24,7 +24,8 @@ namespace DataFeed.Api.Controllers.Dtos
         public string Error { get; set; } = "";
 
         /// <summary>
-        /// Identificador estable del estado: `broker_account_not_linked`, `option_chain_not_found`.
+        /// Identificador estable del estado: `broker_account_not_linked`, `broker_credential_invalid`,
+        /// `option_chain_not_found`.
         /// **Renombrarlo rompe el mensaje del front**, que matchea contra esto y no contra el texto.
         /// </summary>
         [JsonProperty("code")]

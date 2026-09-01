@@ -197,7 +197,23 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     decirle que vincule su cuenta en vez de mostrarle un error de servidor. El `code` es contrato:
     renombrarlo rompe el mensaje del front.
 
-  **Hay un segundo `code` con el mismo contrato:** `option_chain_not_found`
+  **El mismo endpoint tiene un segundo estado esperado, un escalón más adelante:**
+  `broker_credential_invalid` (`BrokerCredentialInvalidException`, también 409), cuando la cuenta
+  SÍ está vinculada pero Tastytrade rechaza su refresh token. Quien decide la frontera es
+  `TastytradeOAuth.Rechazo`: un `400`/`401` del canje es la credencial (no sirve, y solo la arregla
+  su dueño); cualquier otro status es Tastytrade con problemas y sigue saliendo 500, porque decirle
+  al operador que re-vincule mientras el proveedor está caído lo manda a romper lo que funciona.
+  Los dos `code` no se unifican: el tablero elige entre "vinculá tu cuenta" y "re-vinculá tu
+  cuenta", y el segundo cartel le evita a alguien que ya cargó sus credenciales volver a mirar un
+  formulario lleno sin saber qué cambiar. **Y solo aplica a la credencial DEL USUARIO** — si la
+  rechazada es la de sistema, el operador no tiene nada que re-vincular y vuelve a ser un 500.
+  El caso que lo hizo nacer (2026-09-01): el `client_secret` es de la aplicación OAuth registrada y
+  hay uno solo para toda la plataforma, así que un refresh token emitido desde la app OAuth propia
+  del operador se guarda y se descifra bien, pero el canje contesta
+  `400 invalid_grant / Client secret mismatch`. El detalle que contesta Tastytrade va al **log** y
+  no al cuerpo del 409: es vocabulario del proveedor.
+
+  **Hay un tercer `code` con el mismo contrato, ya de otro dominio:** `option_chain_not_found`
   (`OptionChainNotFoundException`, también 409), que tira el `GammaExposureHandler` compartido
   cuando el símbolo pedido no tiene cadena analizable — no lista opciones, todas las expiraciones
   vencidas, o ninguna dentro del `MaxDTE`. Misma regla de categoría: un pedido legítimo cuyo

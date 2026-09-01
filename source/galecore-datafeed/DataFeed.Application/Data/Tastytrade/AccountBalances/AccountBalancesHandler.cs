@@ -1,4 +1,4 @@
-using AutoMapper;
+﻿using AutoMapper;
 using DataFeed.Infrastructure.Providers.Tastytrade;
 using MediatR;
 using Microsoft.Extensions.Configuration;
@@ -51,6 +51,17 @@ namespace DataFeed.Application.Data.Tastytrade.AccountBalances
             {
                 // Pasa derecho: envuelta en un Exception genérico perdería su tipo y el controller
                 // no podría mapearla a 409 — volvería a ser el 500 indistinguible de una caída.
+                throw;
+            }
+            catch (BrokerCredentialInvalidException)
+            {
+                // Igual que la de arriba: pasa derecho para que el controller la mapee a 409.
+                //
+                // Acá NO se vuelve a chequear de quién era la credencial. Que esto solo llegue
+                // cuando la rechazada es la del usuario lo garantiza `TastytradeOAuth.Rechazo`
+                // mirando `credential.IsSystem`, que es la única autoridad de esa regla: repetirla
+                // acá dejaría dos versiones de la misma decisión, que es como se empieza a
+                // contradecir.
                 throw;
             }
             catch (Exception ex)
