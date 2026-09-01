@@ -351,6 +351,7 @@ Tres cosas que hay que saber para no tropezar:
 * **Aplicar migraciones exige la credencial de DDL**: `GALECORE_DB` con `galecore_ddl` antes de
   `dotnet ef database update`. `GaleCoreDbContextFactory` ya lee esa variable primero, así que no hay
   que tocar el user-secret de la API. Sin eso, la migración falla con `permission denied`.
+  *(Sigue siendo cierto, pero ya no es el camino principal: ver la decisión del 2026-09-01 más abajo.)*
 * **`ALTER DEFAULT PRIVILEGES` no es decorativo.** Sin él, la tabla que cree la próxima migración nace
   sin permisos para la API y el fallo aparece en runtime, lejos del cambio que lo causó.
 * **`strategies` quedó de solo lectura** porque la app solo la lee: el catálogo se siembra por
@@ -431,13 +432,67 @@ escrito, y costó dos bugs el mismo día.
 su cuenta" dejó de ser una excepción con 500: es `409` con `code: "broker_account_not_linked"`, que
 es lo que le permite al tablero mandarlo a vincularla en vez de mostrarle un error de servidor.
 
+### Tomadas (2026-09-01) — la credencial de DDL deja de perderse
+
+**El problema no era de permisos, era de custodia.** `galecore_ddl` es dueño de las tres tablas, o
+sea que puede hacer cualquier DDL sin que nadie le conceda nada; lo que no existía era una copia
+guardada de su contraseña. Cada migración empezaba igual: resetear la contraseña, exportarla en
+`GALECORE_DB`, aplicar, y perderla de nuevo. Tres migraciones después, seguía siendo un
+descubrimiento.
+
+Lo que se hizo:
+
+* La contraseña de `galecore_ddl` se fijó y **se guarda en el gestor de contraseñas del operador**.
+* La cadena de DDL vive en `ConnectionStrings:GaleCoreDdl`, en el **user-secret store de
+  `DataFeed.Repositories`** — store propio, no el de `DataFeed.Api`. Una credencial que puede `ALTER`
+  y `DROP` no tiene por qué estar al alcance de la configuración de la API, que solo necesita filas.
+* `GaleCoreDbContextFactory` la busca en segundo lugar, después de `GALECORE_DB` y antes de la
+  cadena de la API. Con eso, `dotnet ef database update` funciona sin variables de entorno y sin
+  pegar la contraseña en la consola.
+
+Cargarla, una sola vez por máquina:
+
+```
+dotnet user-secrets set "ConnectionStrings:GaleCoreDdl" "<cadena con galecore_ddl>" --project DataFeed.Repositories
+```
+
+**El usuario del pooler lleva el sufijo del proyecto** (`galecore_ddl.<project-ref>`, igual que
+`galecore_api.<project-ref>`), y el puerto es el **5432** (sesión). En el 6543 (transacción) las
+cosas de sesión no se comportan.
+
+**Y `ALTER DEFAULT PRIVILEGES` se aplicó recién hoy.** La decisión del 2026-08-12 ya advertía que no
+era decorativo, pero nunca se había corrido: `pg_default_acl` no tenía ninguna entrada para
+`galecore_ddl`, y las tablas existentes tenían sus permisos puestos a mano una por una. O sea que la
+advertencia estaba escrita y viva al mismo tiempo — la próxima migración que creara una tabla habría
+fallado en runtime con `permission denied`. Hoy quedó:
+
+```
+galecore_ddl -> tablas:     galecore_api = arwd   (select, insert, update, delete)
+galecore_ddl -> secuencias: galecore_api = rU
+```
+
+Los privilegios por defecto se aplican **según quién crea** el objeto, así que solo sirven si las
+migraciones corren con la identidad de `galecore_ddl`. Una migración aplicada como `postgres` sin
+`SET ROLE` crea tablas que esta regla no alcanza.
+
 ### Pendientes
 
 1. ¿Se adopta la inversión del flujo (§4)? El plan la pone después de la base, porque no es urgente.
 2. **Cuál es la credencial de sistema** para los datos de mercado (§5.4). Es upstream del ingestor:
    hay que decidirla antes de escribirlo, aunque se implemente después.
-3. Si `client_secret` es de la **aplicación registrada** o de cada usuario. Si es de la app, no va en
-   `Accounts` — va en configuración, y duplicarlo por fila sería esparcir un secreto de aplicación.
+3. ~~Si `client_secret` es de la **aplicación registrada** o de cada usuario.~~ **RESUELTO
+   2026-09-01: las dos cosas.** `accounts.client_secret_encrypted` es nullable y null significa
+   "usá el de configuración". El que trae su propia aplicación OAuth guarda su secreto con su
+   refresh token; el que entra por la de la plataforma no guarda nada y la fila hereda el de
+   configuración, que es también el de la cuenta de sistema.
+
+   El argumento viejo —"si es de la app no va en `Accounts`, duplicarlo por fila sería esparcir un
+   secreto de aplicación"— valía mientras hubiera UNA aplicación para todos. Con cada operador
+   registrando la suya, el par (refresh token, client_secret) es **una sola credencial**, y
+   partirla entre la fila y la configuración no evita la duplicación: garantiza que las dos mitades
+   no coincidan. Eso es literalmente lo que Tastytrade contesta como
+   `invalid_grant / Client secret mismatch`, y fue lo que pasó el 2026-09-01 con un operador que
+   había generado su token desde su propia app.
 4. Cómo se cifran en reposo los refresh tokens de bróker (`pgcrypto` en Postgres, o cifrado en la
    aplicación con la clave en Key Vault).
 5. Qué símbolos y qué eventos mantiene vivos el ingestor.

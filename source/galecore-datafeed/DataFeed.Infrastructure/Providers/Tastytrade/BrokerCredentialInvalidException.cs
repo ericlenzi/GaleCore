@@ -13,13 +13,16 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
     /// que manda al operador a buscar una caída del servidor cuando el problema está en el token que
     /// él mismo pegó.
     ///
-    /// **El caso que la hizo nacer** (2026-09-01): el `client_secret` es de la APLICACIÓN OAuth
-    /// registrada y vive en configuración, uno solo para toda la plataforma (ver
-    /// <see cref="TastytradeCredential"/>). Un refresh token emitido por OTRA aplicación OAuth —la
-    /// que el operador se creó en su propio perfil de Tastytrade— se guarda y se descifra sin
-    /// problema, pero el canje contesta `400 invalid_grant / Client secret mismatch`. Todo lo que
-    /// GaleCore controla estaba bien; lo único accionable era volver a generar el token desde la
-    /// aplicación correcta, y eso es lo que ahora dice el mensaje.
+    /// **El caso que la hizo nacer** (2026-09-01): hasta ese día había un solo `client_secret` para
+    /// toda la plataforma, en configuración, y un refresh token emitido por OTRA aplicación OAuth
+    /// —la que el operador se creó en su propio perfil de Tastytrade— se guardaba y se descifraba
+    /// sin problema, pero el canje contestaba `400 invalid_grant / Client secret mismatch`.
+    ///
+    /// Ese caso puntual dejó de ser un error el mismo día: ahora cada cuenta puede traer el
+    /// `client_secret` de SU aplicación (ver <see cref="TastytradeCredential"/>). Lo que sigue
+    /// llegando acá es la credencial que de verdad no sirve — revocada, vencida, o con las dos
+    /// mitades de aplicaciones distintas—, y por eso el mensaje habla de las dos mitades y no de
+    /// una aplicación en particular.
     ///
     /// NO cubre que Tastytrade esté caído: eso sí es una falla del servidor y sigue saliendo 500.
     /// La frontera la decide <see cref="TastytradeOAuth"/> por el status de la respuesta.
@@ -43,9 +46,9 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
         public string Detail { get; }
 
         public BrokerCredentialInvalidException(string detail)
-            : base("La cuenta de bróker vinculada tiene un refresh token que Tastytrade rechaza. " +
-                   "Volvé a generarlo desde la aplicación OAuth de GaleCore y cargalo de nuevo en " +
-                   "Mi Cuenta › Cuenta de bróker.")
+            : base("Tastytrade rechaza la credencial de la cuenta de bróker vinculada. Revisá en " +
+                   "Mi Cuenta › Cuenta de bróker que el refresh token y el client secret sean de la " +
+                   "MISMA aplicación OAuth, y que el token siga vigente.")
         {
             Detail = detail;
         }

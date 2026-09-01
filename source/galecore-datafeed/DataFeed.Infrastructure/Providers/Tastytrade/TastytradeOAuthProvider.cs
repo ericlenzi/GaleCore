@@ -17,8 +17,10 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
     /// <see cref="TastytradeCredential.Id"/> — mezclar dos credenciales en una misma entrada le
     /// mostraría a un usuario las posiciones del otro, que es el peor error posible acá.
     ///
-    /// El client_secret sigue viniendo de configuración: es de la APLICACIÓN OAuth registrada, no
-    /// del usuario (se regenera desde el perfil de Tastytrade sin que cambie el client_id).
+    /// El client_secret sale de la credencial cuando la trae, y de configuración cuando no. Desde
+    /// 2026-09-01 cada operador puede registrar SU aplicación OAuth en su perfil de Tastytrade, y
+    /// entonces el par (refresh token, client_secret) es indivisible: el secreto de la aplicación de
+    /// la plataforma no canjea un token emitido por otra.
     ///
     /// De qué credencial se trata lo decide <see cref="ITastytradeCredentialStore"/>: sistema para
     /// mercado, usuario para cuenta. Ver docs/GaleCore-arquitectura-datos.md §5.4.
@@ -83,7 +85,12 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
                 {
                     GrantType = _config["Tastytrade:OAuth:grant_type"]!,
                     RefreshToken = credential.RefreshToken,
-                    ClientSecret = _config["Tastytrade:OAuth:client_secret"]!,
+
+                    // Las dos mitades salen de la MISMA credencial cuando el operador trae su propia
+                    // aplicación OAuth. El de configuración es el fallback —la aplicación de la
+                    // plataforma— y no al revés: mezclar el refresh token de una app con el
+                    // client_secret de otra es el `Client secret mismatch` de manual.
+                    ClientSecret = credential.ClientSecret ?? _config["Tastytrade:OAuth:client_secret"]!,
                 };
 
                 var json = JsonSerializer.Serialize(request);

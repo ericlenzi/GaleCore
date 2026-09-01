@@ -149,7 +149,14 @@ namespace DataFeed.Api.Infrastructure
                     Id: account.Id.ToString(),
                     RefreshToken: _protector.Unprotect(account.RefreshTokenEncrypted),
                     AccountNumber: account.AccountNumber,
-                    Source: "db");
+                    Source: "db",
+
+                    // Null se propaga tal cual hasta el canje, donde significa "usá el de
+                    // configuración". Descifrarlo acá y no allá mantiene a TastytradeOAuth sin saber
+                    // que existe una base.
+                    ClientSecret: string.IsNullOrWhiteSpace(account.ClientSecretEncrypted)
+                        ? null
+                        : _protector.Unprotect(account.ClientSecretEncrypted));
             }
             catch (Exception ex)
             {

@@ -9,8 +9,8 @@ const NOT_LINKED_MESSAGE =
   'No tenés una cuenta de bróker configurada. Vinculala en Mi Cuenta › Cuenta de bróker.';
 
 const CREDENTIAL_INVALID_MESSAGE =
-  'Tastytrade rechaza el refresh token de tu cuenta. Generá uno nuevo desde la aplicación OAuth ' +
-  'de GaleCore y volvé a cargarlo en Mi Cuenta › Cuenta de bróker.';
+  'Tastytrade rechaza la credencial de tu cuenta. Revisá en Mi Cuenta › Cuenta de bróker que el ' +
+  'refresh token y el client secret sean de la misma aplicación OAuth, y que el token siga vigente.';
 
 /**
  * Los dos estados en los que el operador se queda sin datos de cuenta y la solución está en sus
@@ -36,9 +36,10 @@ export interface AccountFailure {
  * Los dos estados que distingue tienen la misma forma —no hay datos, y el arreglo está en Mi
  * Cuenta— pero MANDAN A HACER COSAS DISTINTAS, y por eso no se unifican:
  *   * `not_linked` — todavía no cargó nada. Es el estado normal de alguien recién dado de alta.
- *   * `credential_invalid` — cargó algo que Tastytrade rechaza (típicamente un refresh token
- *     emitido por otra aplicación OAuth). Decirle "vinculá tu cuenta" acá lo manda a un formulario
- *     que ya llenó, a mirar un número de cuenta que está bien.
+ *   * `credential_invalid` — cargó algo que Tastytrade rechaza: un token revocado o vencido, o las
+ *     dos mitades de la credencial (refresh token y client secret) de aplicaciones OAuth distintas.
+ *     Decirle "vinculá tu cuenta" acá lo manda a un formulario que ya llenó, a mirar un número de
+ *     cuenta que está bien.
  *
  * Cualquier otra falla se muestra tal cual: si la API se cayó de verdad, mandarlo a Mi Cuenta lo
  * hace buscar donde no es.

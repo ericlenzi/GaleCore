@@ -251,13 +251,21 @@ namespace DataFeed.Controllers
                 broker = account.Broker,
                 accountNumber = account.AccountNumber,
                 isSystem = account.IsSystem,
+
+                // SI hay uno propio, no CUÁL es. El valor entra cifrado y no vuelve a salir, igual
+                // que el refresh token; esto es solo para que la pantalla pueda decir por qué
+                // aplicación OAuth entra esta cuenta, que es lo primero que uno quiere saber cuando
+                // Tastytrade la rechaza.
+                hasOwnClientSecret = account.ClientSecretEncrypted != null,
+
                 updatedAt = account.UpdatedAt,
             });
         }
 
         /// <summary>
-        /// Vincula (o actualiza) la cuenta de bróker del usuario autenticado. El refresh token se
-        /// cifra con AES-GCM antes de guardarse.
+        /// Vincula (o actualiza) la cuenta de bróker del usuario autenticado. El refresh token —y el
+        /// client_secret propio, si el operador registró su propia aplicación OAuth— se cifran con
+        /// AES-GCM antes de guardarse.
         ///
         /// Crea la fila de `users` si no existe: la identidad la maneja Supabase Auth y esta tabla
         /// solo le cuelga las FK, así que la primera vez que alguien válido aparece hay que
@@ -305,13 +313,31 @@ namespace DataFeed.Controllers
 
             account.AccountNumber = body.AccountNumber.Trim();
             account.RefreshTokenEncrypted = protector.Protect(body.RefreshToken.Trim());
+
+            // Las dos mitades se escriben JUNTAS, y el vacío borra en vez de conservar. Si esto
+            // fuera un "solo pisalo si vino", un operador que re-vincula tras rotar su refresh token
+            // se quedaría con el client_secret de la vinculación anterior: dos mitades de
+            // aplicaciones OAuth distintas, que es justo lo que Tastytrade rechaza.
+            var propio = body.ClientSecret?.Trim();
+            account.ClientSecretEncrypted = string.IsNullOrWhiteSpace(propio)
+                ? null
+                : protector.Protect(propio);
+
             account.UpdatedAt = DateTime.UtcNow;
 
             await db.SaveChangesAsync(ct);
 
-            _logger.LogInformation("Cuenta de bróker vinculada para el usuario {UserId}", userId.Value);
+            _logger.LogInformation(
+                "Cuenta de bróker vinculada para el usuario {UserId} (aplicación OAuth: {App})",
+                userId.Value,
+                account.ClientSecretEncrypted == null ? "la de la plataforma" : "propia del operador");
 
-            return Ok(new { linked = true, accountNumber = account.AccountNumber });
+            return Ok(new
+            {
+                linked = true,
+                accountNumber = account.AccountNumber,
+                hasOwnClientSecret = account.ClientSecretEncrypted != null,
+            });
         }
 
         /// <summary>

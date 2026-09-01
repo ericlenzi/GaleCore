@@ -4,6 +4,14 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!--
+      Store propio para la credencial del rol DUENIO de las tablas, que es con la que se aplican las
+      migraciones. Va aca y no en el store de DataFeed.Api a proposito: una credencial que puede
+      ALTER y DROP no tiene por que estar al alcance de la configuracion de la API, que solo necesita
+      leer y escribir filas. Ver GaleCoreDbContextFactory.
+    -->
+    <UserSecretsId>56463cb7-beb4-4e11-b331-dbe1a0135975</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

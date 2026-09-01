@@ -65,6 +65,10 @@ namespace DataFeed.Repositories
                 e.Property(x => x.Broker).HasMaxLength(40).IsRequired();
                 e.Property(x => x.AccountNumber).HasMaxLength(40).IsRequired();
                 e.Property(x => x.RefreshTokenEncrypted).IsRequired();
+
+                // Sin IsRequired: null es un valor con significado —"usá el client_secret de
+                // configuración"— y no un dato que falta. Ver Account.ClientSecretEncrypted.
+                e.Property(x => x.ClientSecretEncrypted);
                 e.Property(x => x.IsSystem).HasDefaultValue(false);
                 e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
                 e.Property(x => x.UpdatedAt).HasDefaultValueSql("now()");

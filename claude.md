@@ -134,6 +134,21 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   * Tastytrade API
   * dxFeed
 
+- Migraciones — dos roles, y la credencial que se perdía
+  La API **nunca migra en runtime**: no hay `Migrate()` en ningún lado. Las tablas son de
+  `galecore_ddl` y la API entra con `galecore_api`, que **no puede hacer DDL** — esa es la razón de
+  que existan dos roles: la credencial que corre en el VPS no puede alterar el esquema.
+
+  Aplicar una migración va con la credencial de DDL, que vive en `ConnectionStrings:GaleCoreDdl`
+  en el user-secret store **de `DataFeed.Repositories`** (store propio, para que una credencial con
+  `DROP` no entre en la configuración de la API). `GaleCoreDbContextFactory` la busca sola:
+
+      dotnet ef database update --project DataFeed.Repositories --startup-project DataFeed.Repositories
+
+  Si falla con `permission denied`, es que cayó a la cadena de la API: falta ese secreto.
+  El procedimiento completo, el sufijo del pooler y por qué `ALTER DEFAULT PRIVILEGES` no es
+  opcional, en [`docs/GaleCore-arquitectura-datos.md`](docs/GaleCore-arquitectura-datos.md) §10.
+
 - Testing y CI
   * `DataFeed.Tests` (xUnit, net8.0). Un archivo de test por JSON, que congela su contrato:
     `RulesJsonTests.cs` (config de app: `strategies[]` completo, prefijo ↔ rutas ↔ carpeta,
@@ -207,11 +222,12 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   cuenta", y el segundo cartel le evita a alguien que ya cargó sus credenciales volver a mirar un
   formulario lleno sin saber qué cambiar. **Y solo aplica a la credencial DEL USUARIO** — si la
   rechazada es la de sistema, el operador no tiene nada que re-vincular y vuelve a ser un 500.
-  El caso que lo hizo nacer (2026-09-01): el `client_secret` es de la aplicación OAuth registrada y
-  hay uno solo para toda la plataforma, así que un refresh token emitido desde la app OAuth propia
-  del operador se guarda y se descifra bien, pero el canje contesta
-  `400 invalid_grant / Client secret mismatch`. El detalle que contesta Tastytrade va al **log** y
-  no al cuerpo del 409: es vocabulario del proveedor.
+  El caso que lo hizo nacer (2026-09-01) fue un refresh token emitido desde la aplicación OAuth
+  propia del operador cuando había un solo `client_secret` para toda la plataforma: se guardaba y se
+  descifraba bien, pero el canje contestaba `400 invalid_grant / Client secret mismatch`. Ese caso
+  puntual dejó de ser un error el mismo día (ver "aplicación OAuth por operador"); lo que sigue
+  llegando acá es la credencial que de verdad no sirve. El detalle que contesta Tastytrade va al
+  **log** y no al cuerpo del 409: es vocabulario del proveedor.
 
   **Hay un tercer `code` con el mismo contrato, ya de otro dominio:** `option_chain_not_found`
   (`OptionChainNotFoundException`, también 409), que tira el `GammaExposureHandler` compartido
@@ -437,6 +453,33 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     Refresh token -> WebSocket token (DXLink)
     Cache thread-safe con lock
     Singleton registrado como ITastytradeOAuth
+
+- Regla — aplicación OAuth por operador
+  **La credencial de bróker son DOS mitades y viajan juntas:** el refresh token y el `client_secret`
+  de la aplicación OAuth que lo emitió. Tienen que ser de la misma aplicación o el canje contesta
+  `400 invalid_grant / Client secret mismatch`.
+
+  Desde el 2026-09-01 cada operador puede registrar **su propia** aplicación OAuth en su perfil de
+  Tastytrade y guardar las dos mitades en su fila de `accounts`
+  (`client_secret_encrypted`, cifrado con la misma clave que el token). **La columna es nullable y
+  null significa "usá el de configuración"** — la aplicación de la plataforma. Los dos caminos son
+  normales: quien trae la suya llena las dos mitades, quien entra por la de GaleCore llena una sola.
+  La **cuenta de sistema** siempre hereda el de configuración: el feed de mercado es de la
+  plataforma, no de nadie.
+
+  Antes de eso había un solo `client_secret` para todos, en configuración, con este argumento: es de
+  la aplicación registrada y no del usuario, así que duplicarlo por fila sería esparcir un secreto
+  de aplicación. Valía mientras hubiera UNA aplicación; con dos, partir la credencial entre la fila
+  y la configuración no evita la duplicación — garantiza que las mitades no coincidan.
+
+  **El `POST /App/GaleCore/Account` REEMPLAZA la credencial entera, no parchea campos.** Mandar el
+  `clientSecret` vacío no es "dejá el que estaba" sino "esta cuenta entra por la aplicación de la
+  plataforma". Si conservara el anterior, actualizar solo el refresh token dejaría las dos mitades
+  de aplicaciones distintas, que es el error que todo esto evita. La card lo avisa cuando la cuenta
+  hoy tiene uno propio y el campo está vacío.
+
+  El `GET` devuelve `hasOwnClientSecret` — **el hecho, no el valor**: ni el token ni el secreto
+  vuelven a salir por HTTP.
 
 - FLUJO DE REQUEST
   HTTP Request -> Controller -> mediator.Send(Request)

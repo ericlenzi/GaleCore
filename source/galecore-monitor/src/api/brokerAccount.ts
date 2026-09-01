@@ -3,8 +3,9 @@ import apiClient from './client';
 /**
  * Cuenta de bróker vinculada al usuario logueado.
  *
- * El refresh token NUNCA vuelve por acá: entra cifrado a la base y no sale más por HTTP. Lo único
- * que se puede leer es qué cuenta hay vinculada y desde cuándo.
+ * Ni el refresh token ni el client secret vuelven por acá: entran cifrados a la base y no salen más
+ * por HTTP. Lo único que se puede leer es qué cuenta hay vinculada, desde cuándo, y si trae su
+ * propia aplicación OAuth — el hecho, no el valor.
  */
 export interface BrokerAccountState {
   linked: boolean;
@@ -12,6 +13,12 @@ export interface BrokerAccountState {
   accountNumber?: string;
   /** Marca la cuenta que usan los procesos de fondo para pedir datos de MERCADO. Hay una sola. */
   isSystem?: boolean;
+  /**
+   * La cuenta entra por la aplicación OAuth propia del operador (true) o por la de la plataforma
+   * (false). Es lo primero que hay que mirar cuando Tastytrade rechaza la credencial: las dos
+   * mitades —refresh token y client secret— tienen que ser de la misma aplicación.
+   */
+  hasOwnClientSecret?: boolean;
   updatedAt?: string;
 }
 
@@ -26,12 +33,22 @@ export async function fetchBrokerAccount(): Promise<BrokerAccountState> {
  *
  * Es el único camino correcto para cambiar el refresh token — es quien lo cifra con la clave del
  * servidor antes de guardarlo. Un UPDATE a mano contra Postgres dejaría la fila ilegible.
+ *
+ * REEMPLAZA la credencial entera, no parchea campos: `clientSecret` vacío significa "esta cuenta
+ * entra por la aplicación OAuth de la plataforma", no "dejá el que estaba". Si conservara el
+ * anterior, actualizar solo el refresh token dejaría las dos mitades de aplicaciones distintas, que
+ * es exactamente lo que Tastytrade rechaza.
  */
 export async function linkBrokerAccount(
   accountNumber: string,
   refreshToken: string,
-): Promise<{ linked: boolean; accountNumber: string }> {
-  const { data } = await apiClient.post('/App/GaleCore/Account', { accountNumber, refreshToken });
+  clientSecret?: string,
+): Promise<{ linked: boolean; accountNumber: string; hasOwnClientSecret: boolean }> {
+  const { data } = await apiClient.post('/App/GaleCore/Account', {
+    accountNumber,
+    refreshToken,
+    clientSecret: clientSecret?.trim() || null,
+  });
   return data;
 }
 

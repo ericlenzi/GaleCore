@@ -36,6 +36,9 @@ export function BrokerAccountCard() {
   const [loading, setLoading] = useState(true);
   const [accountNumber, setAccountNumber] = useState('');
   const [refreshToken, setRefreshToken] = useState('');
+  // La otra mitad de la credencial, opcional: solo la llena quien registro su propia aplicacion
+  // OAuth en Tastytrade. Vacio = la aplicacion de la plataforma.
+  const [clientSecret, setClientSecret] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -71,8 +74,9 @@ export function BrokerAccountCard() {
     setOk(null);
 
     try {
-      await linkBrokerAccount(accountNumber.trim(), refreshToken.trim());
+      await linkBrokerAccount(accountNumber.trim(), refreshToken.trim(), clientSecret.trim());
       setRefreshToken('');
+      setClientSecret('');
       setOk('Cuenta vinculada. El cambio tarda hasta un minuto en tomar efecto (la credencial se cachea 60s).');
       await load();
     } catch (err: any) {
@@ -90,6 +94,7 @@ export function BrokerAccountCard() {
       const res = await unlinkBrokerAccount();
       setConfirmandoUnlink(false);
       setRefreshToken('');
+      setClientSecret('');
       setOk(res.wasSystem
         ? 'Cuenta desvinculada. ERA LA CUENTA DE SISTEMA: hasta que se vincule otra y se la marque, los procesos de fondo se quedan sin credencial para pedir datos de mercado.'
         : 'Cuenta desvinculada. El refresh token cifrado se borró de la base.');
@@ -165,6 +170,10 @@ export function BrokerAccountCard() {
         {!loading && state?.linked && (
           <>
             {state.accountNumber}
+            <span style={{ color: 'var(--text-muted)' }}>
+              {' · app OAuth: '}
+              {state.hasOwnClientSecret ? 'propia' : 'de GaleCore'}
+            </span>
             {state.updatedAt && (
               <span style={{ color: 'var(--text-muted)' }}>
                 {' · actualizada '}
@@ -181,6 +190,11 @@ export function BrokerAccountCard() {
       <div style={{ fontSize: 10.5, color: 'var(--text-muted)', fontFamily: 'Inter, sans-serif', lineHeight: 1.5 }}>
         El refresh token se guarda cifrado y no vuelve a salir por HTTP. Cargalo cada vez que lo
         rotes en Tastytrade: hasta que lo hagas, la plataforma sigue intentando con el anterior.
+        <span style={{ display: 'block', marginTop: 4 }}>
+          Si registraste <strong>tu propia aplicación OAuth</strong> en Tastytrade, cargá también su
+          client secret: el token y el secret tienen que ser de la MISMA aplicación o Tastytrade
+          rechaza la credencial. Dejalo vacío para entrar por la aplicación de GaleCore.
+        </span>
       </div>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -217,6 +231,31 @@ export function BrokerAccountCard() {
             autoComplete="off"
             spellCheck={false}
           />
+        </div>
+
+        <div>
+          <label htmlFor="gc-client-secret" className="block mb-1" style={labelStyle}>
+            Client secret <span style={{ textTransform: 'none', letterSpacing: 0 }}>(opcional)</span>
+          </label>
+          <input
+            id="gc-client-secret"
+            type="password"
+            value={clientSecret}
+            onChange={(e) => setClientSecret(e.target.value)}
+            className="w-full px-3 py-2 rounded text-sm font-mono outline-none"
+            style={inputStyle}
+            placeholder="solo si usás tu propia aplicación OAuth"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {state?.hasOwnClientSecret && !clientSecret && (
+            // Dejarlo vacío BORRA el que está guardado — el POST reemplaza la credencial entera —
+            // así que hay que decirlo donde se decide, no en la doc del endpoint.
+            <div style={{ fontSize: 10, color: 'var(--yellow-gc)', marginTop: 4, fontFamily: 'Inter, sans-serif', lineHeight: 1.4 }}>
+              Esta cuenta hoy usa tu propia aplicación OAuth. Si guardás con este campo vacío, pasa a
+              usar la de GaleCore.
+            </div>
+          )}
         </div>
 
         {error && (

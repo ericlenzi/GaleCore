@@ -59,8 +59,8 @@ export function Monitor({ subscribeLeg, unsubscribeLeg, subscribeSymbol, unsubsc
               color="var(--yellow-gc)"
               icon={<KeyRound size={20} />}
               title="Credencial de bróker rechazada"
-              detail="Tu cuenta está vinculada, pero Tastytrade no acepta su refresh token: no se pueden leer balances ni posiciones. La causa más común es que lo hayas generado desde otra aplicación OAuth y no desde la de GaleCore."
-              hint="Generá uno nuevo desde la aplicación OAuth de GaleCore y volvé a cargarlo en Mi Cuenta › Cuenta de bróker."
+              detail="Tu cuenta está vinculada, pero Tastytrade no acepta su credencial: no se pueden leer balances ni posiciones. La causa más común es que el refresh token y el client secret sean de aplicaciones OAuth distintas."
+              hint="Revisalos en Mi Cuenta › Cuenta de bróker: los dos tienen que ser de la misma aplicación OAuth, y el token tiene que seguir vigente."
             />
           )}
         </div>

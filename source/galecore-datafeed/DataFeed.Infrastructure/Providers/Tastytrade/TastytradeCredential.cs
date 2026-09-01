@@ -4,9 +4,12 @@ using System.Threading.Tasks;
 namespace DataFeed.Infrastructure.Providers.Tastytrade
 {
     /// <summary>
-    /// Credencial con la que se le habla a Tastytrade. El <see cref="RefreshToken"/> es POR USUARIO;
-    /// el client_secret NO está acá porque es de la aplicación OAuth registrada y vive en
-    /// configuración (se regenera desde el perfil de Tastytrade sin que cambie el client_id).
+    /// Credencial con la que se le habla a Tastytrade.
+    ///
+    /// SON DOS MITADES DE UNA MISMA COSA: el refresh token y el client_secret de la aplicación OAuth
+    /// que lo emitió. Tienen que ser de la misma aplicación o el canje falla, así que viajan juntas.
+    /// Hasta 2026-09-01 el client_secret no estaba acá —había uno solo para toda la plataforma, en
+    /// configuración— y separarlas era gratis porque no había dos aplicaciones posibles.
     /// </summary>
     /// <param name="Id">
     /// Clave de cache de los access token. Es el id de la fila de `accounts`, o "config" cuando la
@@ -25,12 +28,20 @@ namespace DataFeed.Infrastructure.Providers.Tastytrade
     /// credencial de sistema le pediría a cualquiera que estuviera mirando precios que re-vinculara
     /// una cuenta que no tiene nada que ver.
     /// </param>
+    /// <param name="ClientSecret">
+    /// El client_secret de la aplicación OAuth que emitió este refresh token, o **null para usar el
+    /// de configuración** — que es la aplicación de la plataforma.
+    ///
+    /// Null no es "no hay": es "la de siempre". Por eso el que trae su propia aplicación lo llena y
+    /// el que usa la de GaleCore no, sin que ninguno de los dos caminos sea el excepcional.
+    /// </param>
     public sealed record TastytradeCredential(
         string Id,
         string RefreshToken,
         string? AccountNumber,
         string Source,
-        bool IsSystem = false);
+        bool IsSystem = false,
+        string? ClientSecret = null);
 
     /// <summary>
     /// De dónde salen las credenciales. Implementa la división del doc de arquitectura §5.4:
