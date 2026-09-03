@@ -141,11 +141,22 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
 
   Aplicar una migración va con la credencial de DDL, que vive en `ConnectionStrings:GaleCoreDdl`
   en el user-secret store **de `DataFeed.Repositories`** (store propio, para que una credencial con
-  `DROP` no entre en la configuración de la API). `GaleCoreDbContextFactory` la busca sola:
+  `DROP` no entre en la configuración de la API). `GaleCoreDbContextFactory` la busca sola.
 
-      dotnet ef database update --project DataFeed.Repositories --startup-project DataFeed.Repositories
+  **El camino es `migrate-db.ps1`, en la raíz del repo, y no `dotnet ef` a mano:**
 
-  Si falla con `permission denied`, es que cayó a la cadena de la API: falta ese secreto.
+      .\migrate-db.ps1 -DryRun    # qué hay pendiente y qué SQL correría, sin tocar la base
+      .\migrate-db.ps1            # muestra el SQL, pide confirmación y aplica
+
+  Abajo corre el mismo `dotnet ef database update --project DataFeed.Repositories
+  --startup-project DataFeed.Repositories`, pero antes resuelve **con qué credencial va a entrar y
+  lo dice**: la cadena de la API también "anda" hasta que falla con `permission denied`, y el 6543
+  (pooler de transacción) no avisa que el problema es el puerto. Muestra el SQL idempotente antes
+  de aplicarlo —una migración no tiene rollback— y **clasifica el cambio, porque el orden contra el
+  deploy depende de eso**: lo aditivo va ANTES de `deploy-api.ps1`, lo destructivo DESPUÉS, con el
+  binario que ya no usa esa columna arriba y respondiendo. El comando `/deploy-api`
+  (`.claude/commands/deploy-api.md`) orquesta los dos scripts en ese orden.
+
   El procedimiento completo, el sufijo del pooler y por qué `ALTER DEFAULT PRIVILEGES` no es
   opcional, en [`docs/GaleCore-arquitectura-datos.md`](docs/GaleCore-arquitectura-datos.md) §10.
 
@@ -182,6 +193,17 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
     `SSL Mode=Require`, así que sin comillas llega mutilada.
 
   El hostname de hoy es el que asigna el proveedor, no un dominio propio.
+
+  **El deploy es `deploy-api.ps1`, en la raíz del repo:** publish, empaquetado, transferencia,
+  stop/extract/start y verificación contra el `swagger.json`. No cuelga de un target de MSBuild a
+  propósito —un target atado a `Publish` dispararía en todo publish, incluido el de un CI— y
+  **excluye los archivos de estado de runtime** (`Files/**/*_switch_state.json`,
+  `Files/skew25_history.json`): extraerlos encima pisaría los switches del operador con los de la
+  máquina que deploya, y una estrategia amanecería apagada sin que nadie la tocara. Empaqueta **el
+  working tree**, no lo que está en master. Pide la contraseña de sudo dos veces (`ssh -t` abre
+  TTY), así que no es desatendible sin una regla de sudoers acotada que nadie decidió, y **no tiene
+  rollback**: `tar -xzf` extrae encima, sin backup y sin borrar lo que ya no va. Volver atrás es
+  hacer checkout del commit anterior y deployar de nuevo.
 
 - Taxonomía de la API — controllers y tags de Swagger
   Dos controllers, cada uno con su prefijo de ruta; dentro, los endpoints se agrupan por tag de Swagger.
