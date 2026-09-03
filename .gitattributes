@@ -1,0 +1,5 @@
+# La configuracion de esta maquina es core.autocrlf=true, asi que todo texto se checkoutea con CRLF.
+# Un script que se copia al VPS y corre en Linux no puede: el shebang queda como `#!/bin/bash\r` y
+# el error que se ve es `bad interpreter: No such file or directory`, que no menciona los saltos de
+# linea por ningun lado.
+deploy/galecore-deploy text eol=lf

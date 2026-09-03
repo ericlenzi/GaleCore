@@ -1,0 +1,64 @@
+#!/bin/bash
+#
+# galecore-deploy -- reemplaza el contenido de /srv/galecore/app y reinicia el servicio.
+#
+# Vive en el SERVIDOR, en /usr/local/bin/galecore-deploy, propiedad de root y modo 755. La copia de
+# este repo es la fuente: si se edita aca, hay que reinstalarla (ver deploy/README.md).
+#
+# POR QUE EXISTE. El deploy necesita root para parar el servicio, extraer sobre /srv/galecore/app y
+# devolver la propiedad al usuario de servicio. Darle NOPASSWD a `tar` y a `chown` con argumentos
+# libres es darle root entero al que deploya. Esto es lo contrario: UN comando autorizado, sin
+# argumentos, que hace exactamente una cosa y esta escrito donde se puede leer y versionar.
+#
+# NO TOMA ARGUMENTOS a proposito -- no hay nada que un invocador pueda torcer. El paquete se busca
+# en el home de quien invoco el sudo, con el nombre fijo galecore-publish.tar.gz.
+
+set -euo pipefail
+
+APP=/srv/galecore/app
+SERVICE=galecore-datafeed
+OWNER=galecore
+PACKAGE=galecore-publish.tar.gz
+
+invoker="${SUDO_USER:-root}"
+home="$(getent passwd "$invoker" | cut -d: -f6)"
+[ -n "$home" ] || { echo "No pude resolver el home de $invoker." >&2; exit 1; }
+
+tarball="$home/$PACKAGE"
+[ -f "$tarball" ] || { echo "No hay paquete en $tarball." >&2; exit 1; }
+[ -d "$APP" ]     || { echo "No existe $APP." >&2; exit 1; }
+
+# Defensa en profundidad: quien empaqueta ya excluye estos archivos y se planta si se cuelan, pero
+# ese chequeo vive del lado del que arma el paquete. Este corre del lado que lo extrae.
+if tar -tzf "$tarball" | grep -Eq 'switch_state\.json|skew25_history\.json'; then
+    echo "El paquete trae archivos de estado de runtime: pisaria los switches del operador." >&2
+    echo "No se extrae nada." >&2
+    exit 1
+fi
+
+# Un paquete sin el ensamblado principal deja la app sin arrancar. Mejor no parar el servicio.
+if ! tar -tzf "$tarball" | grep -q 'DataFeed\.Api\.dll'; then
+    echo "El paquete no contiene DataFeed.Api.dll. No se extrae nada." >&2
+    exit 1
+fi
+
+# El orden importa: parar ANTES de extraer, para que el proceso no lea DLLs a medio escribir.
+echo "==> Parando $SERVICE"
+systemctl stop "$SERVICE"
+
+echo "==> Extrayendo en $APP"
+tar --no-absolute-names -xzf "$tarball" -C "$APP"
+chown -R "$OWNER:$OWNER" "$APP"
+
+echo "==> Arrancando $SERVICE"
+systemctl start "$SERVICE"
+rm -f "$tarball"
+
+# Sin esto, un servicio que arranca y se cae al instante se reporta como deploy exitoso.
+sleep 2
+if ! systemctl is-active --quiet "$SERVICE"; then
+    echo "$SERVICE no quedo activo. Revisa: journalctl -u $SERVICE -n 80 --no-pager" >&2
+    exit 1
+fi
+
+echo "OK: $SERVICE activo."

@@ -1,0 +1,136 @@
+name: Deploy API
+
+# NUNCA en pull_request: el repo es publico, y un workflow que corre sobre un fork con acceso a
+# los secretos regala la clave del VPS. Solo push a master (con gate de aprobacion) y disparo manual.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, tag o rama a desplegar. Vacio = el ultimo de master. Es tambien el rollback.
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+# Dos deploys a la vez se pisarian extrayendo sobre el mismo directorio. No se cancela el que corre:
+# abortar a mitad de una extraccion deja la app incompleta.
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+env:
+  VPS_HOST: 149.50.154.221
+  VPS_USER: elenzi
+  SERVICE: galecore-datafeed
+  APP_DIR: /srv/galecore/app
+  HEALTH_URL: https://vps-6285555-x.dattaweb.com/swagger/v1/swagger.json
+
+jobs:
+  deploy:
+    name: Publicar y desplegar al VPS
+    runs-on: ubuntu-latest
+
+    # EL GATE. El environment `production` tiene un reviewer requerido, asi que el job queda
+    # esperando aprobacion antes de correr un solo paso. Ese click es donde se decide el orden
+    # contra una migracion destructiva: si hay una pendiente, primero se aprueba esto y despues se
+    # migra (ver el nodo de migraciones en claude.md).
+    environment:
+      name: production
+      url: https://vps-6285555-x.dattaweb.com/swagger/index.html
+
+    defaults:
+      run:
+        working-directory: source/galecore-datafeed
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.sha }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore DataFeed.sln
+
+      - name: Build
+        run: dotnet build DataFeed.sln --no-restore -c Release
+
+      # Lo mismo que corre ci.yml, repetido a proposito: este workflow no deploya con tests en rojo,
+      # y "otro workflow ya los corrio" es una garantia mas debil que correrlos aca. Son 40 segundos.
+      - name: Test
+        run: dotnet test DataFeed.Tests/DataFeed.Tests.csproj --no-build -c Release
+
+      - name: Publish
+        run: dotnet publish DataFeed.Api/DataFeed.Api.csproj -c Release -o publish
+
+      - name: Sacar lo que no va al servidor
+        run: rm -f publish/web.config publish/appsettings.Development.json
+
+      # Files/ tiene archivos que la API escribe en runtime. Extraerlos encima pisa los switches del
+      # operador y la serie de skew con los de este runner, que estan como salieron de git.
+      - name: Empaquetar sin los archivos de estado de runtime
+        run: |
+          tar -czf galecore-publish.tar.gz -C publish \
+            --exclude='./Files/*_switch_state.json' \
+            --exclude='./Files/*/*_switch_state.json' \
+            --exclude='./Files/skew25_history.json' \
+            .
+          colados=$(tar -tzf galecore-publish.tar.gz | grep -E 'switch_state\.json|skew25_history\.json' || true)
+          if [ -n "$colados" ]; then
+            echo "Los excludes no funcionaron. Se colaron:"
+            echo "$colados"
+            exit 1
+          fi
+          echo "Files incluidos:"
+          tar -tzf galecore-publish.tar.gz | grep 'Files/.*json' || true
+
+      - name: Preparar la clave SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # TOFU: se confia en la huella que el host presente en esta corrida. Para fijarla, ver
+          # deploy/README.md -- es un secreto mas y una decision aparte.
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Subir el paquete
+        run: scp galecore-publish.tar.gz "$VPS_USER@$VPS_HOST:~/galecore-publish.tar.gz"
+
+      # El unico paso privilegiado, y no corre comandos sueltos con sudo: invoca UN script que vive
+      # en el servidor, es de root y no toma argumentos. La regla de sudoers autoriza ese script y
+      # nada mas -- un NOPASSWD sobre `tar` seria NOPASSWD sobre cualquier cosa.
+      - name: Parar, extraer y arrancar
+        run: ssh "$VPS_USER@$VPS_HOST" "sudo -n /usr/local/bin/galecore-deploy"
+
+      - name: Verificar que responda
+        run: |
+          for i in $(seq 1 8); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$HEALTH_URL" || true)
+            echo "intento $i: HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "$HEALTH_URL responde 200."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "No respondio 200 despues de 8 intentos."
+          exit 1
+
+      # Las fechas tienen que ser ANTERIORES a este deploy. Si son de recien, algo del paquete piso
+      # el estado de runtime y una estrategia pudo haber quedado apagada sin que nadie la tocara.
+      - name: Estado de runtime en el servidor
+        run: |
+          ssh "$VPS_USER@$VPS_HOST" \
+            "ls -l $APP_DIR/Files/Gex/gex_switch_state.json $APP_DIR/Files/skew25_history.json" || true
+
+      # Sin esto, un deploy fallido no deja nada para diagnosticar y hay que entrar a mano.
+      - name: Logs del servicio (solo si algo fallo)
+        if: failure()
+        run: ssh "$VPS_USER@$VPS_HOST" "sudo -n journalctl -u $SERVICE -n 80 --no-pager" || true
