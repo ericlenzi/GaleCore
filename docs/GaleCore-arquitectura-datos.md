@@ -504,8 +504,9 @@ la máquina del operador, y Npgsql es un ensamblado net8.0 que no carga en Power
 de operaciones que depende de que ninguna de esas dos cosas cambie es peor que uno que imprime la
 consulta y dice por qué. Automatizarlo es una decisión aparte.
 
-El orden entre migrar y deployar lo orquesta el comando `/deploy-api`
-(`.claude/commands/deploy-api.md`), que no reimplementa ninguno de los dos scripts.
+El orden entre migrar y deployar no lo decide ningún script: lo aditivo va antes de
+`deploy-api.ps1`, lo destructivo después. `migrate-db.ps1` lo dice en cada corrida, pero la decisión
+es del operador.
 
 ### Pendientes
 

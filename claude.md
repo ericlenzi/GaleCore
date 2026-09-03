@@ -154,8 +154,7 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   (pooler de transacción) no avisa que el problema es el puerto. Muestra el SQL idempotente antes
   de aplicarlo —una migración no tiene rollback— y **clasifica el cambio, porque el orden contra el
   deploy depende de eso**: lo aditivo va ANTES de `deploy-api.ps1`, lo destructivo DESPUÉS, con el
-  binario que ya no usa esa columna arriba y respondiendo. El comando `/deploy-api`
-  (`.claude/commands/deploy-api.md`) orquesta los dos scripts en ese orden.
+  binario que ya no usa esa columna arriba y respondiendo.
 
   El procedimiento completo, el sufijo del pooler y por qué `ALTER DEFAULT PRIVILEGES` no es
   opcional, en [`docs/GaleCore-arquitectura-datos.md`](docs/GaleCore-arquitectura-datos.md) §10.
