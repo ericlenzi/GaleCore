@@ -207,9 +207,10 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
 - Configuración por entorno — qué archivo se lee dónde
   `appsettings.json` es la base y siempre se lee; encima se aplica `appsettings.{Environment}.json`.
   Local es **Development** (lo fija `launchSettings.json` en los dos perfiles) y el VPS es
-  **Production**: si `ASPNETCORE_ENVIRONMENT` no está declarada, ASP.NET Core asume ese valor, así
-  que hoy funciona por default. Declararla explícita en `/etc/galecore/datafeed.env` cuesta una línea
-  y evita que el entorno de producción dependa de una omisión.
+  **Production**, declarado en `ASPNETCORE_ENVIRONMENT` dentro de `/etc/galecore/datafeed.env` y
+  verificado el 2026-09-03 en el entorno del proceso vivo, no solo en el archivo. ASP.NET Core asume
+  `Production` cuando la variable no está, así que antes funcionaba igual — pero por omisión, y una
+  omisión no se puede leer.
 
   * **`appsettings.Production.json` está trackeado** (desde 2026-09-03). Es el que viaja adentro del
     paquete del deploy, y mientras estuvo gitignoreado el que llegaba al servidor era el que tuviera
