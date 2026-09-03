@@ -204,6 +204,26 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   rollback**: `tar -xzf` extrae encima, sin backup y sin borrar lo que ya no va. Volver atrás es
   hacer checkout del commit anterior y deployar de nuevo.
 
+- Configuración por entorno — qué archivo se lee dónde
+  `appsettings.json` es la base y siempre se lee; encima se aplica `appsettings.{Environment}.json`.
+  Local es **Development** (lo fija `launchSettings.json` en los dos perfiles) y el VPS es
+  **Production**: si `ASPNETCORE_ENVIRONMENT` no está declarada, ASP.NET Core asume ese valor, así
+  que hoy funciona por default. Declararla explícita en `/etc/galecore/datafeed.env` cuesta una línea
+  y evita que el entorno de producción dependa de una omisión.
+
+  * **`appsettings.Production.json` está trackeado** (desde 2026-09-03). Es el que viaja adentro del
+    paquete del deploy, y mientras estuvo gitignoreado el que llegaba al servidor era el que tuviera
+    en disco la máquina de quien deployaba — invisible en un PR y ausente en una clone nueva.
+  * **`appsettings.Development.json` NO está trackeado**: es por máquina (lleva el número de cuenta
+    del operador) y no viaja a ningún lado — `deploy-api.ps1` lo borra del paquete antes de subirlo.
+  * **En ninguno de los dos va un secreto.** En local van a user-secrets; en producción a
+    `/etc/galecore/datafeed.env`, y las variables de entorno le ganan a cualquier JSON. Por eso el de
+    Production puede estar trackeado.
+  * En el archivo de entorno va **solo lo que difiere** de la base — hoy, el nivel de log: `Debug` en
+    local, `Information` con el framework en `Warning` en producción. Repetir una clave con el mismo
+    valor es una copia que algún día se desincroniza, y repetirla vacía es peor: pisa con `""` lo que
+    la base traiga mañana.
+
 - Taxonomía de la API — controllers y tags de Swagger
   Dos controllers, cada uno con su prefijo de ruta; dentro, los endpoints se agrupan por tag de Swagger.
 
