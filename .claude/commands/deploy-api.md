@@ -62,18 +62,29 @@ Tres desenlaces, y el orden contra el deploy depende de cuál sea:
 Si el dry-run corta por credencial o por puerto, el mensaje ya trae el comando exacto: lo paso tal
 cual y espero, no improviso una cadena de conexión.
 
-### 3. Deploy
+### 3. Deploy — dos caminos, y el normal es el pipeline
+
+**Si lo que se despliega ya está en master**, el camino es `.github/workflows/deploy.yml`: dispara
+solo en el merge y queda esperando aprobación en el environment `production`. Mi trabajo acá es
+decirle al operador que hay una corrida esperando y **cuál es la decisión que está aprobando** —
+sobre todo si el paso 2 encontró una migración destructiva pendiente. No apruebo yo: la aprobación
+es de una persona, y es el único gate que tiene este despliegue.
+
+Para redesplegar un commit viejo (el rollback de hoy): Actions → Deploy API → Run workflow, con el
+commit en `ref`.
+
+**Si hay que desplegar una rama sin pasar por master**, o Actions no está disponible:
 
 ```
 .\deploy-api.ps1
 ```
 
 Con `--skip-publish` en los argumentos del comando, uso `.\deploy-api.ps1 -SkipPublish` (sirve
-cuando el operador ya publicó desde Visual Studio con FolderProfile).
+cuando el operador ya publicó desde Visual Studio con FolderProfile). Pide la contraseña de sudo
+**dos veces** (`ssh -t` abre TTY): es interactivo por diseño, el operador tiene que estar delante.
 
-**Pide la contraseña de sudo dos veces** (`ssh -t` abre TTY). Es interactivo por diseño: el operador
-tiene que estar delante. No hay forma desatendida sin una regla de sudoers acotada, que es una
-decisión que nadie tomó.
+Si el workflow falla en el paso de SSH, lo más probable es que falte la puesta en marcha de una sola
+vez — clave del CI, script privilegiado, sudoers, secret y environment: está en `deploy/README.md`.
 
 ### 4. Verificación
 

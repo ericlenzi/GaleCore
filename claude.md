@@ -201,9 +201,23 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   `Files/skew25_history.json`): extraerlos encima pisaría los switches del operador con los de la
   máquina que deploya, y una estrategia amanecería apagada sin que nadie la tocara. Empaqueta **el
   working tree**, no lo que está en master. Pide la contraseña de sudo dos veces (`ssh -t` abre
-  TTY), así que no es desatendible sin una regla de sudoers acotada que nadie decidió, y **no tiene
-  rollback**: `tar -xzf` extrae encima, sin backup y sin borrar lo que ya no va. Volver atrás es
-  hacer checkout del commit anterior y deployar de nuevo.
+  TTY), así que no es desatendible, y **no tiene rollback**: `tar -xzf` extrae encima, sin backup y
+  sin borrar lo que ya no va. Volver atrás es desplegar el commit anterior.
+
+  **Desde el 2026-09-03 el camino normal es el pipeline, no el script.**
+  `.github/workflows/deploy.yml` dispara en cada push a master y **queda esperando aprobación** en
+  el environment `production` antes de tocar el VPS — ese click es donde se decide el orden contra
+  una migración destructiva. Construye desde un commit, no desde el working tree de quien deploya, y
+  su único paso privilegiado es `/usr/local/bin/galecore-deploy`: un script de root que vive en el
+  servidor, no toma argumentos y tiene la regla de sudoers acotada a él (un `NOPASSWD` sobre `tar` y
+  `chown` con argumentos libres habría sido `NOPASSWD` sobre cualquier cosa). No dispara nunca en
+  `pull_request`: el repo es público y eso le daría la clave del VPS a cualquier fork.
+  `deploy-api.ps1` **no se elimina** — es el camino para desplegar una rama sin pasar por master, y
+  la salida si Actions no está disponible.
+
+  **La puesta en marcha es de una sola vez y está en [`deploy/README.md`](deploy/README.md)** (clave
+  SSH del CI, instalación del script, sudoers, secret y environment). Hasta que esté hecha, el
+  workflow falla en el paso de SSH.
 
 - Taxonomía de la API — controllers y tags de Swagger
   Dos controllers, cada uno con su prefijo de ruta; dentro, los endpoints se agrupan por tag de Swagger.
