@@ -475,6 +475,38 @@ Los privilegios por defecto se aplican **según quién crea** el objeto, así qu
 migraciones corren con la identidad de `galecore_ddl`. Una migración aplicada como `postgres` sin
 `SET ROLE` crea tablas que esta regla no alcanza.
 
+### Tomadas (2026-09-03) — el procedimiento deja de ser prosa
+
+Todo lo de arriba estaba escrito y era correcto, y aun así cada migración se aplicaba a mano
+releyendo esta sección. **Lo que estaba documentado pero no ejecutable pasó a `migrate-db.ps1`**, en
+la raíz del repo, hermano de `deploy-api.ps1`:
+
+* **Resuelve la cadena replicando el orden de `GaleCoreDbContextFactory` y la nombra antes de
+  conectar.** Captura el valor del user-secret pero imprime solo host, puerto, base y usuario: la
+  contraseña no sale por pantalla. Si no hay credencial de DDL corta ahí con el
+  `dotnet user-secrets set` exacto, en vez de dejar que el tooling caiga a la cadena de la API y el
+  `permission denied` aparezca después del viaje.
+* **Corta si el puerto es el 6543** y avisa si el usuario no es `galecore_ddl` o si el host es de
+  pooler y el usuario no trae el sufijo del proyecto.
+* **Muestra el SQL idempotente entre lo aplicado y el destino, entero, antes de pedir confirmación**
+  (hay que escribir `aplicar`; `-DryRun` termina antes de tocar nada). Una migración no tiene
+  rollback: no hay backup de la base en este flujo.
+* **Clasifica el cambio en aditivo o destructivo**, porque el orden contra el deploy depende de eso:
+  lo aditivo va antes de `deploy-api.ps1`, lo destructivo después, con el binario que ya no usa esa
+  columna arriba y respondiendo. Expand / contract. Esa decisión no estaba escrita en ningún lado, y
+  es la que rompe producción si se toma al revés.
+* **Si la migración crea una tabla, imprime las dos consultas de verificación de permisos** — la de
+  `information_schema.role_table_grants` y la de `pg_default_acl` — que son exactamente lo que la
+  decisión del 2026-09-01 descubrió que nunca se había corrido.
+
+**Lo que el script NO hace, a propósito:** ejecutar esas consultas. Necesita `psql`, que no está en
+la máquina del operador, y Npgsql es un ensamblado net8.0 que no carga en PowerShell 5.1. Un script
+de operaciones que depende de que ninguna de esas dos cosas cambie es peor que uno que imprime la
+consulta y dice por qué. Automatizarlo es una decisión aparte.
+
+El orden entre migrar y deployar lo orquesta el comando `/deploy-api`
+(`.claude/commands/deploy-api.md`), que no reimplementa ninguno de los dos scripts.
+
 ### Pendientes
 
 1. ¿Se adopta la inversión del flujo (§4)? El plan la pone después de la base, porque no es urgente.
