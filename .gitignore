@@ -59,12 +59,15 @@ source/galecore-datafeed/DataFeed.Api/Files/**/*_workers_state.json
 # y la key de FRED — las mismas cuatro en los dos archivos.
 # Development: los secretos se mudaron a user-secrets del proyecto DataFeed.Api y el archivo quedó
 #   solo con lo que NO es secreto.
-# Production: el archivo NO se toca. Sigue en disco con sus valores y el publish de Visual Studio
-#   lo sube desde el output, así que sacarlo del índice no afecta al deploy. Mudarlo de verdad es
-#   cargar esos valores en Azure App Settings y recién ahí vaciarlo.
-# Ojo: sacarlos del índice no los borra del historial — hay que ROTAR esas credenciales.
+# Ojo: sacarlos del índice no los borra del historial — hubo que ROTAR esas credenciales.
+#
+# Production VOLVIÓ al índice el 2026-09-03, ya vaciado: es el archivo que viaja al VPS, y sin
+#   trackear, el que llegaba era el que tuviera en disco la máquina de quien deploya — invisible en
+#   un PR y ausente en una clone nueva. Los secretos de producción no están ahí sino en
+#   /etc/galecore/datafeed.env, y las variables de entorno le ganan a cualquier JSON.
+# Development se queda afuera: es por máquina (número de cuenta del operador) y no viaja a ningún
+#   lado — deploy-api.ps1 lo borra del paquete antes de subirlo.
 source/galecore-datafeed/DataFeed.Api/appsettings.Development.json
-source/galecore-datafeed/DataFeed.Api/appsettings.Production.json
 
 # Backtesting datasets — se versiona research/data/ (derived/ + vvix) EXCEPTO
 # las carpetas de cadenas crudas, pesadas y re-descargables:
