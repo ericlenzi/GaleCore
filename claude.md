@@ -348,6 +348,11 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   `BackgroundService`, que en GEX ni siquiera existe— y no lo que el operador hace con él. La
   etiqueta del botón es solo **ON/OFF**: qué se apaga lo dice el contexto donde vive el switch.
 
+  **Y ON/OFF es vocabulario reservado.** Un control que prende y apaga algo para quien lo mira —el
+  encuadre del gráfico de GEX, por ejemplo— no se dibuja como este switch: acá ON/OFF significa kill
+  switch global y de admin, y usar la misma forma para una preferencia de pantalla hace que dos
+  cosas de peso muy distinto se lean igual. Ver "el eje de precio es uno solo".
+
   **El switch apaga TODA la actividad de su estrategia**, no solo sus procesos de fondo: loops,
   suscripciones al hub, timers de refresh y las llamadas REST que dispara su pantalla. Una estrategia
   en OFF no puede seguir ocupando el feed ni pidiendo datos.
@@ -667,8 +672,10 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   │   │   ├── SymbolSearchCard.tsx # Última card de la grilla: buscar un símbolo fuera del universo. No sabe de GEX — recibe sus parámetros y avisa qué eligieron
   │   │   └── TickerGrid.tsx      # Grid de TickerCards. `symbols` es obligatorio: lo pasa la estrategia dueña de la pantalla. `trailing` es la card extra del final
   │   ├── chart/
-  │   │   ├── GexChart.tsx        # Gráfico LW-Charts: precio + GEX barras + muros + std dev
-  │   │   └── GexBarsPanel.tsx    # Panel de barras de gamma por strike
+  │   │   ├── GexChart.tsx        # Gráfico LW-Charts: velas + muros + bandas + std dev. Dueño del eje
+  │   │   │                       #   de precio y de su encuadre (botón de la mira, prop `alineado`)
+  │   │   └── GexBarsPanel.tsx    # Barras de gamma por strike. SIN escala propia: traduce con el
+  │   │                           #   priceToCoordinate del gráfico, así que comparten eje
   │   ├── account/
   │   │   ├── AccountSummary.tsx  # Net Liq, Buying Power, Cash
   │   │   ├── BrokerAccountCard.tsx # Vincular/desvincular la cuenta de bróker propia y rotar el refresh token
@@ -786,6 +793,53 @@ Las estrategias son ciudadanos de primera, no parte del núcleo. Hoy hay dos: **
   codifica el rol en la posición (rojo = leg long, ámbar = leg short, rojo de fondo = MAX LOSS) y
   los dos muros van en un índigo neutro. Meter la convención de lado ahí haría que el rojo
   significara tres cosas distintas en la misma franja.
+
+- Regla — el eje de precio es uno solo, y el encuadre es del operador
+  El gráfico de velas y el panel de barras de GEX **comparten el eje de precio**: `GexBarsPanel` no
+  tiene escala propia — posiciona cada strike, muro y banda traduciendo precio a píxel con el
+  `priceToCoordinate` de la serie de velas. Por eso todo lo que mueva la escala tiene que redibujar
+  el panel, y ahí hay una trampa: lightweight-charts **no publica ningún evento de cambio de rango
+  de precio**. `subscribeVisibleLogicalRangeChange` es del eje de TIEMPO, así que arrastrar la
+  escala vertical no disparaba nada y las barras se quedaban con las coordenadas anteriores hasta el
+  siguiente render por otra causa. `GexChart` escucha los gestos que la cambian y **compara el
+  mapeo** antes de redibujar —así un pan horizontal no redibuja el SVG entero—, mirando una ventana
+  corta de frames porque el rango nuevo puede aplicarse uno o dos frames después.
+
+  **El botón de la mira** —encabezado del cuadro Graph, a la izquierda del spot— encuadra el eje en
+  la zona gamma: arriba el mayor entre 1er EM, Call Wall y borde de la banda call; abajo el menor
+  entre −1er EM, Put Wall y borde de la banda put; más `padding_pct` del alto a cada lado. Qué
+  anclas y cuánto aire lo declara `display_config.gex_tab.chart_scale` del JSON de GEX —el front
+  solo sabe resolver cada id— y lo congela `GexRulesJsonTests`.
+  * **El aire va en proporción del marco, no en strikes.** Dos strikes son el 17% del alto en un
+    0DTE y el 3% a 42 días: la misma regla se ve enorme de un lado y no se ve del otro. Y con el
+    encuadre puesto el eje pone en cero su propio `scaleMargins` del 8%, para que el número del JSON
+    sea el aire que se ve y no la mitad.
+  * **El marco NO se centra en el spot.** Va pegado a las anclas, y el spot queda al medio solo
+    cuando el EM es el que manda de los dos lados — es la única ancla simétrica.
+  * **El 1er EM sale del backend**, que lo calcula con la IV ATM de ese vencimiento. La cuenta local
+    (`IV 30d × √(DTE/365)`) es el fallback y tiene un agujero: con `DTE = 0` da CERO, así que en el
+    0DTE el EM desaparecía como ancla y las líneas ±1σ ni se dibujaban.
+
+  **Es un toggle con estado a la vista, no una acción.** Prendido reencuadra con cada barrido y cada
+  cambio de vencimiento; **mover la escala a mano lo apaga solo** y no toca el eje — el encuadre pasa
+  a ser del operador hasta que vuelva a apretarlo, y un botón encendido sobre un encuadre que ya no
+  es el suyo miente. Su estado vive en la **pantalla** (`Gex.tsx`) y no en el gráfico, que se remonta
+  por símbolo (`key={active}`) y lo perdería al cambiar de ticker.
+
+  **No se dibuja como el switch ON/OFF del proyecto**: ese vocabulario ya significa otra cosa —el
+  kill switch de una estrategia, global y de admin (ver "switch por estrategia")— y esto es una
+  preferencia de quien mira un gráfico. Va como botón de barra con estado apretado.
+
+  **Encuadrar es prender el autoscale y soltarlo**, en dos frames. El proveedor de autoescala es la
+  única forma de fijar un rango en lightweight-charts y solo se consulta con el autoscale prendido,
+  pero dejarlo prendido **clava el gráfico**: el eje vuelve al encuadre apenas lo movés. Se prende
+  para que recalcule y se apaga en el frame siguiente. Y el rango **vive en la serie**, así que
+  reemplazarla —que es lo que pasa cuando llegan las velas y la línea se convierte en velas— lo
+  borra: hay que reponerlo ahí.
+
+  **Corolario que costó un rato:** `chartData` se arma en `Gex.tsx` y tiene que ir memoizado. Sin
+  eso se rehace en cada render de la pantalla —o sea con cada tick de precio—, el gráfico lo ve como
+  datos nuevos y el encuadre se recalcula varias veces por segundo, encima del gesto del operador.
 
 - Manejo del tiempo real
   * Conexión SignalR
