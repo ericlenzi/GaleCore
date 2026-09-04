@@ -150,9 +150,70 @@ export function GexChart({
     });
     ro.observe(el);
 
+    // ── Sincronización con el eje de PRECIO ───────────────────────────────────
+    // `subscribeVisibleLogicalRangeChange` es del eje de TIEMPO: arrastrar o hacer rueda sobre la
+    // escala vertical no lo dispara. Como el panel de barras no tiene escala propia —posiciona cada
+    // strike con el `priceToCoordinate` de esta misma serie— se quedaba con las coordenadas
+    // anteriores hasta el siguiente render por otra causa: un tick de precio, un scroll horizontal
+    // o un resize. Con el mercado cerrado eso es "hasta que muevas otra cosa".
+    //
+    // lightweight-charts no publica un evento de cambio de rango de precio, así que se escuchan los
+    // gestos que lo cambian y se compara el mapeo antes de re-renderizar: en un pan horizontal el
+    // eje de precio no se movió y el panel no tiene por qué redibujar su SVG entero.
+    // La firma son dos coordenadas fijas leídas al revés (`coordinateToPrice`): el mapeo es lineal,
+    // así que dos puntos detectan tanto un desplazamiento como un zoom. Va en ese sentido y no con
+    // `priceToCoordinate` de dos precios sonda porque las coordenadas 0 y 100 siempre son válidas,
+    // mientras que un precio sonda fuera de la vista depende de cómo extrapole la librería.
+    const firmaEscala = () => {
+      const s = seriesRef.current;
+      if (!s) return null;
+      const arriba = s.coordinateToPrice(0);
+      const abajo  = s.coordinateToPrice(100);
+      return arriba == null || abajo == null ? null : `${arriba}|${abajo}`;
+    };
+    let firmaPrev = firmaEscala();
+    const sincronizar = () => {
+      const f = firmaEscala();
+      if (f === firmaPrev) return;
+      firmaPrev = f;
+      bump();
+    };
+    // El doble click (reset del autoscale) y el final de un arrastre pueden aplicarse recién en el
+    // frame siguiente; una segunda pasada en rAF los alcanza sin dejar un loop permanente corriendo.
+    let rafId = 0;
+    const sincronizarPronto = () => {
+      sincronizar();
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(sincronizar);
+    };
+
+    let arrastrando = false;
+    const onDown = () => { arrastrando = true; };
+    const onMove = () => { if (arrastrando) sincronizar(); };
+    const onUp   = () => { if (!arrastrando) return; arrastrando = false; sincronizarPronto(); };
+
+    el.addEventListener('pointerdown', onDown);
+    // move/up escuchan en window: el arrastre del eje sigue vivo aunque el puntero se salga del
+    // gráfico, y ahí el evento ya no pasa por el contenedor.
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    el.addEventListener('wheel', sincronizarPronto, { passive: true });
+    el.addEventListener('dblclick', sincronizarPronto);
+
     setChartH(el.clientHeight || 400);
 
-    return () => { ro.disconnect(); chart.remove(); };
+    return () => {
+      ro.disconnect();
+      cancelAnimationFrame(rafId);
+      el.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      el.removeEventListener('wheel', sincronizarPronto);
+      el.removeEventListener('dblclick', sincronizarPronto);
+      chart.remove();
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load intraday candles ─────────────────────────────────────────────────
