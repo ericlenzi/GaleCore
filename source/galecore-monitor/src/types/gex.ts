@@ -147,6 +147,14 @@ export interface GexChartData {
    */
   callBand: GammaBandApi | null;
   putBand: GammaBandApi | null;
+  /**
+   * El expected move del vencimiento, tal como lo calcula el backend con la IV ATM de ESA
+   * expiración. `null` en el agregado, que no tiene un `t`.
+   *
+   * Va en el contrato del gráfico porque la cuenta con IV 30d y DTE da **cero en un 0DTE** (t = 0),
+   * y ahí el 1er EM es justamente lo único que separa el marco de la ancho de los muros.
+   */
+  expectedMove: number | null;
   strikes: GexStrike[];
 }
 
@@ -182,6 +190,24 @@ export interface GexTabDisplayConfig {
   refresh_seconds?: number;
   default_expiry?: string;
   candles?: { interval?: string; count?: number; right_pad_bars?: number };
+  /**
+   * El botón de la mira: cómo encuadra el eje de precio en la zona gamma.
+   *
+   * Los ids de ancla son de este contrato, no del front: `expected_move_1sigma`, `call_wall`,
+   * `call_band_high` arriba y `expected_move_1sigma`, `put_wall`, `put_band_low` abajo. Uno que el
+   * front no sepa resolver se ignora — el JSON manda, pero un id nuevo no puede dejar sin encuadre
+   * a un tablero viejo.
+   */
+  chart_scale?: {
+    label?: string;
+    /**
+     * Aire a cada lado, como fracción del alto del marco (0.06 = 6%). En proporción y no en
+     * strikes: dos strikes son el 17% del marco en un 0DTE y el 3% a 42 días.
+     */
+    padding_pct?: number;
+    upper_anchors?: string[];
+    lower_anchors?: string[];
+  };
   details_panel?: {
     subtitle?: string;
     microstructure?: boolean;

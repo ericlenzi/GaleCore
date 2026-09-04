@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw, BookOpen } from 'lucide-react';
+import { RefreshCw, BookOpen, Crosshair } from 'lucide-react';
 import { TickerGrid } from '../components/ticker/TickerGrid';
 import { SymbolSearchCard } from '../components/ticker/SymbolSearchCard';
 import { DetailsPanel } from '../components/gex/DetailsPanel';
@@ -57,6 +57,7 @@ function toChartData(symbol: string, spot: number, expiry: GexExpiryApi | null):
     putWall: expiry.putWall ?? 0,
     callBand: expiry.callBand,
     putBand: expiry.putBand,
+    expectedMove: expiry.expectedMove,
     strikes: toChartStrikes(expiry.strikes),
   };
 }
@@ -86,6 +87,7 @@ function globalToChartData(symbol: string, spot: number, global: GexScopeApi): G
     putWall: global.putWall ?? 0,
     callBand: null,
     putBand: null,
+    expectedMove: null,
     strikes: toChartStrikes(global.strikes),
   };
 }
@@ -129,6 +131,15 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
 
   const ticker = useMarketStore((s) => (active ? s.tickers[active] : undefined));
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /**
+   * El botón de la mira: ON encuadra el eje de precio en la zona gamma y lo mantiene ahí con cada
+   * barrido y cada cambio de vencimiento.
+   *
+   * Vive acá y no adentro del gráfico porque el gráfico se remonta por símbolo (`key={active}`, para
+   * no volver a pedir las velas al cambiar de vencimiento): un modo guardado adentro se perdería al
+   * volver de otro ticker, y el botón no tendría dónde leerlo.
+   */
+  const [alineado, setAlineado] = useState(false);
 
   useEffect(() => { loadRules(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -190,11 +201,17 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
     [expiries, activeExpiration, isGlobalScope],
   );
 
-  const chartData = !active || !data
-    ? null
-    : isGlobalScope
-      ? globalToChartData(active, data.spotPrice ?? 0, data.gex.global)
-      : toChartData(active, data.spotPrice ?? 0, activeExpiry);
+  // Memoizado: sin esto el objeto se rehace en CADA render de la pantalla —o sea con cada tick de
+  // precio— y el gráfico lo ve como datos nuevos. El encuadre del eje cuelga de ese cambio, así que
+  // se recalculaba varias veces por segundo y le peleaba la escala al operador mientras la movía.
+  const chartData = useMemo(
+    () => (!active || !data
+      ? null
+      : isGlobalScope
+        ? globalToChartData(active, data.spotPrice ?? 0, data.gex.global)
+        : toChartData(active, data.spotPrice ?? 0, activeExpiry)),
+    [active, data, isGlobalScope, activeExpiry],
+  );
 
   // IV del vencimiento seleccionado, anualizada en % — alimenta las bandas ±1σ/±2σ del gráfico.
   // En global queda undefined y las bandas no se dibujan: el agregado no tiene IV ATM (ni un solo
@@ -453,11 +470,37 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
               }}>
                 {active} · Graph ({isGlobalScope ? 'GEX Global — toda la cadena' : 'GEX by Expiry'})
               </span>
-              <span className="tabular-nums" style={{
-                fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-muted)',
-              }}>
-                Spot {fmtPrice(ticker?.price || data?.spotPrice || 0)}
-              </span>
+              {/* A la derecha, y a la izquierda del spot: encuadrar la escala en la zona gamma.
+                  Es un toggle con estado a la vista —no el switch ON/OFF del proyecto, que significa
+                  otra cosa (kill switch de estrategia, global y de admin)— porque esto es una
+                  preferencia de quien mira el gráfico. Se apaga solo cuando mueven la escala. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button
+                  onClick={() => setAlineado(v => !v)}
+                  disabled={!chartData}
+                  className="btn"
+                  aria-pressed={alineado}
+                  title={alineado
+                    ? 'Alineación activa — clic para soltar la escala'
+                    : (display?.chart_scale?.label ?? 'Encuadrar la escala en la zona gamma')}
+                  style={{
+                    padding: '3px 6px',
+                    ...(alineado ? {
+                      color: 'var(--blue-gc)',
+                      backgroundColor: 'var(--blue-muted)',
+                      borderColor: 'var(--blue-border)',
+                    } : null),
+                  }}
+                  aria-label="Encuadrar la escala en la zona gamma"
+                >
+                  <Crosshair size={11} />
+                </button>
+                <span className="tabular-nums" style={{
+                  fontSize: 10, fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-muted)',
+                }}>
+                  Spot {fmtPrice(ticker?.price || data?.spotPrice || 0)}
+                </span>
+              </div>
             </div>
 
             <div style={{ display: 'flex', height: DETAIL_HEIGHT }}>
@@ -516,6 +559,9 @@ export function Gex({ subscribeSymbol, unsubscribeSymbol, socketStatus }: GexPro
                     maxCandles={display?.candles?.count ?? 100}
                     candleFromDays={30}
                     rightPadBars={display?.candles?.right_pad_bars ?? 10}
+                    scaleConfig={display?.chart_scale}
+                    alineado={alineado}
+                    onDesalinear={() => setAlineado(false)}
                   />
                 )}
               </div>

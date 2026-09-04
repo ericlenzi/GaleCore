@@ -9,7 +9,7 @@ import {
   ColorType,
   CrosshairMode,
 } from 'lightweight-charts';
-import { GammaBandApi, GexChartData } from '../../types/gex';
+import { GammaBandApi, GexChartData, GexTabDisplayConfig } from '../../types/gex';
 import { BAND_FILL_ALPHA, CALL_COLOR, PUT_COLOR, sideColorAlpha } from '../../utils/optionSideColors';
 import { fetchEquityCandles } from '../../api/marketdata';
 import { fmtPrice, etDateParts, etOffsetMinutes } from '../../utils/formatters';
@@ -31,12 +31,108 @@ interface Props {
   candleFromDays?: number;
   /** Barras vacías a la derecha: corren las velas a la izquierda y dejan aire para el precio. */
   rightPadBars?: number;
+  /** `display_config.gex_tab.chart_scale`: qué anclas y cuánto aire usa el encuadre. */
+  scaleConfig?: GexTabDisplayConfig['chart_scale'];
+  /**
+   * El botón de la mira. En ON el eje de precio se encuadra en la zona gamma y se vuelve a encuadrar
+   * con cada barrido; en OFF manda el encuadre por muros.
+   *
+   * El estado vive en la PANTALLA y no acá: el gráfico se remonta por símbolo (`key`), así que un
+   * modo guardado adentro se perdería al cambiar de ticker.
+   */
+  alineado?: boolean;
+  /** Lo llama el gráfico cuando el operador mueve la escala a mano: la alineación se apaga sola. */
+  onDesalinear?: () => void;
 }
 
 const DEFAULT_BUCKET = 5 * 60;
 
 /** Píxeles de área de precio por debajo de los cuales no vale la pena descontarle el eje al sombreado. */
 const MIN_ANCHO_SOMBRA = 80;
+
+/** Aire a cada lado del encuadre, como fracción del alto del marco, cuando el JSON no lo declara. */
+const PADDING_PCT = 0.06;
+
+/** El 8% que el eje de precio se reserva arriba y abajo fuera del encuadre gamma. */
+const SCALE_MARGIN = 0.08;
+
+type Rango = { lo: number; hi: number };
+
+/**
+ * Las anclas de cada lado, por el id que declara el JSON (`chart_scale.upper_anchors` /
+ * `lower_anchors`). Son los tres niveles que el gráfico ya dibuja de ese lado, así que el encuadre
+ * no inventa una referencia nueva: encuadra lo que el operador está mirando.
+ *
+ * `null` es "esta ancla no aplica acá" y no cero: el scope GLOBAL no tiene bandas, y un 0 metido en
+ * el `Math.min` de abajo mandaría el piso del gráfico al origen.
+ */
+const ANCLAS_ARRIBA: Record<string, (g: GexChartData, em: number) => number | null> = {
+  expected_move_1sigma: (g, em) => (em > 0 ? g.spot + em : null),
+  call_wall:            (g)     => (g.callWall > 0 ? g.callWall : null),
+  call_band_high:       (g)     => (g.callBand ? g.callBand.high : null),
+};
+
+const ANCLAS_ABAJO: Record<string, (g: GexChartData, em: number) => number | null> = {
+  expected_move_1sigma: (g, em) => (em > 0 ? g.spot - em : null),
+  put_wall:             (g)     => (g.putWall > 0 ? g.putWall : null),
+  put_band_low:         (g)     => (g.putBand ? g.putBand.low : null),
+};
+
+/**
+ * El 1er EM: el mismo número que dibuja la línea ±1σ y que encuadra el botón. Sale de acá y no de
+ * dos cuentas parecidas — si el botón encuadrara con un EM distinto del que se ve, el borde caería
+ * en cualquier lado.
+ *
+ * **Primero el del backend**, que lo calcula con la IV ATM de ESE vencimiento. La cuenta local con
+ * IV 30d es el fallback y tiene un agujero: con `dte = 0` da CERO, así que en un 0DTE el 1er EM
+ * desaparecía como ancla y el marco se reducía al ancho de los muros —tres puntos— con las velas
+ * de 30 días adentro. El agregado no tiene EM y ahí el cero es correcto: no hay vencimiento.
+ */
+function expectedMove(g: GexChartData, iv30?: number): number {
+  if (g.expectedMove && g.expectedMove > 0) return g.expectedMove;
+  return iv30 && iv30 > 0 && g.spot > 0 && g.dte > 0
+    ? g.spot * (iv30 / 100) * Math.sqrt(g.dte / 365)
+    : 0;
+}
+
+/**
+ * El encuadre "zona gamma": del mayor ancla de arriba al menor ancla de abajo, más `padding_pct`
+ * del alto resultante a cada lado.
+ *
+ * **El aire va en proporción y no en strikes.** Dos strikes son el 17% del marco en un 0DTE (unos
+ * 13 puntos de alto) y el 3% en un vencimiento a 42 días (unos 69): la misma regla se ve enorme de
+ * un lado y no se ve del otro. Un porcentaje se ve igual en los dos.
+ *
+ * **El marco no se centra en el spot**: va pegado a las anclas. El spot queda al medio solo cuando
+ * el EM es el ancla que manda de los dos lados, porque es la única simétrica — con el EM en cero
+ * (0DTE) mandan el muro de arriba y la banda de abajo, que están a distancias distintas.
+ */
+function rangoZonaGamma(
+  g: GexChartData, iv30: number | undefined, cfg?: GexTabDisplayConfig['chart_scale'],
+): Rango | null {
+  const em = expectedMove(g, iv30);
+  const resolver = (ids: string[] | undefined, mapa: typeof ANCLAS_ARRIBA) =>
+    (ids ?? Object.keys(mapa))
+      .map(id => mapa[id]?.(g, em) ?? null)
+      .filter((v): v is number => v != null && isFinite(v) && v > 0);
+
+  const arriba = resolver(cfg?.upper_anchors, ANCLAS_ARRIBA);
+  const abajo  = resolver(cfg?.lower_anchors, ANCLAS_ABAJO);
+  if (!arriba.length || !abajo.length) return null;
+
+  const techo = Math.max(...arriba);
+  const piso  = Math.min(...abajo);
+  if (!(piso < techo)) return null;
+
+  const aire = (techo - piso) * (cfg?.padding_pct ?? PADDING_PCT);
+  return { lo: piso - aire, hi: techo + aire };
+}
+
+/** El encuadre por defecto: los muros con un 1,5% de aire, que es lo que deja las velas legibles. */
+function rangoMuros(g: GexChartData): Rango | null {
+  if (!g.putWall || !g.callWall) return null;
+  return { lo: g.putWall * 0.985, hi: g.callWall * 1.015 };
+}
 
 function getBucket(s: number, bucketSeconds: number) {
   return Math.floor(s / bucketSeconds) * bucketSeconds;
@@ -65,6 +161,9 @@ export function GexChart({
   maxCandles,
   candleFromDays,
   rightPadBars = 0,
+  scaleConfig,
+  alineado = false,
+  onDesalinear,
 }: Props) {
   const outerRef      = useRef<HTMLDivElement>(null);   // flex container
   const containerRef  = useRef<HTMLDivElement>(null);   // chart div
@@ -74,11 +173,96 @@ export function GexChart({
   const candlesRef    = useRef<{ time: number; open: number; high: number; low: number; close: number }[]>([]);
   const useCandlesRef = useRef(false);
 
+  // Los datos vivos que el encuadre necesita para recalcularse. Van en refs porque los efectos que
+  // encuadran se crean una vez: leer las props desde ahí daría las del primer render, o sea el
+  // encuadre del barrido viejo.
+  const gexRef      = useRef<GexChartData | null>(null);
+  const ivRef       = useRef<number | undefined>(undefined);
+  const scaleRef    = useRef<GexTabDisplayConfig['chart_scale']>(undefined);
+  const alineadoRef = useRef(false);
+  const avisarRef   = useRef<(() => void) | undefined>(undefined);
+  scaleRef.current    = scaleConfig;
+  alineadoRef.current = alineado;
+  avisarRef.current   = onDesalinear;
+
+  /** El operador movió el eje de precio a mano: el barrido siguiente no se lo pisa. */
+  const tocadoRef = useRef(false);
+  const soltarRef = useRef(0);
+  /** El vencimiento del último encuadre: cambiarlo SÍ vuelve a encuadrar, aunque lo hayan movido. */
+  const expRef    = useRef<string | null>(null);
+
+  /** La sincronización del panel con el eje de precio, publicada por el efecto de montaje. */
+  const sincronizarRef = useRef<(() => void) | null>(null);
+
   // renderTick: incremented on scroll/resize so GexBarsPanel re-renders
   const [renderTick, setRenderTick] = useState(0);
   const [chartH, setChartH] = useState(400);
 
   const bump = useCallback(() => setRenderTick(n => n + 1), []);
+
+  /**
+   * Fija el rango del eje de precio según el modo activo. Los dos modos comparten camino: el
+   * proveedor de autoescala es lo único que decide qué tramo de precio se ve.
+   */
+  const aplicarEncuadre = useCallback((
+    series: ISeriesApi<'Candlestick' | 'Line', any>, g: GexChartData, iv?: number,
+  ) => {
+    const chart = chartRef.current;
+    const gamma = alineadoRef.current;
+    const rango = gamma ? rangoZonaGamma(g, iv, scaleRef.current) : rangoMuros(g);
+    if (!chart || !rango) return;
+    series.applyOptions({
+      // Sin margen en modo gamma: el aire ya viene medido en strikes, y un porcentaje encima haría
+      // que "dos strikes más" no fueran dos strikes.
+      autoscaleInfoProvider: () => ({
+        priceRange: { minValue: rango.lo, maxValue: rango.hi },
+        margins: { above: gamma ? 0 : 0.10, below: gamma ? 0 : 0.10 },
+      }),
+    });
+
+    // Encuadrar y SOLTAR, en ese orden y en dos frames.
+    //
+    // El proveedor de autoescala es la única forma de fijar un rango de precio en
+    // lightweight-charts, pero solo se consulta con el autoscale PRENDIDO — y con el autoscale
+    // prendido el eje vuelve al encuadre apenas lo movés: el gráfico quedaba clavado, de entrada y
+    // después de cada encuadre. Se prende para que recalcule con el rango nuevo y se apaga en el
+    // frame siguiente, cuando ya lo aplicó: el eje se queda donde lo dejamos y de ahí en más el
+    // operador lo mueve como quiera.
+    // El encuadre que se está aplicando es el nuestro: lo que el operador hubiera movido antes queda
+    // atrás. Va acá y no adentro del rAF de abajo, porque ahí llegaba un frame tarde y en el medio
+    // podía entrar un gesto suyo — y el gesto perdía contra nuestro reset.
+    tocadoRef.current = false;
+
+    const escala = chart.priceScale('right');
+    escala.applyOptions({
+      // El eje se reserva un 8% arriba y abajo por su cuenta. En modo gamma va a cero: el aire lo
+      // declara `padding_pct`, y sumarle otro 8% invisible haría que el número del JSON fuera menos
+      // de la mitad de lo que se ve.
+      scaleMargins: gamma ? { top: 0, bottom: 0 } : { top: SCALE_MARGIN, bottom: SCALE_MARGIN },
+      autoScale: true,
+    });
+    cancelAnimationFrame(soltarRef.current);
+    soltarRef.current = requestAnimationFrame(() => {
+      // El chart puede haberse ido en el frame del medio (cambio de símbolo): aplicarle opciones a
+      // uno destruido tira "incorrect pane index" y rompe la pantalla.
+      if (chartRef.current !== chart) return;
+      escala.applyOptions({ autoScale: false });
+      // El panel de barras se entera por el mismo camino que un gesto: comparando el mapeo. Va
+      // acá y no en cada llamador porque TODO encuadre lo necesita — el del botón y el del barrido.
+      sincronizarRef.current?.();
+    });
+  }, []);
+
+  /**
+   * Prender la alineación encuadra. **Apagarla no toca el eje**: el botón se apaga solo cuando el
+   * operador mueve la escala, y ahí saltar a otro encuadre sería exactamente lo contrario de lo que
+   * pidió con ese gesto.
+   */
+  useEffect(() => {
+    const series = seriesRef.current, g = gexRef.current;
+    if (!alineado || !series || !g) return;
+    aplicarEncuadre(series, g, ivRef.current);
+  }, [alineado]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Encuadre del eje temporal. Con rightPadBars > 0 el rango visible se extiende N barras más allá
   // de la última vela: quedan esos slots vacíos a la derecha y las velas corridas a la izquierda.
@@ -116,7 +300,10 @@ export function GexChart({
         vertLine: { color: '#2d4571', width: 1, style: LineStyle.Dashed, labelBackgroundColor: '#1a2844' },
         horzLine: { color: '#2d4571', width: 1, style: LineStyle.Dashed, labelBackgroundColor: '#1a2844' },
       },
-      rightPriceScale: { borderColor: '#1c2f4a', textColor: '#8da5cc', scaleMargins: { top: 0.08, bottom: 0.08 } },
+      rightPriceScale: {
+        borderColor: '#1c2f4a', textColor: '#8da5cc',
+        scaleMargins: { top: SCALE_MARGIN, bottom: SCALE_MARGIN },
+      },
       // rightOffset mantiene el aire a la derecha cuando el usuario scrollea; fitView lo aplica al
       // encuadre inicial. Sin los dos, el padding se pierde en cuanto el chart se reajusta.
       timeScale: {
@@ -172,25 +359,51 @@ export function GexChart({
       return arriba == null || abajo == null ? null : `${arriba}|${abajo}`;
     };
     let firmaPrev = firmaEscala();
-    const sincronizar = () => {
+    // `porGesto` distingue quién movió el eje: el operador con el mouse, o nosotros al encuadrar.
+    // Solo lo primero marca el eje como suyo — ver tocadoRef.
+    /** Devuelve si el eje se movió — o sea, si hubo algo que redibujar. */
+    const sincronizar = (porGesto: boolean) => {
       const f = firmaEscala();
-      if (f === firmaPrev) return;
+      if (f === firmaPrev) return false;
       firmaPrev = f;
+      if (porGesto) {
+        // Mover la escala a mano APAGA la alineación. El eje pasa a ser del operador, y el botón
+        // tiene que decirlo: un botón encendido sobre un encuadre que ya no es el suyo miente.
+        tocadoRef.current = true;
+        if (alineadoRef.current) avisarRef.current?.();
+      }
       bump();
+      return true;
     };
-    // El doble click (reset del autoscale) y el final de un arrastre pueden aplicarse recién en el
-    // frame siguiente; una segunda pasada en rAF los alcanza sin dejar un loop permanente corriendo.
+    /**
+     * Un cambio de rango puede tardar varios frames en aplicarse: el encuadre del botón prende el
+     * autoscale y lightweight-charts recalcula cuando repinta, y el doble click (su reset propio)
+     * hace lo mismo. Con una sola pasada en rAF el panel de barras se quedaba a veces con las
+     * coordenadas del encuadre anterior, hasta que otra cosa lo redibujara.
+     *
+     * Se mira una ventana corta y se corta en cuanto el eje se movió: ni una sola pasada, que llega
+     * temprano, ni un loop permanente. Cada pasada son dos lecturas de coordenada.
+     */
     let rafId = 0;
-    const sincronizarPronto = () => {
-      sincronizar();
+    const sincronizarPronto = (porGesto: boolean, ms = 400) => {
+      const fin = performance.now() + ms;
       cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(sincronizar);
+      const paso = () => {
+        if (sincronizar(porGesto)) return;
+        if (performance.now() < fin) rafId = requestAnimationFrame(paso);
+      };
+      paso();
     };
+    // El botón de encuadre entra por el mismo camino que un gesto: cambia el rango y pide la
+    // sincronización, en vez de tener su propia forma de avisarle al panel. Pero no es un gesto:
+    // el eje sigue siendo del encuadre, no del operador.
+    sincronizarRef.current = () => sincronizarPronto(false);
 
     let arrastrando = false;
     const onDown = () => { arrastrando = true; };
-    const onMove = () => { if (arrastrando) sincronizar(); };
-    const onUp   = () => { if (!arrastrando) return; arrastrando = false; sincronizarPronto(); };
+    const onMove = () => { if (arrastrando) sincronizar(true); };
+    const onUp   = () => { if (!arrastrando) return; arrastrando = false; sincronizarPronto(true); };
+    const onGesto = () => sincronizarPronto(true);
 
     el.addEventListener('pointerdown', onDown);
     // move/up escuchan en window: el arrastre del eje sigue vivo aunque el puntero se salga del
@@ -198,21 +411,30 @@ export function GexChart({
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
-    el.addEventListener('wheel', sincronizarPronto, { passive: true });
-    el.addEventListener('dblclick', sincronizarPronto);
+    el.addEventListener('wheel', onGesto, { passive: true });
+    el.addEventListener('dblclick', onGesto);
 
     setChartH(el.clientHeight || 400);
 
     return () => {
       ro.disconnect();
       cancelAnimationFrame(rafId);
+      cancelAnimationFrame(soltarRef.current);
       el.removeEventListener('pointerdown', onDown);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
-      el.removeEventListener('wheel', sincronizarPronto);
-      el.removeEventListener('dblclick', sincronizarPronto);
+      el.removeEventListener('wheel', onGesto);
+      el.removeEventListener('dblclick', onGesto);
+      sincronizarRef.current = null;
       chart.remove();
+      // Los refs se limpian DESPUÉS de destruirlo: un chart removido sigue respondiendo a
+      // `priceScale()` pero tira "incorrect pane index" al aplicarle opciones. Pasa de verdad al
+      // cambiar de símbolo, que remonta el componente (`key`), y en dev con StrictMode, que corre
+      // los efectos de nuevo: el efecto del encuadre está declarado antes que este y encontraba el
+      // chart viejo. Con los refs en null, cualquier efecto que llegue tarde no hace nada.
+      chartRef.current  = null;
+      seriesRef.current = null;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -234,6 +456,13 @@ export function GexChart({
         seriesRef.current    = cs;
         useCandlesRef.current = true;
         candlesRef.current   = candles;
+        // El encuadre vive en la SERIE (es su proveedor de autoescala), así que cambiarla lo borra:
+        // la serie de velas nace sin él y el eje se va al rango de las velas — 30 días de recorrido
+        // en vez de la zona gamma. Se vuelve a aplicar acá, que es donde se pierde.
+        //
+        // No se notaba antes porque el efecto del encuadre se disparaba con cada tick de precio
+        // (`chartData` se rehacía en cada render de la pantalla) y lo reponía en milisegundos.
+        if (gexRef.current) aplicarEncuadre(cs, gexRef.current, ivRef.current);
         fitView();
         bump();
       }
@@ -283,23 +512,31 @@ export function GexChart({
     add(gexData.zeroGammaLevel, '#94a3b8', `ZGL ${fmtPrice(gexData.zeroGammaLevel, 0)}`,        1, LineStyle.Dashed);
 
     const spot = gexData.spot;
-    const dte  = gexData.dte;
-    if (iv30 && iv30 > 0 && spot > 0 && dte > 0) {
-      const em = spot * (iv30 / 100) * Math.sqrt(dte / 365);
+    const em   = expectedMove(gexData, iv30);
+    if (em > 0) {
       add(spot + em,     '#60a5fa', `+1σ ${fmtPrice(spot+em, 0)}`,   1, LineStyle.Dotted);
       add(spot - em,     '#60a5fa', `-1σ ${fmtPrice(spot-em, 0)}`,   1, LineStyle.Dotted);
       add(spot + 2 * em, '#3b82f6', `+2σ ${fmtPrice(spot+2*em, 0)}`, 1, LineStyle.Dotted, false);
       add(spot - 2 * em, '#3b82f6', `-2σ ${fmtPrice(spot-2*em, 0)}`, 1, LineStyle.Dotted, false);
     }
 
-    // Tight autoscale: walls + 10% margin — candles stay readable
-    const lo = gexData.putWall  ? gexData.putWall  * 0.985 : undefined;
-    const hi = gexData.callWall ? gexData.callWall * 1.015 : undefined;
-    if (lo != null && hi != null) {
-      series.applyOptions({
-        autoscaleInfoProvider: () => ({ priceRange: { minValue: lo!, maxValue: hi! }, margins: { above: 0.10, below: 0.10 } }),
-      });
-    }
+    // Datos vivos para el botón de encuadre, que corre fuera de este efecto.
+    gexRef.current = gexData;
+    ivRef.current  = iv30;
+
+    // El encuadre se recalcula con cada barrido: si el modo es gamma, los muros y las bandas nuevas
+    // mueven el marco. Congelarlo en el click dejaría el encuadre de hace diez minutos.
+    //
+    // Salvo que el operador haya movido el eje a mano: ahí el eje es suyo hasta que apriete el
+    // botón. Un barrido que le devuelve la escala a su lugar diez minutos después es la misma
+    // molestia que el gráfico clavado, con la sorpresa de que pasa solo.
+    //
+    // Elegir OTRO vencimiento sí reencuadra aunque lo haya movido: eso no es un barrido que llega
+    // solo, es pedir ver otra cosa — y los muros del vencimiento nuevo pueden caer fuera del marco
+    // que quedó del anterior.
+    const cambioDeExpiracion = expRef.current !== gexData.expiration;
+    expRef.current = gexData.expiration;
+    if (cambioDeExpiracion || !tocadoRef.current) aplicarEncuadre(series, gexData, iv30);
 
     fitView();
     bump();

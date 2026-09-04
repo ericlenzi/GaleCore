@@ -200,6 +200,16 @@
         "right_pad_bars": 12,
         "_right_pad_note": "Barras vacias a la derecha del grafico: corren las velas a la izquierda y dejan aire delante del precio."
       },
+      "chart_scale": {
+        "label": "Encuadrar la escala en la zona gamma",
+        "padding_pct": 0.06,
+        "_padding_note": "El aire se mide en PROPORCION del marco y no en strikes: dos strikes son el 17% del alto en un 0DTE (marco de ~13 puntos) y el 3% en un vencimiento a 42 dias (marco de ~69), o sea que la misma regla se ve enorme en un lado y nula en el otro. Un porcentaje se ve igual en los dos. El marco NO se centra en el spot: va pegado a las anclas, asi que el spot queda al medio solo cuando el EM es el que manda de los dos lados.",
+        "_padding_es_todo_el_aire": "Con este encuadre el eje de precio pone scaleMargins en 0, para que padding_pct sea el aire que se ve y no la mitad. Fuera del encuadre el eje conserva su 8% de siempre.",
+        "upper_anchors": ["expected_move_1sigma", "call_wall", "call_band_high"],
+        "lower_anchors": ["expected_move_1sigma", "put_wall", "put_band_low"],
+        "_note": "El boton de la mira, en el encabezado del cuadro Graph, encuadra el eje de precio en la zona que el operador mira: toma el mayor de las anclas de arriba, el menor de las de abajo, y agrega padding_pct del alto resultante a cada lado. El encuadre por defecto son los muros mas un 1,5%, que deja afuera el 1er EM y el borde de las bandas cuando se salen de los muros.",
+        "_anchors_note": "Las anclas son los tres niveles que el grafico ya dibuja: 1er EM (spot +- 1 sigma), el muro del lado y el borde de la banda de gamma del lado. Cada lista mira SU lado de la cadena. En el scope GLOBAL no hay bandas: esa ancla se ignora, no se inventa."
+      },
       "details_panel": {
         "microstructure": false,
         "gex_scope": "global",

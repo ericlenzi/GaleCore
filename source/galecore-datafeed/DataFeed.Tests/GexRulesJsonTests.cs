@@ -270,6 +270,38 @@ public class GexRulesJsonTests
     }
 
     /// <summary>
+    /// El boton de la mira encuadra el eje de precio del grafico en la zona gamma, y QUE niveles lo
+    /// definen es del JSON: son las mismas tres referencias que el grafico ya dibuja de ese lado.
+    /// El front las lee con optional chaining y defaults propios, asi que un nodo caido no rompe el
+    /// build — encuadra con un criterio que nadie configuro.
+    /// </summary>
+    [Fact]
+    public void ChartScale_DeclaraLasAnclasDelEncuadre()
+    {
+        var scale = Gex()["display_config"]!["gex_tab"]!["chart_scale"]!.AsObject();
+
+        // El aire a cada lado se mide en PROPORCION del marco, no en strikes ni en puntos: dos
+        // strikes son el 17% del alto en un 0DTE y el 3% a 42 dias, o sea la misma regla vista
+        // enorme de un lado y nula del otro.
+        Assert.Equal(0.06, (double)scale["padding_pct"]!, 4);
+        Assert.False(scale.ContainsKey("padding_strikes"),
+            "El aire dejo de medirse en strikes: se declara padding_pct.");
+
+        var arriba = scale["upper_anchors"]!.AsArray().Select(a => (string?)a).ToArray();
+        var abajo = scale["lower_anchors"]!.AsArray().Select(a => (string?)a).ToArray();
+        foreach (var id in new[] { "expected_move_1sigma", "call_wall", "call_band_high" })
+            Assert.Contains(id, arriba);
+        foreach (var id in new[] { "expected_move_1sigma", "put_wall", "put_band_low" })
+            Assert.Contains(id, abajo);
+
+        // Cada lista mira SU lado de la cadena: un ancla cruzada encuadraria del lado equivocado.
+        Assert.DoesNotContain("put_wall", arriba);
+        Assert.DoesNotContain("put_band_low", arriba);
+        Assert.DoesNotContain("call_wall", abajo);
+        Assert.DoesNotContain("call_band_high", abajo);
+    }
+
+    /// <summary>
     /// El muro y la banda se reparten el trabajo, y el reparto es el invariante:
     /// <list type="bullet">
     /// <item><b>El muro es el nivel con nombre y valor</b> — tiene fila en el Expiry Engine y
