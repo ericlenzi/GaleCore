@@ -63,6 +63,27 @@ namespace DataFeed.Application.App.GammaExposure
         public static bool IsRecentForPrevClose(long candleTimeMs, DateTime todayUtc) =>
             candleTimeMs >= new DateTimeOffset(todayUtc.Date.AddDays(-PrevCloseLookbackDays), TimeSpan.Zero).ToUnixTimeMilliseconds();
 
+        /// <summary>
+        /// Elige, entre los candles diarios de un símbolo, el OI y el cierre previo: el candle más
+        /// reciente que trae OI; su OI sólo si es válido (ver TryParseValidOpenInterest); su close como
+        /// cierre previo sólo si el candle es reciente (ver IsRecentForPrevClose). null = sin OI.
+        /// </summary>
+        public static (long Oi, double? PrevClose)? PickOpenInterest(
+            IEnumerable<(long Time, string? OpenInterest, string? Close)> candles, DateTime todayUtc)
+        {
+            var withOi = candles.Where(c => !string.IsNullOrEmpty(c.OpenInterest)).ToList();
+            if (withOi.Count == 0) return null;
+            var newest = withOi.OrderByDescending(c => c.Time).First();
+            if (!TryParseValidOpenInterest(newest.OpenInterest, out var oi)) return null;
+
+            double? prevClose = null;
+            if (IsRecentForPrevClose(newest.Time, todayUtc)
+                && !string.IsNullOrEmpty(newest.Close)
+                && double.TryParse(newest.Close, NumberStyles.Any, CultureInfo.InvariantCulture, out var pc) && pc > 0)
+                prevClose = pc;
+            return (oi, prevClose);
+        }
+
         // Tope plausible de Open Interest por strike. El OI real no supera ~1e6; 1e9 deja 1000x
         // de holgura y queda muy por debajo de long.MaxValue (evita el overflow del cast).
         private const double MAX_PLAUSIBLE_OI = 1_000_000_000;
@@ -384,20 +405,13 @@ namespace DataFeed.Application.App.GammaExposure
 
                 foreach (var grp in byKey)
                 {
-                    var newest = grp.OrderByDescending(x => x.Time).First();
-                    // Validar y sanitizar el OI antes de cachearlo (ver TryParseValidOpenInterest).
-                    if (!TryParseValidOpenInterest(newest.Cd.OpenInterest, out var oiParsed))
+                    // Candle más reciente con OI válido; cierre previo sólo si es reciente (ver PickOpenInterest).
+                    var picked = PickOpenInterest(grp.Select(x => (x.Time, (string?)x.Cd!.OpenInterest, (string?)x.Cd.Close)), today);
+                    if (picked is not var (oiParsed, pc))
                         continue;
 
                     result.OpenInterest[grp.Key] = oiParsed;
-                    double? pc = null;
-                    if (IsRecentForPrevClose(newest.Time, today)
-                        && !string.IsNullOrEmpty(newest.Cd.Close)
-                        && double.TryParse(newest.Cd.Close, NumberStyles.Any, CultureInfo.InvariantCulture, out var pcv) && pcv > 0)
-                    {
-                        pc = pcv;
-                        result.PrevClose[grp.Key] = pcv;
-                    }
+                    if (pc.HasValue) result.PrevClose[grp.Key] = pc.Value;
                     _oiCache[grp.Key] = (oiParsed, pc, today);
                 }
             }
@@ -571,7 +585,7 @@ namespace DataFeed.Application.App.GammaExposure
                     double delta = greeksData.Delta;
                     double gamma = greeksData.Gamma;
 
-                    // OI del candle del cierre anterior. Clamp defensivo (ver SanitizeOpenInterest):
+                    // OI del candle diario más reciente con OI (hasta OiLookbackDays atrás). Clamp defensivo (ver SanitizeOpenInterest):
                     // un OI corrupto/cacheado no debe contribuir al GEX.
                     multiGreeks.OpenInterest.TryGetValue(streamerSym, out long oiRaw);
                     long oi = SanitizeOpenInterest(oiRaw);

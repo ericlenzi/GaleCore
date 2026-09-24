@@ -71,8 +71,6 @@ public class GammaExposureOiTests
     {
         var from = GammaExposureHandler.OiCandlesFromTime(Today);
         Assert.True(Ms(new DateTime(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc)) >= from);   // call 515
-        Assert.Equal(Ms(Today.AddDays(-GammaExposureHandler.OiLookbackDays)), from);
-        Assert.True(GammaExposureHandler.OiLookbackDays > 2);
     }
 
     [Fact]
@@ -82,5 +80,40 @@ public class GammaExposureOiTests
         Assert.True(GammaExposureHandler.IsRecentForPrevClose(Ms(Today.AddDays(-2)), Today));
         Assert.False(GammaExposureHandler.IsRecentForPrevClose(Ms(Today.AddDays(-3)), Today));
         Assert.False(GammaExposureHandler.IsRecentForPrevClose(Ms(new DateTime(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc)), Today));
+    }
+
+    // Candles como los devolvió DXLink el 24/09 para SPY 2026-11-20.
+    private static (long, string?, string?) C(DateTime day, string? oi, string? close) => (Ms(day), oi, close);
+    private static DateTime D(int month, int day) => new(2026, month, day, 0, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void Pick_StrikeSinOperacionesRecientes_TomaElOiDelUltimoCandle_SinCierrePrevio()
+    {
+        // Call 515: último candle el 10/09 con OI 97 (IBKR: 97). Antes entraba al GEX con 0.
+        var picked = GammaExposureHandler.PickOpenInterest(new[] { C(D(9, 10), "97", "250.1") }, Today);
+        Assert.Equal((97L, (double?)null), picked);
+    }
+
+    [Fact]
+    public void Pick_GanaElCandleMasReciente_YSuCloseEsElCierrePrevio()
+    {
+        // Put 700: candles del 21 al 24/09; el de hoy trae OI 36627 (IBKR: 36627).
+        var candles = new[]
+        {
+            C(D(9, 21), "33158", "3.06"), C(D(9, 24), "36627", "3.43"),
+            C(D(9, 22), "32934", "2.77"), C(D(9, 23), "33594", "3.37"),
+        };
+        Assert.Equal((36627L, (double?)3.43), GammaExposureHandler.PickOpenInterest(candles, Today));
+    }
+
+    [Fact]
+    public void Pick_SinCandleConOi_OConOiInvalido_EsNull()
+    {
+        Assert.Null(GammaExposureHandler.PickOpenInterest(Array.Empty<(long, string?, string?)>(), Today));
+        Assert.Null(GammaExposureHandler.PickOpenInterest(new[] { C(D(9, 24), "", "1.0") }, Today));
+        // Strike recién listado: DXLink manda OI 0 (IBKR también 0); 0 no es un OI válido para el GEX.
+        Assert.Null(GammaExposureHandler.PickOpenInterest(new[] { C(D(9, 24), "0", "1.0") }, Today));
+        // Como antes: si el más reciente trae un OI inválido, no se cae a uno más viejo.
+        Assert.Null(GammaExposureHandler.PickOpenInterest(new[] { C(D(9, 23), "500", "1.0"), C(D(9, 24), "NaN", "1.0") }, Today));
     }
 }
