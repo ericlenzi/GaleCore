@@ -57,4 +57,30 @@ public class GammaExposureOiTests
     {
         Assert.Equal(expected, GammaExposureHandler.SanitizeOpenInterest(input));
     }
+
+    // ── Ventana de candles para el OI ──────────────────────────────────────
+    // DXLink sólo publica el candle de un día si el contrato operó. Con 2 días de ventana, un strike
+    // sin operaciones reciente entraba al GEX con OI 0 aunque tuviera contratos abiertos (SPY
+    // 2026-11-20 call 515: OI 97, último candle 10/09; verificado el 24/09).
+
+    private static readonly DateTime Today = new(2026, 9, 24, 0, 0, 0, DateTimeKind.Utc);
+    private static long Ms(DateTime utc) => new DateTimeOffset(utc, TimeSpan.Zero).ToUnixTimeMilliseconds();
+
+    [Fact]
+    public void OiWindow_IncluyeUnCandleDeHaceDosSemanas()
+    {
+        var from = GammaExposureHandler.OiCandlesFromTime(Today);
+        Assert.True(Ms(new DateTime(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc)) >= from);   // call 515
+        Assert.Equal(Ms(Today.AddDays(-GammaExposureHandler.OiLookbackDays)), from);
+        Assert.True(GammaExposureHandler.OiLookbackDays > 2);
+    }
+
+    [Fact]
+    public void PrevClose_SigueUsandoSoloCandlesDeLosUltimosDosDias()
+    {
+        Assert.True(GammaExposureHandler.IsRecentForPrevClose(Ms(Today), Today));
+        Assert.True(GammaExposureHandler.IsRecentForPrevClose(Ms(Today.AddDays(-2)), Today));
+        Assert.False(GammaExposureHandler.IsRecentForPrevClose(Ms(Today.AddDays(-3)), Today));
+        Assert.False(GammaExposureHandler.IsRecentForPrevClose(Ms(new DateTime(2026, 9, 10, 0, 0, 0, DateTimeKind.Utc)), Today));
+    }
 }

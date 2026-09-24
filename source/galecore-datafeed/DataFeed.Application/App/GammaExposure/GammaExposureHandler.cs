@@ -37,6 +37,32 @@ namespace DataFeed.Application.App.GammaExposure
             _streaming = streaming;
         }
 
+        /// <summary>
+        /// Días hacia atrás en los que se buscan candles diarios para leer el Open Interest.
+        ///
+        /// DXLink sólo publica el candle de un día si el contrato operó ese día, y el OI viene en el
+        /// candle. Con la ventana anterior de 2 días, un strike que no operó en los últimos dos días
+        /// quedaba sin OI y entraba al GEX como 0, aunque sus contratos siguieran abiertos (el OI no
+        /// cambia si no hay operaciones). Verificado el 2026-09-24 contra IBKR en SPY 2026-11-20: el
+        /// call 515 tenía OI 97 (último candle 10/09) y el call 550 OI 25 (último candle 18/09); los
+        /// dos entraban al GEX con 0.
+        /// </summary>
+        public const int OiLookbackDays = 30;
+
+        /// <summary>
+        /// Días hacia atrás en los que un candle todavía sirve como cierre previo. Es la ventana de
+        /// siempre: el cierre previo lo usa RPF y no debe pasar a ser un precio de hace semanas.
+        /// </summary>
+        public const int PrevCloseLookbackDays = 2;
+
+        /// <summary>Inicio (ms UTC) de la ventana de candles para el OI.</summary>
+        public static long OiCandlesFromTime(DateTime todayUtc) =>
+            new DateTimeOffset(todayUtc.Date.AddDays(-OiLookbackDays), TimeSpan.Zero).ToUnixTimeMilliseconds();
+
+        /// <summary>true si un candle es lo bastante reciente para tomar su close como cierre previo.</summary>
+        public static bool IsRecentForPrevClose(long candleTimeMs, DateTime todayUtc) =>
+            candleTimeMs >= new DateTimeOffset(todayUtc.Date.AddDays(-PrevCloseLookbackDays), TimeSpan.Zero).ToUnixTimeMilliseconds();
+
         // Tope plausible de Open Interest por strike. El OI real no supera ~1e6; 1e9 deja 1000x
         // de holgura y queda muy por debajo de long.MaxValue (evita el overflow del cast).
         private const double MAX_PLAUSIBLE_OI = 1_000_000_000;
@@ -326,7 +352,7 @@ namespace DataFeed.Application.App.GammaExposure
             // llegaban al tope de 80 y disparaban el error; se baja a 40 (el orden que ya andaba
             // antes del barrido global).
             const int CANDLE_BATCH_SIZE = 40;
-            var fromTime = new DateTimeOffset(today.AddDays(-2), TimeSpan.Zero).ToUnixTimeMilliseconds();
+            var fromTime = OiCandlesFromTime(today);
 
             for (int i = 0; i < toFetch.Count; i += CANDLE_BATCH_SIZE)
             {
@@ -365,7 +391,8 @@ namespace DataFeed.Application.App.GammaExposure
 
                     result.OpenInterest[grp.Key] = oiParsed;
                     double? pc = null;
-                    if (!string.IsNullOrEmpty(newest.Cd.Close)
+                    if (IsRecentForPrevClose(newest.Time, today)
+                        && !string.IsNullOrEmpty(newest.Cd.Close)
                         && double.TryParse(newest.Cd.Close, NumberStyles.Any, CultureInfo.InvariantCulture, out var pcv) && pcv > 0)
                     {
                         pc = pcv;
